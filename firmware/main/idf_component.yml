@@ -1,0 +1,8 @@
+## esp_websocket_client 从 ESP-IDF v5.0 起不在 IDF 核心树里（搬到 espressif/esp-protocols），
+## 必须由组件管理器从注册表拉。没有这个文件，main/CMakeLists.txt 里的
+## REQUIRES esp_websocket_client 会直接报「找不到组件」而编译失败。
+##
+## 版本锁 1.8.0：这是本仓库写固件时逐个核对过 API 的版本
+## （config 字段名、buffer_size 语义、payload_offset 分包约定）。
+dependencies:
+  espressif/esp_websocket_client: "1.8.0"

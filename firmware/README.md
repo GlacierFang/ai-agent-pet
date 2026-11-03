@@ -92,7 +92,7 @@ idf.py menuconfig   # Component config → petd
 
 ```bash
 python3 -m esptool --chip esp32s3 --port /dev/ttyACM0 \
-  write_flash -z 0x0 petd-merged.bin
+  write_flash -z 0x0 merged-binary.bin
 ```
 
 ### 方式 2：idf.py
@@ -103,7 +103,7 @@ idf.py -p /dev/ttyACM0 flash
 
 ### 方式 3：UF2（拖进 U 盘，零驱动）
 
-按住 BOOT → 插 USB → 出现 U 盘 → 把 `petd.uf2` 拖进去。
+按住 BOOT → 插 USB → 出现 U 盘 → 把 `uf2.bin` 拖进去。
 
 > 🔴 **UF2 的 family id 与基址需要实机确认** —— CI 里用的 `esp32s3` / `0x0` 是常见写法，
 > 拖进去不认的话先确认芯片型号再改。
@@ -121,7 +121,7 @@ storage    0x620000    1MB
 ```
 
 **只有 app 分区镜像能走 OTA**（`petd.bin`，offset `0x20000`）。
-`petd-merged.bin` 是含 `0x0` 头的整片镜像，**只能整片刷，不能 OTA**。
+`merged-binary.bin` 是含 `0x0` 头的整片镜像，**只能整片刷，不能 OTA**。
 
 ## 🔴 待实机确认清单
 

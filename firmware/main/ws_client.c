@@ -29,6 +29,9 @@ static int     s_rx_cur;
 /* 已收完的帧（存 buffer 下标） */
 static QueueHandle_t s_frame_q;
 
+/* WS 收包缓冲大小。32KB ≥ 协议上限（单帧 32KB），一帧一次收完。 */
+#define PETD_WS_BUFFER_BYTES (32 * 1024)
+
 /* 文本消息队列 */
 #define TEXT_MSG_LEN 512
 typedef struct { char text[TEXT_MSG_LEN]; } text_msg_t;
@@ -47,14 +50,15 @@ static void send_hello(void)
     char buf[320];
     /* deviceId 用 MAC 后 6 位 —— 纯标识，不含任何凭据 */
     uint8_t mac[6] = {0};
-    esp_read_mac(mac);
+    /* IDF v5 的 esp_read_mac 要两个参数：mac + mac 类型。 */
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
     int n = snprintf(buf, sizeof(buf),
         "{\"type\":\"hello\",\"protocol\":%d,\"deviceId\":\"esp32s3-%02x%02x%02x\","
         "\"fw\":\"%s\",\"hostname\":\"pet-desk\","
         "\"capabilities\":{\"display\":{\"w\":%d,\"h\":%d},"
         "\"decoder\":\"tjpgdec\",\"colorFormat\":\"rgb565\",\"rotary\":true}}",
         PETD_PROTOCOL_VERSION, mac[3], mac[4], mac[5],
-        CONFIG_APP_VERSION, DISP_WIDTH, DISP_HEIGHT);
+        PETD_FW_VERSION, DISP_WIDTH, DISP_HEIGHT);
     if (n > 0) {
         esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(2000));
         ESP_LOGI(TAG, "hello sent");
@@ -228,9 +232,13 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
     esp_websocket_client_config_t cfg = {
         .uri = uri,
         .subprotocol = PETD_SUBPROTOCOL,
-        /* 0 = 用 CONFIG_ESP_WS_BUFFER_SIZE（48KB）
-           —— 必须 >= 单帧上限 32KB，否则大帧会被判 buffer full。 */
-        .buffer_size = 0,
+        /* esp_websocket_client 的默认 buffer 只有 1024 字节！
+           一帧 JPEG（petd 实测 6.8-11KB）会被切成十几片收，
+           虽有 payload_offset 累加逻辑能拼回来，但纯属浪费。
+           给 32KB：一帧一把收下；再大的帧会按 payload_offset
+           拆成多次 WEBSOCKET_EVENT_DATA，累加逻辑已处理。
+           注意 rx/tx 各占一份 buffer_size，别开太大。 */
+        .buffer_size = PETD_WS_BUFFER_BYTES,
         .network_timeout_ms = 10000,
         .reconnect_timeout_ms = 5000,
         .disable_auto_reconnect = false,

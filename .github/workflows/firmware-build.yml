@@ -1,0 +1,96 @@
+name: firmware-build
+
+on:
+  push:
+    branches: [main]
+    tags: ['fw-v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 编译固件
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # IDF 的构建脚本要读 git 信息取版本号；目录属主对不上时 git 会直接拒绝
+      # （dubious ownership），构建就废了。
+      - name: 允许 git 读取工作区
+        run: git config --global --add safe.directory '*'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 注意：不能用 espressif/idf —— 那个 action 不存在（GitHub 上 404）。
+      # 官方现役的是 espressif/install-esp-idf-action，原生装工具链，不依赖 Docker。
+      # 若该 action 对 v5.5 不支持，退回官方脚本版：
+      #   git clone -b v5.5 --depth 1 --recursive https://github.com/espressif/esp-idf.git
+      #   cd esp-idf && ./install.sh esp32s3 && . ./export.sh
+      - name: 安装 ESP-IDF v5.5
+        uses: espressif/install-esp-idf-action@v1
+        with:
+          version: "v5.5"
+
+      - name: 编译
+        run: |
+          cd firmware
+          idf.py set-target esp32s3
+          idf.py build
+          idf.py size
+
+      # 整片镜像（0x0 起，含 bootloader）—— 用 CMake 目标，
+      # esptool 的命令行细节由 IDF 自己定，不依赖我猜参数。
+      - name: 合并整片镜像
+        run: ninja -C firmware/build merge-bin
+
+      # UF2：能生成就上传；生成不了不阻断（主烧录路径是 esptool 刷整片镜像）。
+      - name: 生成 UF2
+        run: ninja -C firmware/build uf2
+        continue-on-error: true
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin
+          path: |
+            firmware/build/bootloader/bootloader.bin
+            firmware/build/partition_table/partition-table.bin
+            firmware/build/petd.bin
+            firmware/build/merged-binary.bin
+            firmware/build/flash_args
+            firmware/build/flasher_args.json
+          if-no-files-found: error
+
+      - name: 上传 UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-uf2
+          path: firmware/build/uf2.bin
+          if-no-files-found: ignore
+
+  release:
+    name: 发布到 Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/fw-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-bin
+          path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-uf2
+          path: artifacts-uf2
+        continue-on-error: true
+      - name: 发 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*
+            artifacts-uf2/*
+          generate_release_notes: true

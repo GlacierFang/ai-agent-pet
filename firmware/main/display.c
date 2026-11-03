@@ -30,8 +30,14 @@ static const char *TAG = "display";
 /* 26MHz = 240MHz / 9（整数分频）。稳定后可试 40MHz。 */
 #define LCD_PIXEL_CLOCK_HZ  (26 * 1000 * 1000)
 
-/* 在途传输的 FIFO。SPI 事务按提交顺序完成，所以 FIFO 顺序 == 完成顺序。 */
-#define DISP_FIFO_SZ      4
+/* 在途传输的 FIFO。SPI 事务按提交顺序完成，所以 FIFO 顺序 == 完成顺序。
+   一行块拆成 2 段事务，2 个 buffer → 最多 4 段在途，队列留 8 保险。 */
+#define DISP_FIFO_SZ      8
+
+/* SPI DMA 单次传输上限 4092 字节（描述符大小决定）。
+   一行块 16 行 = 7680 字节，一次发会报 ESP_ERR_INVALID_ARG，
+   所以拆成 2 段 8 行 = 3840 字节发。 */
+#define DISP_SPI_CHUNK_ROWS 8
 
 typedef struct {
     const uint8_t *jpeg;
@@ -50,7 +56,9 @@ static volatile uint32_t s_done_count;      /* ISR 侧递增 */
 static uint32_t s_seen_done;               /* 任务侧已消费 */
 static uint8_t s_fifo[DISP_FIFO_SZ];        /* 已提交但未完成的 buffer 下标 */
 static uint8_t s_fifo_head, s_fifo_tail;
-static volatile bool s_busy[2];
+/* 每个 buffer 在途的 SPI 事务数。一个行块拆 2 段发，所以不是 0/1 ——
+   用计数才不会在第二段还在飞的时候提前释放 buffer（那会花屏）。 */
+static volatile uint8_t s_busy[2];
 
 
 /* ------------------------------------------------------------------ */
@@ -76,7 +84,9 @@ static void wait_buffer_free(uint8_t idx)
         while (s_seen_done < d) {
             uint8_t done = s_fifo[s_fifo_head % DISP_FIFO_SZ];
             s_fifo_head++;
-            s_busy[done] = false;
+            if (s_busy[done]) {
+                s_busy[done]--;
+            }
             s_seen_done++;
         }
         taskYIELD();
@@ -89,7 +99,9 @@ static void drain_all(void)
     while (s_seen_done < s_done_count) {
         uint8_t done = s_fifo[s_fifo_head % DISP_FIFO_SZ];
         s_fifo_head++;
-        s_busy[done] = false;
+        if (s_busy[done]) {
+            s_busy[done]--;
+        }
         s_seen_done++;
     }
 }
@@ -97,13 +109,19 @@ static void drain_all(void)
 
 static void flush_line_block(uint8_t idx, int y_start)
 {
-    s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
-    s_fifo_tail++;
-    s_busy[idx] = true;
-    /* x_end / y_end 是**开区间**（与 IDF 官方 tjpgd 示例一致） */
-    esp_lcd_panel_draw_bitmap(s_panel, 0, y_start,
-                             DISP_WIDTH, y_start + DISP_LINE_H,
-                             s_lines[idx]);
+    const uint16_t *base = s_lines[idx];
+    /* x_end / y_end 是**开区间**（与 IDF 官方 tjpgd 示例一致）。
+       一行块 16 行 = 7680 字节 > SPI DMA 单次上限 4092，
+       拆成 2 段 8 行（3840 字节）发；两段记在同一个 buffer 的在途计数上。 */
+    for (int r = 0; r < DISP_LINE_H; r += DISP_SPI_CHUNK_ROWS) {
+        s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
+        s_fifo_tail++;
+        s_busy[idx]++;
+        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
+            s_panel, 0, y_start + r,
+            DISP_WIDTH, y_start + r + DISP_SPI_CHUNK_ROWS,
+            base + (size_t)r * DISP_WIDTH));
+    }
 }
 
 
@@ -164,7 +182,8 @@ esp_err_t display_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = DISP_LINE_BYTES + 8,
+        /* 必须 >= 单次实际发送的 3840 字节，且 <= SPI DMA 上限 4092。 */
+        .max_transfer_sz = DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
@@ -267,8 +286,8 @@ esp_err_t display_clear(uint16_t color)
         }
     }
     for (int y = 0; y < DISP_HEIGHT; y += DISP_LINE_H) {
-        wait_buffer_free(s_busy[0] ? 1 : 0);
         uint8_t idx = s_busy[0] ? 1 : 0;
+        wait_buffer_free(idx);
         flush_line_block(idx, y);
     }
     drain_all();

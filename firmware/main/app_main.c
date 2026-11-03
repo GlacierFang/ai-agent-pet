@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_psram.h"
 #include "sdkconfig.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -140,7 +141,7 @@ static void status_task(void *arg)
             "\"uptime\":%lld,\"heapFree\":%u,\"rssi\":%d,\"fps\":0,"
             "\"decodeMs\":%u,\"lastFrameMs\":%u,\"frameErrors\":0}",
             (long long)(esp_timer_get_time() / 1000),
-            CONFIG_APP_VERSION,
+            PETD_FW_VERSION,
             (long long)(esp_timer_get_time() / 1000),
             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
             rssi,
@@ -155,7 +156,7 @@ static void status_task(void *arg)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ai-agent-pet firmware %s starting", CONFIG_APP_VERSION);
+    ESP_LOGI(TAG, "ai-agent-pet firmware %s starting", PETD_FW_VERSION);
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -167,6 +168,11 @@ void app_main(void)
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(display_clear(0x0000));
     ESP_ERROR_CHECK(knob_init());
+
+    /* PSRAM 自检：N8R8 必须打出 8192 KB。
+       打不出 8192 就是 PSRAM 没起来（八线 Octal 配错就是这个症状），
+       这时固件会静默退化成「没有 PSRAM」，别往下调。 */
+    ESP_LOGI(TAG, "PSRAM total: %u KB", (unsigned)(esp_psram_get_size() / 1024));
 
     wifi_init();
 
