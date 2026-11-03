@@ -77,7 +77,8 @@ def test_pet_step_pending_without_sessions(client):
     body = client.get("/admin/api/setup").json()
     pet = body["steps"][3]
     assert pet["done"] is False
-    assert pet["hint"] == "宠物需要至少一个会话才能醒"
+    # 设备还没连上 —— 先让人等设备，别让他以为会话够就行
+    assert pet["hint"] == "先等设备连上来"
 
 
 def test_mdns_block_shape(client):
@@ -120,8 +121,25 @@ def test_device_seen_is_persisted(client):
     assert "7" in frames["detail"]
 
 
+def test_pet_step_stays_pending_until_device_connected(client):
+    """光有 gateway 会话不算「宠物已上线」。
+
+    那是电脑上的对话，跟屏幕上的宠物是两回事。设备没连上时第四步不能打勾，
+    否则四步指引会出现「第一步都没完成、第四步已经好了」。
+    """
+    pet = client.app.state.pet
+    pet.engine.update([{"key": "a", "status": "running", "hasActiveRun": False,
+                        "unread": False, "permissionModePending": False,
+                        "isBackground": False, "lastActivityAt": 0}])
+    body = client.get("/admin/api/setup").json()
+    pet_step = body["steps"][3]
+    assert pet_step["done"] is False
+    assert pet_step["hint"] == "先等设备连上来"
+
+
 def test_pet_step_done_with_sessions(client):
     pet = client.app.state.pet
+    pet._mark_device_seen(type("S", (), {"device_id": "esp32-001", "frame_count": 3})())
     pet.engine.update([{"key": "a", "status": "running", "hasActiveRun": False,
                          "unread": False, "permissionModePending": False,
                          "isBackground": False, "lastActivityAt": 0}])

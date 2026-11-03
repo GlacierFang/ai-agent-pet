@@ -399,8 +399,11 @@ class PetApp:
         frames = max(frames, int(state.get("maxFrames") or 0))
         frames_done = device_done and frames > 0
 
+        # 宠物这一步是「设备上真的跑起来了」，光有 gateway 会话不算 ——
+        # 那是电脑上的对话，跟屏幕上的宠物无关。设备没连上就不能打勾，
+        # 否则四步指引会出现「第一、二步还没完成、第四步已经好了」。
         sessions = len(self.engine.sessions)
-        pet_done = sessions > 0
+        pet_done = device_done and sessions > 0
 
         steps = [
             {"id": "admin", "label": "后台已就绪", "done": True,
@@ -412,7 +415,9 @@ class PetApp:
              "detail": ("已推送 %d 帧" % frames) if frames_done else "", "hint": ""},
             {"id": "pet", "label": "宠物已上线", "done": pet_done,
              "detail": ("%d 个会话" % sessions) if pet_done else "",
-             "hint": "" if pet_done else "宠物需要至少一个会话才能醒"},
+             "hint": "" if pet_done else (
+                 "设备连上后，宠物需要至少一个会话才能醒" if device_done
+                 else "先等设备连上来")},
         ]
         return {
             "steps": steps,
