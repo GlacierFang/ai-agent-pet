@@ -1,0 +1,27 @@
+[Unit]
+Description=petd — AI agent 桌面宠物服务端
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=%h/ai-agent-pet
+ExecStart=%h/ai-agent-pet/.venv/bin/python -m petd --host 0.0.0.0 --port 18860
+Environment=PETD_GATEWAY_TOKEN_FILE=%h/.config/petd/gateway.token
+Restart=on-failure
+RestartSec=5
+
+# 凭据用 EnvironmentFile 而不是 Environment —— 后者会出现在 ps 输出里
+EnvironmentFile=-%h/.config/petd/petd.env
+
+# 收紧权限：设备与服务都不需要额外能力
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/ai-agent-pet/petd/data
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=default.target
