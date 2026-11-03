@@ -43,8 +43,15 @@ def test_status_missing_is_idle():
 
 
 def test_priority_error_beats_working():
-    row = _row("a", status="error", hasActiveRun=True, unread=True)
+    """出错 vs 在忙 —— 出错更急。"""
+    row = _row("a", status="error", hasActiveRun=True)
     assert state.classify(row, state.DEFAULT_RULES) == "error"
+
+
+def test_priority_waiting_beats_error():
+    """等你批准 > 出错 —— 等人的事最急（11-03 对齐的优先级）。"""
+    row = _row("a", status="error", hasActiveRun=True, unread=True)
+    assert state.classify(row, state.DEFAULT_RULES) == "waiting"
 
 
 def test_priority_waiting_beats_working():
@@ -99,15 +106,76 @@ def test_sleeping_does_not_oscillate():
         assert st == "sleeping", "sleeping 不应抖回 idle"
 
 
-def test_selected_session_drives_state():
+def test_selected_session_does_not_drive_state():
+    """宠物反应全部会话 —— 焦点不改宠物状态，只改 session 页看哪条。
+
+    11-03 对齐：宠物代表「最急的那个」，不是「你正在看的那个」。
+    """
     eng = state.StateEngine()
     rows = [_row("a", status="running", hasActiveRun=True),
             _row("b", status="done")]
     eng.update(rows)
     eng.select("b")
     changed, st, picked = eng.update(rows)
-    assert st == "done"
-    assert picked["key"] == "b"
+    assert st == "working"          # a 在忙，比 b 的 done 急
+    assert picked["key"] == "a"
+    assert eng.focused()["key"] == "b"   # 焦点仍在 b
+
+
+def test_pet_reacts_to_all_sessions():
+    """多会话并发时，宠物取最急的那个，并带上归因和计数。"""
+    eng = state.StateEngine()
+    rows = [_row("a", status="running", hasActiveRun=True, lastActivityAt=100),
+            _row("b", status="running", hasActiveRun=True, unread=True,
+                 lastActivityAt=200)]
+    eng.update(rows)
+    assert eng.state == "waiting"
+    assert eng.attribution == "b"
+    assert eng.counts.get("waiting") == 1
+    assert eng.counts.get("working") == 1
+
+
+def test_counts_report_multiple_waiting():
+    """两个会话都在等 —— 必须说清是 2 个，不能只显示一个。"""
+    eng = state.StateEngine()
+    rows = [_row("a", unread=True, lastActivityAt=100),
+            _row("b", unread=True, lastActivityAt=200)]
+    eng.update(rows)
+    assert eng.state == "waiting"
+    assert eng.counts["waiting"] == 2
+
+
+def test_epoch_s_normalizes_milliseconds():
+    """上游给的是毫秒 —— 统一成秒。"""
+    import time as _t
+    now_ms = _t.time() * 1000
+    assert abs(state.epoch_s(now_ms) - _t.time()) < 2
+    assert state.epoch_s(1000) == 1000.0      # 已经是秒的不动
+    assert state.epoch_s(0) == 0.0
+    assert state.epoch_s(None) == 0.0
+    assert state.epoch_s("坏值") == 0.0
+
+
+def test_done_decays_with_millisecond_timestamps():
+    """毫秒时间戳也要能被 done 衰减 —— 这是那个 bug 的真正后果。"""
+    eng = state.StateEngine()
+    import time as _t
+    old_ms = (_t.time() - 3600) * 1000
+    rows = [_row("a", status="done", lastActivityAt=old_ms)]
+    eng.update(rows)
+    assert eng.counts.get("done", 0) == 0
+    assert eng.state in ("idle", "sleeping")
+
+
+def test_done_decays_to_idle():
+    """很久以前跑完的会话不该让宠物一直停在「刚完成」。"""
+    eng = state.StateEngine()
+    import time as _t
+    old = _t.time() - 3600
+    rows = [_row("a", status="done", lastActivityAt=old)]
+    eng.update(rows)
+    assert eng.state in ("idle", "sleeping")
+    assert eng.counts.get("done", 0) == 0
 
 
 def test_unknown_fields_ignored():

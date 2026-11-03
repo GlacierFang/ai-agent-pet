@@ -8,11 +8,13 @@ import logging
 import time
 from collections import deque
 
+from . import config as config_mod
 from . import gestures as gestures_mod
 from . import render as render_mod
 from . import skins as skins_mod
+from . import state as state_mod
 from .device import DeviceManager
-from .state import DEFAULT_RULES, StateEngine
+from .state import DEFAULT_RULES, StateEngine, epoch_s
 
 log = logging.getLogger("petd.app")
 
@@ -156,6 +158,27 @@ class PetApp:
             await self.devices.send_json({"type": "refresh", "id": self.frame_seq})
         elif action == "session.next":
             await self.select_next_session(int(magnitude or 1))
+        elif action == "skin.next":
+            await self.cycle_skin()
+
+    async def cycle_skin(self):
+        """切到下一个形象 —— 旋钮和后台走同一条路。"""
+        root = self.cfg.get("_repo_root", ".")
+        names = skins_mod.list_skins(root)
+        if not names:
+            self.log("info", "没有可用形象")
+            return
+        cur = names.index(self.skin) if self.skin in names else -1
+        self.skin = names[(cur + 1) % len(names)]
+        self._persist_ui()
+        self.log("info", "形象 -> " + self.skin)
+
+    def _persist_ui(self):
+        try:
+            config_mod.save({k: v for k, v in self.cfg.items()
+                             if not k.startswith("_")})
+        except Exception as exc:
+            self.log("error", "保存配置失败: %s" % exc)
 
     async def select_next_session(self, steps=1):
         rows = self.engine.sessions
@@ -179,7 +202,8 @@ class PetApp:
                 picked = row
                 break
         if picked is None and self.engine.sessions:
-            picked = max(self.engine.sessions, key=lambda r: r.get("lastActivityAt") or 0)
+            picked = max(self.engine.sessions,
+                         key=lambda r: epoch_s(r.get("lastActivityAt")))
         self._picked = picked
         state = self.engine.state
         sub = STATE_SUBTITLE.get(state, "")
@@ -188,17 +212,40 @@ class PetApp:
                 sub = "等你授权"
             elif picked.get("unread"):
                 sub = "有未读消息"
+        # 多个会话同时在等 —— 必须说清几个，否则处理完一个才发现还有一个
+        n = self.engine.counts.get(state, 0)
+        if n > 1:
+            sub = "%s ×%d" % (sub, n)
         return sub
 
     def _session_name(self):
-        picked = self._picked
-        if not picked:
+        if not self._picked:
             return ""
+        return self._name_of(self._picked)
+
+    @staticmethod
+    def _name_of(row):
+        """会话显示名。拿不到就退回 key 的最后一段。"""
         for k in ("displayName", "label", "title"):
-            v = picked.get(k)
+            v = row.get(k)
             if v:
                 return str(v)
-        return str(picked.get("key") or "").split(":")[-1]
+        return str(row.get("key") or "").split(":")[-1]
+
+    def public_sessions(self):
+        """给后台看的会话列表 —— 只放安全字段。"""
+        out = []
+        for row in self.engine.sessions:
+            key = row.get("key")
+            out.append({
+                "key": key,
+                "name": self._name_of(row),
+                "state": self.engine.session_states.get(key, "idle"),
+                "lastActivityAt": epoch_s(row.get("lastActivityAt")),
+                "focused": key == self.engine.selected_key,
+                "attributed": key == self.engine.attribution,
+            })
+        return out
 
     def render_now(self):
         sub = self._subtitle()
@@ -251,9 +298,12 @@ class PetApp:
                         "error": self._gateway.last_error if self._gateway else ""},
             "device": self.devices.status(),
             "pet": {"state": self.engine.state, "since": int(self.engine.since),
+                    "stateCn": state_mod.STATE_CN.get(self.engine.state, self.engine.state),
                     "page": self.page, "density": self.density, "skin": self.skin,
                     "sessions": len(self.engine.sessions),
-                    "selected": self.engine.selected_key},
+                    "selected": self.engine.selected_key,
+                    "attribution": self.engine.attribution,
+                    "counts": self.engine.counts},
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},

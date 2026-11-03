@@ -10,7 +10,7 @@
 
 <header class="banner">
   <strong id="banner-note">petd 控制台</strong>
-  <span class="banner-sub">设备画面 · 运行状态 · 在线配置</span>
+  <span class="banner-sub">我的宠物</span>
   <span class="badge" id="badge-auth">—</span>
 </header>
 
@@ -26,55 +26,165 @@
 
 <main id="app">
 
-  <section class="card">
-    <h2>实时预览</h2>
-    <div class="preview-wrap">
-      <!-- 初始用透明占位图：静态 src 会在登录前就发请求，那没有 cookie 会拿到 401。
-           真实 URL 由 app.js 在登录成功后设置。 -->
-      <img id="preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="设备当前画面">
-      <div class="preview-empty" id="preview-empty">暂无帧</div>
+  <nav class="tabs" id="tabs">
+    <button type="button" class="tab active" data-tab="pet">我的宠物</button>
+    <button type="button" class="tab" data-tab="skins">素材仓库</button>
+    <button type="button" class="tab" data-tab="caps">能力清单</button>
+    <button type="button" class="tab" data-tab="diag">安装与诊断</button>
+  </nav>
+
+  <!-- ============ 我的宠物 ============ -->
+  <section class="panel" data-panel="pet">
+    <div class="card hero">
+      <div class="hero-state" id="pet-state">—</div>
+      <div class="hero-line" id="pet-for">—</div>
+      <div class="hero-line hero-need" id="pet-need">—</div>
+      <div class="row badges" id="pet-badges"></div>
     </div>
-    <p class="note">与设备屏幕显示的是同一帧画面。</p>
-    <div class="row">
-      <button type="button" id="btn-preview">立即刷新</button>
-      <label class="inline"><input type="checkbox" id="preview-auto" checked> 每秒自动刷新</label>
-      <span class="muted" id="preview-meta"></span>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>设备画面</h2>
+        <div class="preview-wrap">
+          <!-- 初始用透明占位图：静态 src 会在登录前就发请求，那没有 cookie 会拿到 401。
+               真实 URL 由 app.js 在登录成功后设置。 -->
+          <img id="preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="设备当前画面">
+          <div class="preview-empty" id="preview-empty">暂无帧</div>
+        </div>
+        <p class="note">与设备屏幕显示的是同一帧画面。</p>
+        <div class="row">
+          <button type="button" id="btn-preview">立即刷新</button>
+          <label class="inline"><input type="checkbox" id="preview-auto" checked> 每秒自动刷新</label>
+          <span class="muted" id="preview-meta"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>会话</h2>
+        <p class="note">宠物反应全部会话 —— 它现在顾着谁，就写谁。</p>
+        <div class="list" id="session-list"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>形象</h2>
+      <p class="note">当前：<strong id="skin-current">—</strong></p>
+      <div class="row" id="skin-picker"></div>
+      <p class="note">在「素材仓库」里可以新建形象、传素材、设为当前。</p>
+    </section>
+  </section>
+
+  <!-- ============ 素材仓库 ============ -->
+  <section class="panel hidden" data-panel="skins">
+    <section class="card">
+      <h2>形象</h2>
+      <p class="note">仓库自带的形象随版本走；你自己建的存放在 <code>petd/data/skins/</code>，不进仓库。</p>
+      <div class="list" id="skin-list"></div>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>新建形象</h2>
+        <form id="form-skin-new" autocomplete="off">
+          <label>名称<input type="text" id="skin-new-name" placeholder="cat"></label>
+          <div class="row"><button type="submit">创建</button>
+            <span class="muted" id="skin-new-meta">字母、数字、下划线、连字符</span></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>上传一帧</h2>
+        <form id="form-skin-frame" autocomplete="off">
+          <label>形象<input type="text" id="skin-frame-name" placeholder="cat"></label>
+          <label>状态<select id="skin-frame-state">
+            <option value="idle">idle</option>
+            <option value="working">working</option>
+            <option value="waiting">waiting</option>
+            <option value="done">done</option>
+            <option value="error">error</option>
+            <option value="sleeping">sleeping</option>
+          </select></label>
+          <label>序号<input type="number" id="skin-frame-index" min="0" max="99" value="0"></label>
+          <label>图片<input type="file" id="skin-frame-file" accept="image/png"></label>
+          <div class="row"><button type="submit">上传</button>
+            <span class="muted" id="skin-frame-meta"></span></div>
+        </form>
+      </section>
     </div>
   </section>
 
-  <section class="card">
-    <h2>设备与宠物状态</h2>
-    <div class="row badges">
-      <span class="badge" id="badge-gateway">gateway —</span>
-      <span class="badge" id="badge-device">device —</span>
-      <span class="badge" id="badge-state">state —</span>
-    </div>
-    <div class="kv" id="kv-status"></div>
-  </section>
-
-  <section class="card">
-    <h2>诊断日志</h2>
-    <div class="row">
-      <label class="inline"><input type="checkbox" id="log-follow" checked> 自动滚动</label>
-      <button type="button" id="btn-log-clear">清屏</button>
-      <span class="muted" id="log-meta"></span>
-    </div>
-    <div class="log-list" id="log-list"></div>
-  </section>
-
-  <section class="card">
-    <h2>在线配置</h2>
-    <form id="form-config" autocomplete="off">
-      <label>gateway URL<input type="text" id="cfg-gateway-url" placeholder="ws://127.0.0.1:18789"></label>
-      <label>gateway token<input type="password" id="cfg-gateway-token" placeholder="***"></label>
-      <label>监听端口<input type="number" id="cfg-server-port" min="1" max="65535" step="1"></label>
-      <label>render quality<input type="number" id="cfg-render-quality" min="1" max="100" step="1"></label>
-      <label>frame activeFps<input type="number" id="cfg-frame-active-fps" min="0" max="60" step="1"></label>
+  <!-- ============ 能力清单 ============ -->
+  <section class="panel hidden" data-panel="caps">
+    <section class="card">
+      <h2>能力清单</h2>
+      <p class="note">清单随仓库更新发布；你可以在这里停用某项，或加自己的。改动存进 <code>petd/data/capabilities.local.json</code>。</p>
+      <div class="list" id="cap-list"></div>
       <div class="row">
-        <button type="submit">保存</button>
-        <span class="muted" id="config-meta">端口改动需重启 petd 才生效；token 留空表示不改动。</span>
+        <button type="button" id="btn-cap-save">保存改动</button>
+        <span class="muted" id="cap-meta"></span>
       </div>
-    </form>
+    </section>
+
+    <section class="card">
+      <h2>加一项能力</h2>
+      <form id="form-cap-new" autocomplete="off">
+        <div class="grid2">
+          <label>标识<input type="text" id="cap-new-id" placeholder="my.action"></label>
+          <label>名称<input type="text" id="cap-new-name" placeholder="我的能力"></label>
+        </div>
+        <label>说明<input type="text" id="cap-new-desc" placeholder="做什么用的"></label>
+        <label>动作<select id="cap-new-action">
+          <option value="state.refresh">state.refresh</option>
+          <option value="session.next">session.next</option>
+          <option value="skin.next">skin.next</option>
+          <option value="page.next">page.next</option>
+          <option value="page.prev">page.prev</option>
+          <option value="density.cycle">density.cycle</option>
+        </select></label>
+        <div class="row"><button type="submit">加入清单</button>
+          <span class="muted" id="cap-new-meta"></span></div>
+      </form>
+    </section>
+  </section>
+
+  <!-- ============ 安装与诊断 ============ -->
+  <section class="panel hidden" data-panel="diag">
+    <section class="card">
+      <h2>连接与渲染</h2>
+      <div class="row badges">
+        <span class="badge" id="badge-gateway">gateway —</span>
+        <span class="badge" id="badge-device">device —</span>
+        <span class="badge" id="badge-state">state —</span>
+      </div>
+      <div class="kv" id="kv-status"></div>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>连接配置</h2>
+        <form id="form-config" autocomplete="off">
+          <label>gateway URL<input type="text" id="cfg-gateway-url" placeholder="ws://127.0.0.1:18789"></label>
+          <label>gateway token<input type="password" id="cfg-gateway-token" placeholder="***"></label>
+          <label>监听端口<input type="number" id="cfg-server-port" min="1" max="65535" step="1"></label>
+          <label>render quality<input type="number" id="cfg-render-quality" min="1" max="100" step="1"></label>
+          <label>frame activeFps<input type="number" id="cfg-frame-active-fps" min="0" max="60" step="1"></label>
+          <div class="row">
+            <button type="submit">保存</button>
+            <span class="muted" id="config-meta">端口改动需重启 petd 才生效；token 留空表示不改动。</span>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>诊断日志</h2>
+        <div class="row">
+          <label class="inline"><input type="checkbox" id="log-follow" checked> 自动滚动</label>
+          <button type="button" id="btn-log-clear">清屏</button>
+          <span class="muted" id="log-meta"></span>
+        </div>
+        <div class="log-list" id="log-list"></div>
+      </section>
+    </div>
   </section>
 
 </main>

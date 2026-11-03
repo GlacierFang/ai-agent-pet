@@ -10,6 +10,7 @@
 公网入口由 nginx 反代到 /ai-agent-pet/ 前缀。
 """
 import asyncio
+import base64
 import contextlib
 import hashlib
 import hmac
@@ -25,7 +26,9 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from . import capabilities as capabilities_mod
 from . import config as config_mod
+from . import skins as skins_mod
 from .app import PetApp
 
 log = logging.getLogger("petd.server")
@@ -207,6 +210,89 @@ def create_app(cfg=None, start_gateway=True):
         pet.log("info", "配置已更新")
         return JSONResponse({"ok": True, "config": config_mod.public_view(pet.cfg)})
 
+    async def api_sessions(request):
+        """会话列表 —— 宠物反应全部会话，这里看得到每一条。"""
+        return JSONResponse({"items": pet.public_sessions()})
+
+    async def api_capabilities_get(request):
+        return JSONResponse(capabilities_mod.load())
+
+    async def api_capabilities_post(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        items = body.get("capabilities")
+        if not isinstance(items, list):
+            return JSONResponse({"ok": False, "error": "capabilities 必须是数组"},
+                                status_code=400)
+        try:
+            saved = capabilities_mod.save_user(items)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        pet.log("info", "能力清单已更新（%d 条用户条目）" % len(saved))
+        return JSONResponse({"ok": True, **capabilities_mod.load()})
+
+    async def api_skins_get(request):
+        root = pet.cfg.get("_repo_root", ".")
+        return JSONResponse({"items": skins_mod.list_skin_info(root),
+                             "current": pet.skin})
+
+    async def api_skins_post(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        op = str(body.get("op") or "")
+        name = str(body.get("name") or "").strip()
+        root = pet.cfg.get("_repo_root", ".")
+        try:
+            if op == "create":
+                skins_mod.create_skin(root, name)
+                pet.log("info", "新建形象 %s" % name)
+            elif op == "delete":
+                skins_mod.delete_skin(root, name)
+                pet.log("info", "删除形象 %s" % name)
+            elif op == "activate":
+                if name not in skins_mod.list_skins(root):
+                    raise ValueError("没有这个形象")
+                pet.skin = name
+                pet.cfg.setdefault("ui", {})["skin"] = name
+                pet._persist_ui()
+                pet.log("info", "形象 -> %s" % name)
+            else:
+                return JSONResponse({"ok": False, "error": "未知操作"},
+                                    status_code=400)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True, "items": skins_mod.list_skin_info(root),
+                             "current": pet.skin})
+
+    async def api_skin_frame_post(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        name = str(body.get("name") or "").strip()
+        state = str(body.get("state") or "").strip()
+        try:
+            index = int(body.get("index", 0))
+        except Exception:
+            index = 0
+        try:
+            png = base64.b64decode(str(body.get("data") or ""))
+        except Exception:
+            return JSONResponse({"ok": False, "error": "图片数据不是 base64"},
+                                status_code=400)
+        root = pet.cfg.get("_repo_root", ".")
+        try:
+            path = skins_mod.save_frame(root, name, state, index, png)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        pet.log("info", "形象素材已保存 %s" % path.name)
+        return JSONResponse({"ok": True, "items": skins_mod.list_skin_info(root),
+                             "current": pet.skin})
+
     async def api_logs(request):
         since = int(request.query_params.get("since", 0))
         items = [e for e in pet.logs if e["seq"] > since]
@@ -255,6 +341,12 @@ def create_app(cfg=None, start_gateway=True):
         Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
         Route("/admin/api/logs", _guard(api_logs)),
+        Route("/admin/api/sessions", _guard(api_sessions)),
+        Route("/admin/api/capabilities", _guard(api_capabilities_get), methods=["GET"]),
+        Route("/admin/api/capabilities", _guard(api_capabilities_post), methods=["POST"]),
+        Route("/admin/api/skins", _guard(api_skins_get), methods=["GET"]),
+        Route("/admin/api/skins", _guard(api_skins_post), methods=["POST"]),
+        Route("/admin/api/skins/frame", _guard(api_skin_frame_post), methods=["POST"]),
         Route("/admin/api/events", _guard(api_events)),
         Route("/admin/api/releases", _guard(api_releases)),
         Route("/admin/api/ota", _guard(api_ota), methods=["POST"]),

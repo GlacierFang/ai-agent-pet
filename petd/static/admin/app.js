@@ -1,5 +1,8 @@
 'use strict';
-/* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。 */
+/* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
+
+   四个区块：我的宠物 / 素材仓库 / 能力清单 / 安装与诊断。
+   默认落在「我的宠物」—— 这是内容页，不是系统监控页。 */
 
 /* API 基址跟着页面走。
    页面用相对路径加载资源，所以同一个 build 挂在 petd 自带的 /admin/ 下，
@@ -13,8 +16,15 @@ var S = {
   es: null,
   previewTimer: null,
   logTimer: null,
+  statusTimer: null,
   gated: false,    // 停在口令页时为 true
-  started: false   // dashboard 是否已经启动过
+  started: false,  // dashboard 是否已经启动过
+  sessions: [],
+  caps: [],        // 合并后的能力清单
+  localCaps: {},   // 用户那份（存在 capabilities.local.json）
+  skins: [],
+  skin: '',
+  tab: 'pet'
 };
 
 function el(id) { return document.getElementById(id); }
@@ -44,13 +54,444 @@ function fmtBytes(n) {
   return (n / 1024).toFixed(1) + ' KB';
 }
 
+function fmtAgo(ts) {
+  if (!ts) return '—';
+  var d = Date.now() / 1000 - ts;
+  if (d < 60) return '刚刚';
+  if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+  if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+  return Math.floor(d / 86400) + ' 天前';
+}
+
 function setBadge(node, kind, label) {
   node.className = 'badge ' + kind;
   node.textContent = label;
 }
-/* ---------------- 状态面板 ---------------- */
 
-/* 每个字段一行：左边是 key，右边是值。缺字段时显示 —。 */
+/* 宠物状态的展示口径 —— 人话，不是字段名。 */
+var STATE_TXT = {
+  idle: '闲着',
+  working: '在忙',
+  waiting: '等你确认',
+  done: '刚做完',
+  error: '出错了',
+  sleeping: '睡着了'
+};
+var STATE_KIND = {
+  idle: 'dim',
+  working: 'ok',
+  waiting: 'warn',
+  done: 'ok',
+  error: 'bad',
+  sleeping: 'dim'
+};
+
+/* ---------------- 标签页 ---------------- */
+
+function switchTab(name) {
+  S.tab = name;
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.classList.toggle('active', b.getAttribute('data-tab') === name);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.panel'), function (p) {
+    if (p.getAttribute('data-panel') === name) p.classList.remove('hidden');
+    else p.classList.add('hidden');
+  });
+  if (name === 'skins') loadSkins();
+  if (name === 'caps') loadCapabilities();
+}
+
+/* ---------------- 我的宠物 ---------------- */
+
+function renderPet(s) {
+  var pet = s.pet || {};
+  var st = pet.state || 'idle';
+  el('pet-state').textContent = STATE_TXT[st] || st;
+
+  /* 正在为谁做 —— 归因。空闲时没有归因。 */
+  var att = pet.attribution;
+  var name = '';
+  for (var i = 0; i < S.sessions.length; i++) {
+    if (S.sessions[i].key === att) { name = S.sessions[i].name; break; }
+  }
+  el('pet-for').innerHTML = '';
+  var lbl = document.createElement('span');
+  lbl.className = 'muted';
+  lbl.textContent = '顾着：';
+  el('pet-for').appendChild(lbl);
+  var val = document.createElement('span');
+  val.textContent = name || (st === 'sleeping' ? '没人' : '没人在忙');
+  el('pet-for').appendChild(val);
+
+  /* 要不要你动手 —— 这是宠物唯一真正要传达的事。 */
+  var need = el('pet-need');
+  var counts = pet.counts || {};
+  if (st === 'waiting') {
+    var n = counts.waiting || 1;
+    need.className = 'hero-line hero-need';
+    need.textContent = '需要你确认' + (n > 1 ? '（' + n + ' 件事等你）' : '');
+  } else if (st === 'error') {
+    need.className = 'hero-line hero-need';
+    need.textContent = '有任务出错了';
+  } else {
+    need.className = 'hero-line hero-need calm';
+    need.textContent = '不用你管';
+  }
+
+  var badges = el('pet-badges');
+  badges.textContent = '';
+  var gw = s.gateway || {};
+  var dev = s.device || {};
+  addBadge(badges, gw.connected ? 'ok' : 'bad', '连接 ' + (gw.connected ? '正常' : '断了'));
+  addBadge(badges, dev.online ? 'ok' : 'dim', '设备 ' + (dev.online ? '在线' : '离线'));
+  addBadge(badges, STATE_KIND[st] || 'dim', '会话 ' + (pet.sessions || 0) + ' 个');
+}
+
+function addBadge(box, kind, text) {
+  var b = document.createElement('span');
+  b.className = 'badge ' + kind;
+  b.textContent = text;
+  box.appendChild(b);
+}
+
+function renderSessions() {
+  var box = el('session-list');
+  box.textContent = '';
+  if (!S.sessions.length) {
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = '还没有会话';
+    box.appendChild(e);
+    return;
+  }
+  S.sessions.forEach(function (s) {
+    var row = document.createElement('div');
+    row.className = 'row-item' + (s.attributed ? ' hi' : '');
+    var n = document.createElement('span');
+    n.className = 'name grow';
+    n.textContent = s.name || s.key;
+    row.appendChild(n);
+    if (s.attributed) {
+      var tag = document.createElement('span');
+      tag.className = 'badge warn';
+      tag.textContent = '宠物在顾';
+      row.appendChild(tag);
+    }
+    if (s.focused) {
+      var f = document.createElement('span');
+      f.className = 'badge dim';
+      f.textContent = '你正看';
+      row.appendChild(f);
+    }
+    var b = document.createElement('span');
+    b.className = 'badge ' + (STATE_KIND[s.state] || 'dim');
+    b.textContent = STATE_TXT[s.state] || s.state;
+    row.appendChild(b);
+    var t = document.createElement('span');
+    t.className = 'sub';
+    t.textContent = fmtAgo(s.lastActivityAt);
+    row.appendChild(t);
+    box.appendChild(row);
+  });
+}
+
+function loadSessions() {
+  return fetch(API + '/sessions', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.sessions = blob.items || [];
+      renderSessions();
+    })
+    .catch(function () { /* 服务端没起来时静默重试 */ });
+}
+
+/* ---------------- 形象 ---------------- */
+
+function renderSkinPicker() {
+  var box = el('skin-picker');
+  box.textContent = '';
+  el('skin-current').textContent = S.skin || '—';
+  if (!S.skins.length) {
+    var e = document.createElement('span');
+    e.className = 'muted';
+    e.textContent = '还没有形象';
+    box.appendChild(e);
+    return;
+  }
+  S.skins.forEach(function (sk) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = sk.name === S.skin ? '' : 'ghost';
+    b.textContent = sk.name;
+    b.addEventListener('click', function () { activateSkin(sk.name); });
+    box.appendChild(b);
+  });
+}
+
+function loadSkins() {
+  return fetch(API + '/skins', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.skins = blob.items || [];
+      S.skin = blob.current || '';
+      renderSkinPicker();
+      renderSkinList();
+    })
+    .catch(function () { /* 忽略 */ });
+}
+
+function activateSkin(name) {
+  fetch(API + '/skins', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'activate', name: name })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { el('skin-new-meta').textContent = b.error || '切换失败'; return; }
+      S.skin = b.current;
+      S.skins = b.items || [];
+      renderSkinPicker();
+      renderSkinList();
+    })
+    .catch(function () { el('skin-new-meta').textContent = '网络错误'; });
+}
+
+function renderSkinList() {
+  var box = el('skin-list');
+  box.textContent = '';
+  if (!S.skins.length) {
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = '还没有形象 —— 建一个，或者从「素材仓库」传素材。';
+    box.appendChild(e);
+    return;
+  }
+  S.skins.forEach(function (sk) {
+    var row = document.createElement('div');
+    row.className = 'row-item';
+    var n = document.createElement('span');
+    n.className = 'name grow';
+    n.textContent = sk.name;
+    row.appendChild(n);
+    var src = document.createElement('span');
+    src.className = 'badge dim';
+    src.textContent = sk.source === 'user' ? '你的' : '自带';
+    row.appendChild(src);
+    var st = document.createElement('span');
+    st.className = 'sub';
+    var keys = Object.keys(sk.states || {});
+    st.textContent = keys.length
+      ? keys.map(function (k) { return k + '×' + sk.states[k]; }).join(' ')
+      : '没有素材';
+    row.appendChild(st);
+    if (sk.name !== S.skin) {
+      var act = document.createElement('button');
+      act.type = 'button';
+      act.className = 'ghost';
+      act.textContent = '设为当前';
+      act.addEventListener('click', function () { activateSkin(sk.name); });
+      row.appendChild(act);
+    }
+    if (sk.source === 'user') {
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'ghost';
+      del.textContent = '删除';
+      del.addEventListener('click', function () { deleteSkin(sk.name); });
+      row.appendChild(del);
+    }
+    box.appendChild(row);
+  });
+}
+
+function deleteSkin(name) {
+  if (!window.confirm('删除形象 ' + name + '？素材会一起没。')) return;
+  fetch(API + '/skins', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'delete', name: name })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { el('skin-new-meta').textContent = b.error || '删除失败'; return; }
+      S.skins = b.items || [];
+      S.skin = b.current || '';
+      renderSkinPicker();
+      renderSkinList();
+    })
+    .catch(function () { el('skin-new-meta').textContent = '网络错误'; });
+}
+
+function onSkinNew(ev) {
+  ev.preventDefault();
+  var name = el('skin-new-name').value.trim();
+  var meta = el('skin-new-meta');
+  if (!name) { meta.textContent = '先起个名字'; return; }
+  fetch(API + '/skins', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'create', name: name })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { meta.textContent = b.error || '创建失败'; return; }
+      meta.textContent = '建好了';
+      el('skin-new-name').value = '';
+      S.skins = b.items || [];
+      renderSkinPicker();
+      renderSkinList();
+    })
+    .catch(function () { meta.textContent = '网络错误'; });
+}
+
+function onSkinFrame(ev) {
+  ev.preventDefault();
+  var meta = el('skin-frame-meta');
+  var file = el('skin-frame-file').files[0];
+  if (!file) { meta.textContent = '先选个图片'; return; }
+  var reader = new FileReader();
+  reader.onload = function () {
+    var data = String(reader.result).split(',')[1] || '';
+    fetch(API + '/skins/frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: el('skin-frame-name').value.trim(),
+        state: el('skin-frame-state').value,
+        index: parseInt(el('skin-frame-index').value, 10) || 0,
+        data: data
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (b) {
+        if (!b.ok) { meta.textContent = b.error || '上传失败'; return; }
+        meta.textContent = '已保存';
+        S.skins = b.items || [];
+        renderSkinList();
+      })
+      .catch(function () { meta.textContent = '网络错误'; });
+  };
+  reader.readAsDataURL(file);
+}
+
+/* ---------------- 能力清单 ---------------- */
+
+function renderCaps() {
+  var box = el('cap-list');
+  box.textContent = '';
+  if (!S.caps.length) {
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = '清单是空的';
+    box.appendChild(e);
+    return;
+  }
+  S.caps.forEach(function (c) {
+    var row = document.createElement('div');
+    row.className = 'row-item';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = c.enabled !== false;
+    cb.addEventListener('change', function () {
+      var item = S.localCaps[c.id] || Object.assign({}, c);
+      item.enabled = cb.checked;
+      item.source = 'user';
+      S.localCaps[c.id] = item;
+      el('cap-meta').textContent = '有改动，记得点保存';
+    });
+    row.appendChild(cb);
+    var main = document.createElement('div');
+    main.className = 'grow';
+    var nm = document.createElement('div');
+    nm.className = 'name';
+    nm.textContent = c.name;
+    main.appendChild(nm);
+    if (c.desc) {
+      var de = document.createElement('div');
+      de.className = 'sub';
+      de.textContent = c.desc;
+      main.appendChild(de);
+    }
+    row.appendChild(main);
+    var sc = document.createElement('span');
+    sc.className = 'badge dim';
+    sc.textContent = c.scope === 'device' ? '设备' : '服务端';
+    row.appendChild(sc);
+    if (c.screen) {
+      var sm = document.createElement('span');
+      sm.className = 'badge ok';
+      sm.textContent = '屏上可见';
+      row.appendChild(sm);
+    }
+    var act = document.createElement('span');
+    act.className = 'sub';
+    act.textContent = c.action || '（无动作）';
+    row.appendChild(act);
+    box.appendChild(row);
+  });
+}
+
+function loadCapabilities() {
+  return fetch(API + '/capabilities', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.caps = blob.items || [];
+      S.localCaps = {};
+      (blob.userItems || []).forEach(function (c) { S.localCaps[c.id] = c; });
+      renderCaps();
+    })
+    .catch(function () { /* 忽略 */ });
+}
+
+function saveCaps() {
+  var meta = el('cap-meta');
+  meta.textContent = '保存中…';
+  var list = Object.keys(S.localCaps).map(function (k) { return S.localCaps[k]; });
+  fetch(API + '/capabilities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ capabilities: list })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { meta.textContent = b.error || '保存失败'; return; }
+      meta.textContent = '已保存';
+      S.caps = b.items || [];
+      S.localCaps = {};
+      (b.userItems || []).forEach(function (c) { S.localCaps[c.id] = c; });
+      renderCaps();
+    })
+    .catch(function () { meta.textContent = '网络错误'; });
+}
+
+function onCapNew(ev) {
+  ev.preventDefault();
+  var meta = el('cap-new-meta');
+  var id = el('cap-new-id').value.trim();
+  if (!id) { meta.textContent = '先填标识'; return; }
+  if (S.caps.some(function (c) { return c.id === id; })) {
+    meta.textContent = '这个标识已经有了';
+    return;
+  }
+  S.localCaps[id] = {
+    id: id,
+    name: el('cap-new-name').value.trim() || id,
+    desc: el('cap-new-desc').value.trim(),
+    action: el('cap-new-action').value,
+    scope: 'server',
+    screen: true,
+    enabled: true
+  };
+  el('cap-new-id').value = '';
+  el('cap-new-name').value = '';
+  el('cap-new-desc').value = '';
+  meta.textContent = '加好了，记得点保存';
+  saveCaps();
+}
+
+/* ---------------- 原始遥测 ---------------- */
+
 var KV = [
   ['gateway.connected', function (s) { return s.gateway && s.gateway.connected ? '已连接' : '未连接'; }],
   ['gateway.error', function (s) { return (s.gateway && s.gateway.error) || ''; }],
@@ -74,10 +515,12 @@ var KV = [
   ['pet.skin', function (s) { return s.pet && s.pet.skin; }],
   ['pet.sessions', function (s) { return s.pet && s.pet.sessions; }],
   ['pet.selected', function (s) { return s.pet && s.pet.selected; }],
+  ['pet.attribution', function (s) { return s.pet && s.pet.attribution; }],
   ['frames.seq', function (s) { return s.frames && s.frames.seq; }],
   ['frames.lastBytes', function (s) { return s.frames ? fmtBytes(s.frames.lastBytes) : null; }],
   ['frames.lastTs', function (s) { return s.frames && s.frames.lastTs ? fmtClock(s.frames.lastTs) : null; }]
 ];
+
 function renderStatus(s) {
   var gw = s.gateway || {};
   var dev = s.device || {};
@@ -124,14 +567,17 @@ function refreshStatus() {
       }
       return r.json();
     })
-    .then(renderStatus)
+    .then(function (s) {
+      renderPet(s);
+      renderStatus(s);
+    })
     .catch(function () {
       if (S.gated) return;
       setBadge(el('badge-gateway'), 'bad', 'gateway 不可达');
       setBadge(el('badge-device'), 'bad', 'device 不可达');
-      setBadge(el('badge-state'), 'bad', 'state 未知');
     });
 }
+
 /* ---------------- 诊断日志 ---------------- */
 
 function appendLog(entry) {
@@ -183,6 +629,7 @@ function connectEvents() {
   };
   /* EventSource 自己重连；onerror 不做任何事，免得刷屏 */
 }
+
 /* ---------------- 预览 ---------------- */
 
 function refreshPreview() {
@@ -344,6 +791,14 @@ function startDashboard() {
   });
 
   el('form-config').addEventListener('submit', saveConfig);
+  el('form-skin-new').addEventListener('submit', onSkinNew);
+  el('form-skin-frame').addEventListener('submit', onSkinFrame);
+  el('form-cap-new').addEventListener('submit', onCapNew);
+  el('btn-cap-save').addEventListener('click', saveCaps);
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
+  });
 
   /* 历史先拉一次，再挂 SSE；之后再定期补拉，兜住断线窗口里漏掉的条目 */
   loadLogs().then(function () {
@@ -353,9 +808,12 @@ function startDashboard() {
   S.logTimer = setInterval(loadLogs, 10000);
 
   refreshStatus();
-  setInterval(refreshStatus, 1000);
+  S.statusTimer = setInterval(refreshStatus, 1000);
+  loadSessions();
+  setInterval(loadSessions, 2000);
   tickPreview();
   loadConfig();
+  loadSkins();
 }
 
 function init() {

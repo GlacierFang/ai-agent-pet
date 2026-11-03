@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "updated": "2026-11-03",
+  "capabilities": [
+    {
+      "id": "state.refresh",
+      "name": "刷新状态",
+      "desc": "立刻重新拉一次会话状态",
+      "action": "state.refresh",
+      "scope": "server",
+      "screen": true,
+      "enabled": true
+    },
+    {
+      "id": "session.next",
+      "name": "切换会话",
+      "desc": "在正在跑的会话之间轮换",
+      "action": "session.next",
+      "scope": "server",
+      "screen": true,
+      "enabled": true
+    },
+    {
+      "id": "skin.next",
+      "name": "换形象",
+      "desc": "切到下一个已安装的形象",
+      "action": "skin.next",
+      "scope": "server",
+      "screen": true,
+      "enabled": true
+    },
+    {
+      "id": "page.next",
+      "name": "翻页",
+      "desc": "在表情 / 会话 / 通知之间切换",
+      "action": "page.next",
+      "scope": "server",
+      "screen": true,
+      "enabled": true
+    },
+    {
+      "id": "density.cycle",
+      "name": "切换密度",
+      "desc": "信息密度：简 / 常 / 详",
+      "action": "density.cycle",
+      "scope": "server",
+      "screen": true,
+      "enabled": true
+    }
+  ]
+}
