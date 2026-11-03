@@ -153,3 +153,10 @@ bool knob_pop(knob_event_t *out)
     if (!s_q) return false;
     return xQueueReceive(s_q, out, 0) == pdTRUE;
 }
+
+
+bool knob_raw_pressed(void)
+{
+    /* KY-040 的 SW 按下接地 */
+    return read_sw() == 0;
+}

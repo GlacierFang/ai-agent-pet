@@ -41,5 +41,10 @@ esp_err_t knob_init(void);
 /* 非阻塞取一个事件。返回 false 表示队列空。 */
 bool knob_pop(knob_event_t *out);
 
+/* 直接读 SW 键当前是否按下（KY-040 按下接地，所以低电平=按下）。
+   用途：开机时判断「用户是不是一直按着旋钮」——
+   这种长按没法用 knob_pop 判，因为 knob_pop 要等松手才发 press 事件。 */
+bool knob_raw_pressed(void);
+
 #endif /* PETD_KNOB_H */
 

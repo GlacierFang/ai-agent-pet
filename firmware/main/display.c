@@ -276,6 +276,102 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
 }
 
 
+/* 把一块 RGB565 像素贴到屏幕指定位置。
+   配网引导屏要画 ASCII 文字，走不了 JPEG 管线（那时还没连上服务端），
+   所以这里提供一条「直接刷像素块」的通道。
+   复用现有 line buffer 机制：不新建缓冲，避免多占 7.5KB SRAM。 */
+esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
+{
+    if (!s_lines[0] || !pixels) return ESP_ERR_INVALID_STATE;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    /* 裁到屏幕内 */
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x >= DISP_WIDTH || y >= DISP_HEIGHT) return ESP_OK;
+    if (x + w > DISP_WIDTH) w = DISP_WIDTH - x;
+    if (y + h > DISP_HEIGHT) h = DISP_HEIGHT - y;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    for (int row = 0; row < h; row += DISP_LINE_H) {
+        int rows = h - row;
+        if (rows > DISP_LINE_H) rows = DISP_LINE_H;
+
+        /* 选一个空闲 buffer，填满这一段行 */
+        uint8_t idx = s_busy[0] ? 1 : 0;
+        wait_buffer_free(idx);
+        uint16_t *base = s_lines[idx];
+
+        /* 先整行清成背景色，再把像素贴到正确列 */
+        for (int r = 0; r < rows; r++) {
+            uint16_t *dst = base + (size_t)r * DISP_WIDTH;
+            for (int c = 0; c < DISP_WIDTH; c++) dst[c] = 0x0000;
+            const uint16_t *src = pixels + (size_t)(row + r) * w;
+            for (int c = 0; c < w; c++) dst[x + c] = src[c];
+        }
+
+        /* flush_line_block 刷的是固定的 DISP_LINE_H 行，
+           这里行数可能不足，需要单独按实际行数刷。 */
+        for (int r = 0; r < rows; r += DISP_SPI_CHUNK_ROWS) {
+            int chunk = rows - r;
+            if (chunk > DISP_SPI_CHUNK_ROWS) chunk = DISP_SPI_CHUNK_ROWS;
+            s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
+            s_fifo_tail++;
+            s_busy[idx]++;
+            ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
+                s_panel, 0, y + row + r,
+                DISP_WIDTH, y + row + r + chunk,
+                base + (size_t)r * DISP_WIDTH));
+        }
+    }
+    drain_all();
+    return ESP_OK;
+}
+
+
+/* 刷一个纯色矩形。文字画在有色底上时用得上。 */
+esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
+{
+    if (!s_lines[0]) return ESP_ERR_INVALID_STATE;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x >= DISP_WIDTH || y >= DISP_HEIGHT) return ESP_OK;
+    if (x + w > DISP_WIDTH) w = DISP_WIDTH - x;
+    if (y + h > DISP_HEIGHT) h = DISP_HEIGHT - y;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    for (int row = 0; row < h; row += DISP_LINE_H) {
+        int rows = h - row;
+        if (rows > DISP_LINE_H) rows = DISP_LINE_H;
+
+        uint8_t idx = s_busy[0] ? 1 : 0;
+        wait_buffer_free(idx);
+        uint16_t *base = s_lines[idx];
+
+        for (int r = 0; r < rows; r++) {
+            uint16_t *dst = base + (size_t)r * DISP_WIDTH;
+            for (int c = 0; c < DISP_WIDTH; c++) dst[c] = color;
+        }
+
+        for (int r = 0; r < rows; r += DISP_SPI_CHUNK_ROWS) {
+            int chunk = rows - r;
+            if (chunk > DISP_SPI_CHUNK_ROWS) chunk = DISP_SPI_CHUNK_ROWS;
+            s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
+            s_fifo_tail++;
+            s_busy[idx]++;
+            ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
+                s_panel, 0, y + row + r,
+                DISP_WIDTH, y + row + r + chunk,
+                base + (size_t)r * DISP_WIDTH));
+        }
+    }
+    drain_all();
+    return ESP_OK;
+}
+
+
 esp_err_t display_clear(uint16_t color)
 {
     if (!s_lines[0]) return ESP_ERR_INVALID_STATE;

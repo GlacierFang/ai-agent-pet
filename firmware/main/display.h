@@ -48,5 +48,13 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
 /* 刷一张纯色（清屏用） */
 esp_err_t display_clear(uint16_t color);
 
+/* 贴一块 RGB565 像素到屏幕指定位置。
+   配网引导屏要画 ASCII 文字，走不了 JPEG 管线（那时还没连上服务端）。
+   超出屏幕的部分自动裁掉。 */
+esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h);
+
+/* 刷一个纯色矩形 */
+esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color);
+
 #endif /* PETD_DISPLAY_H */
 
