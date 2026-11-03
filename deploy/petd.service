@@ -21,6 +21,10 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/ai-agent-pet/petd/data
+# 注意：不要加 AF_NETLINK —— 配合 PrivateTmp 会触发 systemd 的
+# NAMESPACE 限制，服务直接起不来（status=226/NAMESPACE）。
+# mDNS 枚举网卡地址改用 SIOCGIFCONF ioctl（纯 ioctl，不需要 netlink），
+# 见 petd/mdns.py 的 _addresses_via_ifconf()。
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]

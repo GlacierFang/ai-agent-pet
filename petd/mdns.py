@@ -145,49 +145,105 @@ def _primary_address():
         sock.close()
 
 
+def _addresses_via_ifconf():
+    """用 SIOCGIFCONF 枚举网卡地址。
+
+    为什么不用 if_nameindex()：那走 netlink，而 systemd 的
+    RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX 会把 netlink 挡掉，
+    socket.if_nameindex() 直接抛 OSError(97)。
+    SIOCGIFCONF 是纯 ioctl，不开额外 socket，能在那个沙箱里正常工作。
+
+    SIOCGIFCONF 的约定：传一个 ifreq 结构数组进去，缓冲区不够时内核
+    会把需要的字节数写回结构体。所以先给一个够大的缓冲，失败就按
+    内核报的大小重来一次。
+    """
+    import ctypes
+    import fcntl
+
+    SIOCGIFCONF = 0x8912
+    # 每个 ifreq 在 Linux 上是 40 字节（16 字节名字 + 24 字节 sockaddr）
+    IFREQ_SIZE = 40
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # SIOCGIFCONF 是变长 ioctl：内核把 ifreq 数组写进我们给的缓冲区。
+        # fcntl.ioctl 只能传定长参数，所以用 ctypes 拿缓冲区地址传指针。
+        buf = bytearray(IFREQ_SIZE * 64)
+        cbuf = (ctypes.c_char * len(buf)).from_buffer(buf)
+        fcntl.ioctl(sock.fileno(), SIOCGIFCONF,
+                    struct.pack("iP", len(buf), ctypes.addressof(cbuf)))
+        out = []
+        pos = 0
+        while pos + IFREQ_SIZE <= len(buf):
+            name = buf[pos:pos + 16].split(b"\x00")[0].decode(errors="replace")
+            # sockaddr_in 里 sin_family 占 2 字节，sin_addr 在其后 2 字节
+            addr = socket.inet_ntoa(bytes(buf[pos + 20:pos + 24]))
+            if name and name != "lo":
+                out.append(addr)
+            pos += IFREQ_SIZE
+        return out
+    finally:
+        sock.close()
+
+
 def local_ipv4_addresses(include_loopback=False):
     """本机所有 IPv4 地址。
 
-    纯标准库：Linux 走 SIOCGIFADDR 逐网卡问，别的平台退回 gethostbyname_ex。
+    纯标准库：Linux 走 ioctl 枚举网卡，别的平台退回 gethostbyname_ex。
     默认路由那张网卡排最前。
+
+    ⚠️ 绝不能把回环地址当成结果 —— 设备拿到 127.0.0.1 会去连自己，
+    永远连不上服务端。枚举不到真实地址时宁可返回空列表。
     """
     found = []
     try:
-        import fcntl
+        found = _addresses_via_ifconf()
+    except Exception as exc:
+        log.debug("SIOCGIFCONF 枚举网卡地址失败: %s", exc)
 
-        SIOCGIFADDR = 0x8915
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    if not found:
+        # 没有 netlink 时的第二条路：if_nameindex + SIOCGIFADDR
         try:
-            for _idx, name in socket.if_nameindex():
-                if name == "lo":
-                    continue
-                try:
-                    raw = fcntl.ioctl(sock.fileno(), SIOCGIFADDR,
-                                      struct.pack("256s", name.encode()[:15]))
-                except OSError:
-                    continue
-                found.append(socket.inet_ntoa(raw[20:24]))
-        finally:
-            sock.close()
-    except Exception as exc:  # 非 Linux 或权限不足
-        log.debug("枚举网卡地址失败: %s", exc)
+            import fcntl
+
+            SIOCGIFADDR = 0x8915
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                for _idx, name in socket.if_nameindex():
+                    if name == "lo":
+                        continue
+                    try:
+                        raw = fcntl.ioctl(sock.fileno(), SIOCGIFADDR,
+                                          struct.pack("256s", name.encode()[:15]))
+                    except OSError:
+                        continue
+                    found.append(socket.inet_ntoa(raw[20:24]))
+            finally:
+                sock.close()
+        except Exception as exc:
+            log.debug("枚举网卡地址失败: %s", exc)
+
     if not found:
         try:
             found = list(socket.gethostbyname_ex(socket.gethostname())[2])
         except OSError:
             found = []
+
     out = []
     for ip in found:
         if not include_loopback and (ip.startswith("127.") or ip.startswith("169.254.")):
             continue
         if ip not in out:
             out.append(ip)
-    if not out:
-        out = ["127.0.0.1"]
+
     primary = _primary_address()
-    if primary and primary in out:
+    if primary and primary not in out and not primary.startswith("127."):
+        out.insert(0, primary)
+    if primary in out:
         out.remove(primary)
         out.insert(0, primary)
+
+    # 枚举不到真实地址就返回空列表，不要拿 127.0.0.1 冒充 ——
+    # 设备连回环地址只会浪费时间，界面上如实显示「没拿到地址」更诚实。
     return out
 
 
