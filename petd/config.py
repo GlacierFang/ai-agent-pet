@@ -76,3 +76,22 @@ def public_view(cfg):
     out = json.loads(json.dumps(cfg))
     out.get("gateway", {})["token"] = "***" if cfg.get("gateway", {}).get("token") else ""
     return out
+
+
+def admin_password():
+    """后台口令 —— 优先环境变量，其次 petd/data/secrets.json。
+
+    刻意不放进 config.json：那个文件进 git，密码不能进仓库。
+    和 gateway token 同一个模式。
+    """
+    env = os.environ.get("PETD_ADMIN_PASSWORD", "")
+    if env:
+        return env
+    secrets = DATA_DIR / "secrets.json"
+    if secrets.exists():
+        try:
+            blob = json.loads(secrets.read_text(encoding="utf-8"))
+            return blob.get("adminPassword", "") or ""
+        except Exception:
+            return ""
+    return ""

@@ -12,7 +12,9 @@ var S = {
   cfg: null,
   es: null,
   previewTimer: null,
-  logTimer: null
+  logTimer: null,
+  gated: false,    // 停在口令页时为 true
+  started: false   // dashboard 是否已经启动过
 };
 
 function el(id) { return document.getElementById(id); }
@@ -112,10 +114,19 @@ function renderStatus(s) {
 }
 
 function refreshStatus() {
+  if (S.gated) return;
   fetch(API + '/status', { cache: 'no-store' })
-    .then(function (r) { return r.json(); })
+    .then(function (r) {
+      /* 会话过期 —— 回到口令页 */
+      if (r.status === 401) {
+        showGate('会话已过期，请重新输入口令');
+        throw new Error('401');
+      }
+      return r.json();
+    })
     .then(renderStatus)
     .catch(function () {
+      if (S.gated) return;
       setBadge(el('badge-gateway'), 'bad', 'gateway 不可达');
       setBadge(el('badge-device'), 'bad', 'device 不可达');
       setBadge(el('badge-state'), 'bad', 'state 未知');
@@ -247,9 +258,54 @@ function saveConfig(ev) {
     .catch(function (e) { meta.textContent = '保存失败：' + e; });
 }
 
+/* ---------------- 口令（可选） ---------------- */
+
+/* 没设口令时 session.authRequired=false，直接进 dashboard。
+   设了口令就只显示口令框，验证通过后原地展开 —— 不跳页、不换路由。 */
+
+function showGate(msg) {
+  S.gated = true;
+  el('app').classList.add('hidden');
+  el('gate').classList.remove('hidden');
+  el('gate-meta').textContent = msg || '';
+  el('gate-password').focus();
+}
+
+function hideGate() {
+  S.gated = false;
+  el('gate').classList.add('hidden');
+  el('app').classList.remove('hidden');
+}
+
+function onGateSubmit(ev) {
+  ev.preventDefault();
+  var meta = el('gate-meta');
+  meta.textContent = '验证中…';
+  fetch(API + '/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: el('gate-password').value })
+  })
+    .then(function (r) {
+      return r.json().then(function (b) { return { ok: r.ok, body: b }; });
+    })
+    .then(function (res) {
+      if (!res.ok || !res.body || !res.body.ok) {
+        meta.textContent = (res.body && res.body.error) || '口令不对';
+        return;
+      }
+      hideGate();
+      startDashboard();
+      loadConfig();
+    })
+    .catch(function () { meta.textContent = '验证失败：网络错误'; });
+}
+
 /* ---------------- 启动 ---------------- */
 
-function init() {
+function startDashboard() {
+  if (S.started) return;
+  S.started = true;
   var img = el('preview');
   img.addEventListener('load', function () {
     el('preview-empty').classList.add('hidden');
@@ -279,6 +335,24 @@ function init() {
   setInterval(refreshStatus, 1000);
   tickPreview();
   loadConfig();
+}
+
+function init() {
+  el('form-gate').addEventListener('submit', onGateSubmit);
+
+  fetch(API + '/session', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      el('banner-note').textContent = s.authRequired
+        ? '已启用口令保护'
+        : '无鉴权 · 任何能打开这个链接的人都能看状态、改配置';
+      if (s.authRequired && !s.authed) {
+        showGate();
+        return;
+      }
+      startDashboard();
+    })
+    .catch(function () { showGate('连不上 petd 服务'); });
 }
 
 if (document.readyState === 'loading') {

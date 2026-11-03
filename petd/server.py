@@ -6,14 +6,17 @@
   /admin/api/*         控制台接口
   /firmware/           固件下载（供设备 OTA）
 
-**无鉴权** —— 能连到这个端口的人都能看状态、改配置。
+**可选口令** —— 设了 PETD_ADMIN_PASSWORD 才鉴权；没设就是老样子。
 公网入口由 nginx 反代到 /ai-agent-pet/ 前缀。
 """
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import pathlib
+import time
 
 from starlette.applications import Starlette
 from starlette.responses import (HTMLResponse, JSONResponse, RedirectResponse,
@@ -31,11 +34,57 @@ STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
 ADMIN_DIR = STATIC_DIR / "admin"
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+AUTH_COOKIE = "petd_admin"
+AUTH_TTL = 7 * 24 * 3600
+
+
+def _derive_key(password):
+    return hashlib.sha256(password.encode("utf-8")).digest()
+
+
+def _sign(key, payload):
+    return hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _make_token(key):
+    exp = str(int(time.time()) + AUTH_TTL)
+    return "%s.%s" % (exp, _sign(key, exp))
+
+
+def _token_ok(key, raw):
+    if not raw or "." not in raw:
+        return False
+    exp, sig = raw.rsplit(".", 1)
+    if not hmac.compare_digest(sig, _sign(key, exp)):
+        return False
+    try:
+        return int(exp) > time.time()
+    except ValueError:
+        return False
+
 
 def create_app(cfg=None, start_gateway=True):
     cfg = cfg or config_mod.load()
     cfg["_repo_root"] = str(REPO_ROOT)
     pet = PetApp(cfg)
+
+    # 后台口令：没设就不鉴权（clone 下来直接能跑）。
+    # 设了就是一把共享锁 —— 不是账号体系，没有注册/多用户。
+    _pw = config_mod.admin_password()
+    _key = _derive_key(_pw) if _pw else None
+
+    def _authed(request):
+        if _key is None:
+            return True
+        return _token_ok(_key, request.cookies.get(AUTH_COOKIE))
+
+    def _guard(fn):
+        async def wrapper(request):
+            if not _authed(request):
+                return JSONResponse({"ok": False, "error": "unauthorized"},
+                                    status_code=401)
+            return await fn(request)
+        return wrapper
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
@@ -100,6 +149,26 @@ def create_app(cfg=None, start_gateway=True):
         否则浏览器会把 assets/app.js 解析成 /assets/app.js。
         """
         return RedirectResponse("/admin/", status_code=307)
+
+    async def api_login(request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        if _key is None:
+            return JSONResponse({"ok": True, "authRequired": False})
+        given = str((body or {}).get("password") or "")
+        # compare_digest 对非 ASCII 的 str 会抛 TypeError，统一按字节比
+        if not hmac.compare_digest(given.encode("utf-8"), _pw.encode("utf-8")):
+            return JSONResponse({"ok": False, "error": "口令不对"}, status_code=401)
+        resp = JSONResponse({"ok": True, "authRequired": True})
+        resp.set_cookie(AUTH_COOKIE, _make_token(_key), max_age=AUTH_TTL,
+                        httponly=True, samesite="lax")
+        return resp
+
+    async def api_session(request):
+        return JSONResponse({"authRequired": _key is not None,
+                             "authed": _authed(request)})
 
     async def api_preview(request):
         if not pet.last_jpeg:
@@ -175,15 +244,17 @@ def create_app(cfg=None, start_gateway=True):
     routes = [
         Route("/admin", admin_redirect),
         Route("/admin/", admin_index),
-        Route("/admin/api/preview.jpg", api_preview),
-        Route("/admin/api/status", api_status),
-        Route("/admin/api/config", api_config_get, methods=["GET"]),
-        Route("/admin/api/config", api_config_post, methods=["POST"]),
-        Route("/admin/api/logs", api_logs),
-        Route("/admin/api/events", api_events),
-        Route("/admin/api/releases", api_releases),
-        Route("/admin/api/ota", api_ota, methods=["POST"]),
-        Route("/admin/api/firmware", api_firmware_list),
+        Route("/admin/api/login", api_login, methods=["POST"]),
+        Route("/admin/api/session", api_session),
+        Route("/admin/api/preview.jpg", _guard(api_preview)),
+        Route("/admin/api/status", _guard(api_status)),
+        Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
+        Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
+        Route("/admin/api/logs", _guard(api_logs)),
+        Route("/admin/api/events", _guard(api_events)),
+        Route("/admin/api/releases", _guard(api_releases)),
+        Route("/admin/api/ota", _guard(api_ota), methods=["POST"]),
+        Route("/admin/api/firmware", _guard(api_firmware_list)),
         WebSocketRoute("/device", device_ws),
     ]
     if ADMIN_DIR.is_dir():

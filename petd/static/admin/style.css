@@ -103,6 +103,33 @@ main {
 }
 .preview-empty.hidden { display: none; }
 
+/* 通用隐藏 */
+.hidden { display: none !important; }
+
+/* 口令页 */
+.gate {
+  max-width: 360px;
+  margin: 70px auto;
+  padding: 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.gate h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: .4px; }
+.gate label { display: block; margin: 16px 0 12px; font-size: 12px; color: var(--muted); }
+.gate input {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+}
+.gate button { width: 100%; }
+
 /* 徽章 */
 .badges { margin-bottom: 12px; }
 .badge {
