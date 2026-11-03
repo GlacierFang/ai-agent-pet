@@ -252,7 +252,7 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     JRESULT rc = jd_prepare(&jd, jpeg_in, s_pool, DISP_TJPGD_POOL, &ctx);
     if (rc != JDR_OK) {
         ESP_LOGE(TAG, "jd_prepare failed: %d", rc);
-        return ESP_ERR_INVALID_FORMAT;
+        return ESP_ERR_INVALID_RESPONSE;
     }
     if (jd.width != DISP_WIDTH || jd.height != DISP_HEIGHT) {
         ESP_LOGE(TAG, "bad size %ux%u", jd.width, jd.height);
