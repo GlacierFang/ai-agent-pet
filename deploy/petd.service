@@ -9,6 +9,8 @@ WorkingDirectory=%h/ai-agent-pet
 ExecStart=%h/ai-agent-pet/.venv/bin/python -m petd --host 0.0.0.0 --port 18860
 Restart=on-failure
 RestartSec=5
+# 后台页开着 SSE 长连接，优雅关闭可能等不到头；到点就强杀，别让 restart 卡死
+TimeoutStopSec=15
 
 # 凭据用 EnvironmentFile 而不是 Environment —— 后者会出现在 ps 输出里
 EnvironmentFile=-%h/.config/petd/petd.env

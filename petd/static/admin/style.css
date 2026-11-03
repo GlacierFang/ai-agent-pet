@@ -36,17 +36,18 @@ code {
 .note { color: var(--muted); font-size: 12px; margin: 10px 0 8px; }
 /* 顶部横幅 */
 .banner {
-  background: linear-gradient(90deg, #4a1d1d, #6d2626);
-  border-bottom: 1px solid #8a3030;
-  color: #ffecec;
-  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  padding: 12px 20px;
   display: flex;
-  gap: 16px;
+  gap: 14px;
   align-items: baseline;
   flex-wrap: wrap;
 }
-.banner strong { letter-spacing: .5px; }
-.banner-sub { color: #e6bdbd; font-size: 12px; }
+.banner strong { letter-spacing: .5px; font-size: 15px; }
+.banner-sub { color: var(--muted); font-size: 12px; }
+.banner .badge { margin-left: auto; }
 
 /* 布局 */
 main {

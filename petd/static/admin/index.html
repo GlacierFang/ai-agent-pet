@@ -9,8 +9,9 @@
 <body>
 
 <header class="banner">
-  <strong id="banner-note">无鉴权 · 任何能打开这个链接的人都能看状态、改配置</strong>
-  <span class="banner-sub">petd 管理控制台 —— 只做「看状态 + 改配置」，页面本身没有登录</span>
+  <strong id="banner-note">petd 控制台</strong>
+  <span class="banner-sub">设备画面 · 运行状态 · 在线配置</span>
+  <span class="badge" id="badge-auth">—</span>
 </header>
 
 <div class="gate hidden" id="gate">
@@ -31,7 +32,7 @@
       <img id="preview" src="api/preview.jpg" alt="设备当前画面">
       <div class="preview-empty" id="preview-empty">暂无帧</div>
     </div>
-    <p class="note">预览用的是设备正在接收的同一份 JPEG 字节流 —— 不是另渲染一遍，页面和屏必然一致。</p>
+    <p class="note">与设备屏幕显示的是同一帧画面。</p>
     <div class="row">
       <button type="button" id="btn-preview">立即刷新</button>
       <label class="inline"><input type="checkbox" id="preview-auto" checked> 每秒自动刷新</label>
@@ -77,8 +78,8 @@
 </main>
 
 <footer>
-  <p>旋钮语义表在 <code>petd/data/gestures.json</code>，改这个不刷固件。</p>
-  <p>OTA 按钮在 v1 不可用（固件未落地），所以这里不放一个假的 OTA 按钮。</p>
+  <p>旋钮手势：编辑 <code>petd/data/gestures.json</code>，重启 petd 后生效。</p>
+  <p id="footer-security" class="hidden">未设置访问口令，请勿把本控制台暴露到公网。</p>
 </footer>
 
 <script src="assets/app.js"></script>

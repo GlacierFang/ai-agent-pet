@@ -216,6 +216,10 @@ def create_app(cfg=None, start_gateway=True):
         async def gen():
             last = pet._log_seq
             while True:
+                # 客户端断开就收尾。不查断连的话，这个长连接会一直挂着，
+                # uvicorn 优雅关闭会干等，systemctl restart 卡在 stop-sigterm。
+                if await request.is_disconnected():
+                    break
                 yield "retry: 2000\n\n"
                 for e in list(pet.logs):
                     if e["seq"] > last:

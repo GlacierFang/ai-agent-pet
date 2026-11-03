@@ -258,6 +258,20 @@ function saveConfig(ev) {
     .catch(function (e) { meta.textContent = '保存失败：' + e; });
 }
 
+/* ---------------- 鉴权状态 ---------------- */
+
+/* 口令是可选的：没设时给个中性提示 —— 说清楚，但不吓人。 */
+function renderAuth(s) {
+  var badge = el('badge-auth');
+  if (s.authRequired) {
+    setBadge(badge, s.authed ? 'ok' : 'warn',
+      s.authed ? '已启用口令' : '需要口令');
+  } else {
+    setBadge(badge, 'warn', '未设口令');
+    el('footer-security').classList.remove('hidden');
+  }
+}
+
 /* ---------------- 口令（可选） ---------------- */
 
 /* 没设口令时 session.authRequired=false，直接进 dashboard。
@@ -295,6 +309,7 @@ function onGateSubmit(ev) {
         return;
       }
       hideGate();
+      renderAuth({ authRequired: true, authed: true });
       startDashboard();
       loadConfig();
     })
@@ -343,9 +358,7 @@ function init() {
   fetch(API + '/session', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (s) {
-      el('banner-note').textContent = s.authRequired
-        ? '已启用口令保护'
-        : '无鉴权 · 任何能打开这个链接的人都能看状态、改配置';
+      renderAuth(s);
       if (s.authRequired && !s.authed) {
         showGate();
         return;
