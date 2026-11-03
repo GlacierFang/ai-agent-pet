@@ -33,7 +33,7 @@ MIN_FRAMES = {
     "sleeping": 4,
 }
 
-NAME_RE = re.compile(r"^%s_(\d{2})\.png$")
+NAME_RE = re.compile(r"^([a-z]+)_(\d{2})\.png$")
 
 
 def repo_root():
@@ -101,8 +101,8 @@ def check_skin(skin_dir):
             errors.append("%s/%s: 没有 PNG 帧" % (name, state))
             continue
         for f in pngs:
-            m = NAME_RE % state
-            if not m.match(f):
+            m = NAME_RE.match(f)
+            if not m or m.group(1) != state:
                 errors.append("%s/%s: 文件名不合规 %s（应为 %s_NN.png）"
                               % (name, state, f, state))
                 continue

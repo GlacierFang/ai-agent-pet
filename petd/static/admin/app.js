@@ -83,8 +83,10 @@ function renderStatus(s) {
     'device ' + (dev.online ? '在线' : '离线'));
 
   var st = pet.state || 'unknown';
+  /* 黄=待批准（waiting）：有授权请求等着人确认 */
   var kind = st === 'error' ? 'bad' : (st === 'waiting' ? 'warn' : 'ok');
-  setBadge(el('badge-state'), kind, 'state ' + st);
+  var label = st === 'waiting' ? 'state waiting（待批准）' : 'state ' + st;
+  setBadge(el('badge-state'), kind, label);
 
   var box = el('kv-status');
   box.textContent = '';

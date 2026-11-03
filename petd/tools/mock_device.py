@@ -181,7 +181,10 @@ async def run(args):
 
     print("[mock] 连接 %s (subprotocol petd.v1)" % uri)
     try:
-        async with websockets.connect(uri, subprotocols=["petd.v1"]) as ws:
+        # 设备直连 petd，不走 HTTP 代理 —— websockets 17 默认读 HTTP_PROXY 环境变量，
+        # 局域网点连会被代理拒绝（403），这里显式关掉。
+        async with websockets.connect(uri, subprotocols=["petd.v1"],
+                                     proxy=args.proxy) as ws:
             await ws.send(json.dumps(HELLO, ensure_ascii=False))
             print("[mock] -> hello %s" % json.dumps(HELLO, ensure_ascii=False))
 
@@ -200,19 +203,26 @@ async def run(args):
             tasks = [asyncio.create_task(status_loop(ws, stats, args.status_interval, stop))]
             if args.stdin:
                 tasks.append(asyncio.create_task(command_console(ws, stop)))
+            # tasks 由下面的 one_shot() 追加，one_shot 定义在这之后仍然可用
 
             pending_id = None
             pending_at = 0.0
 
-            # --press / --rotate：连上后触发一次交互（--once 时触发完就退）
-            if args.press or args.rotate:
+            # --press / --rotate：连上后触发一次交互。
+            # 必须另起 task，不能在收帧循环之前 await —— 否则收不到任何帧。
+            async def one_shot():
                 await asyncio.sleep(0.2)
                 ev = COMMANDS["p"] if args.press else COMMANDS["r"]
                 await send_input(ws, ev)
                 if args.once:
-                    # 再等一会儿收帧，确认链路真的通了
-                    await asyncio.sleep(args.once_wait)
+                    # 收到至少一帧再收工，确认链路真的通了
+                    deadline = time.time() + args.once_wait
+                    while time.time() < deadline and stats.frames < 1:
+                        await asyncio.sleep(0.1)
                     stop["stop"] = True
+
+            if args.press or args.rotate:
+                tasks.append(asyncio.create_task(one_shot()))
 
             try:
                 while not stop["stop"]:
@@ -281,6 +291,8 @@ async def run(args):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="mock_device", description="模拟一台 ESP32-S3 设备")
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--proxy", default=None,
+                    help="HTTP 代理地址；默认不走代理（设备直连 petd）")
     ap.add_argument("--port", type=int, default=18860)
     ap.add_argument("--status-interval", type=float, default=30.0,
                     help="status 上报周期（秒），默认 30")
