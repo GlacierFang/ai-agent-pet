@@ -1,1 +1,50 @@
-IyDlj4LkuI7otKHnjK4KCj4g6aG555uu5ZCNIGBhaS1hZ2VudC1wZXRg77yIR2l0SHViIOS7k+W6k+WQje+8jDIwMjYtMTEtMDMg5a6a77yJ44CCCgojIyDkuKTmnaHnur/liIblvIDmjojmnYMKCioq5Luj56CBKirlkowqKue+juacryoq5YiG5byA5o6I5p2D77yM5LiN6KaB5re35Zyo5LiA5LiqIExJQ0VOU0Ug6YeM44CCCgp8IOWGheWuuSB8IOaOiOadgyB8CnwtLS18LS0tfAp8IOS7o+egge+8iHBldGQgLyBmaXJtd2FyZe+8iSB8IOingeagueebruW9lSBgTElDRU5TRWDvvIjwn5S0IOW+heWumu+8jOW7uuiuriBBcGFjaGUtMi4w77yJIHwKfCDnvo7mnK/vvIhgYXNzZXRzL2DjgIFgc2tpbnMvYO+8iSB8ICoq5q+P5Lu957Sg5p2Q5Y2V54us5aOw5piOKirvvIzop4EgYG1ldGEuanNvbmAg55qEIGBsaWNlbnNlYCDlrZfmrrUgfAp8IOaWh+ahoyB8IOWQjOS7o+eggSB8Cgrljp/lm6DvvJrnqIvluo/nlJ/miJDnmoTpu5jorqTop5LoibLorqkgY2xvbmUg5LiL5p2l55qE5Lq66Zu25o6I5p2D6aOO6Zmp5bCx6IO955So77yb57u05oqk6ICF5o+Q5L6b55qE576O5pyv5L2c5Li65Y+v6YCJ55qu6IKk5YyF5Y2V54us5Y+R5biD44CC5re35Zyo5LiA6LW35o6I5p2D5Lya6K6p44CM6IO95LiN6IO95ZWG55So5YiG5Y+R44CN6L+Z5Liq6Zeu6aKY5peg6Kej44CCCgojIyDmj5DkuqTntKDmnZAKClBSIOmHjOimgeazqOaYju+8mgoKLSDmnaXmupDvvIjoh6rlt7HnlLvnmoQgLyBBSSDnlJ/miJAgLyDnrKzkuInmlrnvvIkKLSDmjojmnYMKLSDlpoLmnpzmmK/nrKzkuInmlrnvvIzlv4XpobvpmYTljp/lp4vmjojmnYPor4HmmI4KCiMjIOeOr+WigwoKYGBgYmFzaAojIHBldGQKcHl0aG9uMyAtbSB2ZW52IHZlbnYgJiYgLi92ZW52L2Jpbi9waXAgaW5zdGFsbCAtZSAnLltkZXZdJwpweXRlc3QKCiMg5Zu65Lu2Ci4gJElERl9QQVRIL2V4cG9ydC5zaAppZGYucHkgc2V0LXRhcmdldCBlc3AzMnMzICYmIGlkZi5weSBidWlsZApgYGAKCiMjIOaPkOS6pOWJjeiHquafpQoKLSBbIF0gYHB5dGVzdGAg6L+HCi0gWyBdIOeKtuaAgeivreS5ieacieWPmOWMliDihpIg5ZCM5q2l5pS5IGBkb2NzL+eKtuaAgeivreS5iS5tZGAg5ZKMIGBkYXRhL3N0YXRlX3J1bGVzLmpzb25gCi0gWyBdIOWKoOS6huaWsCBmZWF0dXJlIOKGkiDlnKggYGRvY3MvZmVhdHVyZeW8gOWPkS5tZGAg6KGl5LiA5q61Ci0gWyBdIOaUueS6huaXi+mSruivreS5iSDihpIg5pS5IGBkYXRhL2dlc3R1cmVzLmpzb25g77yMKirkuI3opoHmlLnlm7rku7YqKgotIFsgXSDnvo7mnK/mnInmlLnliqgg4oaSIOi3kSBgcHl0aG9uIC1tIHBldGQudG9vbHMuY2hlY2tfYXNzZXRzYAotIFsgXSDku7vkvZXmlLnliqjpg70qKuS4jeW6lOivpSoq6ZyA6KaB5pS56K6+5aSH5Zu65Lu2CgojIyDmnIDlkI7kuIDmnaHmnIDph43opoEKCioq5aaC5p6c5L2g5Y+R546w5p+Q5Liq5Yqf6IO96ZyA6KaB5pS55Zu65Lu25omN6IO95a6e546w77yM5YWI5oOz5LiA5oOz5piv5LiN5piv6K6+6K6h6ZSZ5LqG44CCKioKCuWbuuS7tuWPquivpeWBmuS4ieS7tuS6i++8mui/niBXaS1GaeOAgeino+eggeaYvuekuuOAgeS4iuaKpeWOn+Wni+i+k+WFpeOAguS4muWKoemAu+i+keWFqOWcqCBwZXRk44CC5oOz5Zyo5Zu65Lu26YeM5Yqg44CM54q25oCB5Yik5pat44CN5oiW44CM5Lit5paH5riy5p+T44CN77yM6K+05piO6YC76L6R5pS+6ZSZ5Zyw5pa55LqG44CCCg==
+# 参与贡献
+
+> 项目名 `ai-agent-pet`（GitHub 仓库名，2026-11-03 定）。
+
+## 两条线分开授权
+
+**代码**和**美术**分开授权，不要混在一个 LICENSE 里。
+
+| 内容 | 授权 |
+|---|---|
+| 代码（petd / firmware） | 见根目录 `LICENSE`（🔴 待定，建议 Apache-2.0） |
+| 美术（`assets/`、`skins/`） | **每份素材单独声明**，见 `meta.json` 的 `license` 字段 |
+| 文档 | 同代码 |
+
+原因：程序生成的默认角色让 clone 下来的人零授权风险就能用；维护者提供的美术作为可选皮肤包单独发布。混在一起授权会让「能不能商用分发」这个问题无解。
+
+## 提交素材
+
+PR 里要注明：
+
+- 来源（自己画的 / AI 生成 / 第三方）
+- 授权
+- 如果是第三方，必须附原始授权证明
+
+## 环境
+
+```bash
+# petd
+python3 -m venv venv && ./venv/bin/pip install -e '.[dev]'
+pytest
+
+# 固件
+. $IDF_PATH/export.sh
+idf.py set-target esp32s3 && idf.py build
+```
+
+## 提交前自查
+
+- [ ] `pytest` 过
+- [ ] 状态语义有变化 → 同步改 `docs/状态语义.md` 和 `data/state_rules.json`
+- [ ] 加了新 feature → 在 `docs/feature开发.md` 补一段
+- [ ] 改了旋钮语义 → 改 `data/gestures.json`，**不要改固件**
+- [ ] 美术有改动 → 跑 `python -m petd.tools.check_assets`
+- [ ] 任何改动都**不应该**需要改设备固件
+
+## 最后一条最重要
+
+**如果你发现某个功能需要改固件才能实现，先想一想是不是设计错了。**
+
+固件只该做三件事：连 Wi-Fi、解码显示、上报原始输入。业务逻辑全在 petd。想在固件里加「状态判断」或「中文渲染」，说明逻辑放错地方了。

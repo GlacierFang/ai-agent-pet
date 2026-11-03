@@ -1,1 +1,22 @@
-IyDnvJbor5HkuqfniakKYnVpbGQvCmJ1aWxkLSovCm1hbmFnZWRfY29tcG9uZW50cy8KZGVwZW5kZW5jaWVzLmxvY2sKKi5lbGYKKi5tYXAKCiMg6aKE57yW6K+R5Zu65Lu277yI6LWwIEdpdEh1YiBSZWxlYXNlc++8jOS4jei/myBnaXTvvIkKZmlybXdhcmUvYnVpbGQvKi5iaW4KZmlybXdhcmUvYnVpbGQvKi5lbGYKCiMgUHl0aG9uCl9fcHljYWNoZV9fLwoqLnB5W2NvZF0KLnZlbnYvCnZlbnYvCgojIOe8lui+keWZqCAvIOezu+e7nwoudnNjb2RlLwouaWRlYS8KLkRTX1N0b3JlCg==
+# 编译产物
+build/
+build-*/
+managed_components/
+dependencies.lock
+*.elf
+*.map
+
+# 预编译固件（走 GitHub Releases，不进 git）
+firmware/build/*.bin
+firmware/build/*.elf
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store

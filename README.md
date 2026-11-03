@@ -1,1 +1,111 @@
-IyBhaS1hZ2VudC1wZXQKCioq57uZIEFJIGFnZW50IOijheS4gOW8oOiEuOOAgioqCgo+IEdpdEh1YiDku5PlupPlkI3vvJpgYWktYWdlbnQtcGV0YO+8iOWGsOays+Wkp+S6uuaLjeadv++8jDIwMjYtMTEtMDPvvIkKCj4g8J+foSAqKumhueebrueKtuaAge+8muiuvuiuoemYtuauteOAgioqIOehrOS7tumAieWei+W3sumXreWQiO+8jOS7o+eggeacquW8gOW3pe+8jOmbtuS7tuacquS4i+WNleOAggo+IOacrOaWh+S4jiBgZG9jcy9gIOaYryoq6K6+6K6h5aWR57qmKirvvIzkuI3mmK/lt7Llj5HluIPova/ku7bjgILmlofkuK3moIforrDvvJrwn5+iIOW3suS4gOaJi+Wunua1iyDCtyDwn5+hIOW3suWumuahiOW+heWunueOsCDCtyDwn5S0IOW+hemqjOivgQoKPGltZyBzcmM9ImRvY3MvYXNzZXRzL2hlcm8uZ2lmIiB3aWR0aD0iMzAwIiBhbHQ9ImFnZW50IOW5sua0u+aXtuWug+WcqOaXgei+ueaJk+W3peS6uiI+Cgoq77yI5Zu+5Y2g5L2N44CC562J5a6g54mp55yf6IO96LeR6LW35p2l5YaN5b2VIOKAlOKAlCDmsqHmnInlrp7niankuYvliY3kuI3mlL7lgYflm77jgILvvIkqCgotLS0KCiMjIOS4uuS7gOS5iAoKYWdlbnQg5Zyo5bmy5rS75pe25piv5Liq6buR55uS44CC5L2g5LiN55+l6YGT5a6D5Zyo6LeR5LuA5LmI44CB5Y2h5Zyo5ZOq44CB5piv5LiN5piv5Zyo562J5L2g54K55om55YeG44CC6L+Z5Liq6aG555uu5oqK5a6D55qE5bel5L2c54q25oCB5pGG5oiQ5LiA5byg6IS477yaCgotIOi3keW3peWFt+aXtioq5Z+L5aS05bmy5rS7KioKLSDnrYnkvaDlrqHmibnml7YqKuS4vui1t+eJjOWtkCoq77yI5pyA6YaS55uu55qE5LiA5Liq54q25oCB77yJCi0g5Lu75Yqh5a6M5oiQ5pe2KirmmYPkuIDkuIsqKgotIOWHuumUmeaXtioq5oSj5L2PKioKCuWkluWKoOS4gOS4quaXi+i9rOe8lueggeWZqO+8mui9rOWug+WIh+aNouS8muivne+8jOefreaMieWIh+mhtemdou+8jOmVv+aMieW8uuWItuWIt+aWsO+8jOaMieS9jyvml4vovazmjaLkv6Hmga/lr4bluqbjgIIKCiMjIOS4ieS4quehrOe6puadn++8iOWGs+WumuS6huaVtOS4quaetuaehO+8iQoKMS4gKirohJHlrZDlnKggUGnvvIzlsY/luZXmmK/lk5Hnu4jnq68qKiDwn5+hIOKAlCDkuJrliqHpgLvovpHlhajlnKggUGkg5LiK55qEIHBldGTvvIzorr7lpIfnq6/lj6rlgZrjgIzmlLbluKfmmL7npLogKyDmjInplK7kuIrmiqXjgI3jgILmlLnlip/og73kuI3nlKjliLflm7rku7bjgIIKMi4gKirorr7lpIfnq6/pm7bkuK3mloflrZflupMqKiDwn5+hIOKAlCDmiYDmnInmloflrZfnlLEgcGV0ZCDnlKggUGlsbG93IOa4suafk+i/myBKUEVHIOaOqOi/h+WOu+OAgjI0MMOXMzIwIOeahOWxj+aUvuS4jeS4i+S4gOWll+S4reaWh+Wtl+W6k++8jOS5n+ayoeW/heimgeOAggozLiAqKuiuvuWkh+S4jeebtOi/niBnYXRld2F5Kiog8J+foSDigJQg6K6+5aSH5Y+q6K6kIHBldGTvvIxwZXRkIOaJjeiupCBnYXRld2F544CC6K6+5aSH5LiN5oyB5pyJ5Lu75L2VIGdhdGV3YXkg5Yet5o2u44CCCgojIyDmnrbmnoQKCmBgYArilIzilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJAgICBXUyA6MTg4NjAgICAg4pSM4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSQICAgV1MgOjE4Nzg5ICAg4pSM4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSQCuKUgiAgRVNQMzItUzMgICAgICAgICAgICAg4pSCIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKWtiDilIIgICAgIHBldGQgICAgICDilIIg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pa2IOKUgiBnYXRld2F5ICDilIIK4pSCICDilJwgU1Q3Nzg5IDIuNCIgMjQww5czMjDilIIg4peA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAIOKUgiAgKFBpLCBQeXRob24pIOKUgiDil4DilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAg4pSCICAgICAgICAgIOKUggrilIIgIOKUnCBLWS0wNDAg5peL6L2s57yW56CB5ZmoICAg4pSCICAgSlBFRyDluKcgICAgICDilIIgIOeKtuaAgeaYoOWwhCAgICAg4pSCICAg5Lya6K+d5LqL5Lu2ICAgIOKUlOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUmArilIIgIOKUlCBUSnBnRGVjIOa1geW8j+ebtOWItyAgICDilIIgICAgICAgICAgICAgICDilIIgIOa4suafkyAvIOaPkuS7tiAgIOKUggrilJTilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJggICAgICAgICAgICAgICDilJTilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilJgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg4payCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIOKUgiBmZWF0dXJlIOaPkuS7tgogICAgICAgICAgICAgICAgICAgICAgICAgIGxvY2FsdGltZSDCtyDlpKnmsJQgwrcg5b6F5YqeIMK3IOeVquiMhOmSnyDCtyDigKYKYGBgCgrorr7lpIfkvqfnmoTmuLLmn5PotbAgVEpwZ0RlYyDnmoQgTUNVIOa1geW8j+ebtOWIt++8iDE2IOihjCBsaW5lIGJ1ZmZlcu+8jDcuNjhLQu+8ie+8jCoq5LiN5YGa5YWo5bGP5bin57yT5YayKiog4oCU4oCUIDE1MEtCIOWNleWdl+WIhumFjeWcqCBXaS1GaSDmoIjotbfmnaXlkI7mnIkgT09NIOmjjumZqeOAgvCfn6IKCiMjIOW/q+mAn+W8gOWniwoKIyMjIOWPqui3kSBwZXRk77yI5LiN6ZyA6KaB56Gs5Lu277yJ8J+foQoKYGBgYmFzaApwaXAgaW5zdGFsbCBhaS1hZ2VudC1wZXQgICAgICAjIOW+heWPkeW4gwphaS1hZ2VudC1wZXQgLS1wb3J0IDE4ODYwCmFpLWFnZW50LXBldCAtLW1vY2stZGV2aWNlICAgICAjIOeUqOa1j+iniOWZqOW9k+iuvuWkh++8jOWFiOeci+eUu+mdogpgYGAKCiMjIyDmjqXnnJ/noazku7Yg8J+foQoKMS4g5oyJIFvnoazku7bmjIfljZddKGRvY3Mv56Gs5Lu25oyH5Y2XLm1kKSDmjqXnur/vvIjkuInlnZfmlpnvvIznuqYgwqU0Me+8jOmbtuaJk+adv+mbtueEiuaOpe+8iQoyLiDng6flvZXlm7rku7bvvIhb5Zu65Lu25p6E5bu6XShkb2NzL+WbuuS7tuaehOW7ui5tZCnvvIkKMy4g6K6+5aSH6YWN572R77yM6K6+5aSH55SoIG1ETlMg5om+IHBldGTvvIhgcGV0ZC5sb2NhbGDvvIkKNC4gcGV0ZCDorqLpmIUgZ2F0ZXdheSDkvJror53mtYHvvIznirbmgIHmmKDlsITmiJDooajmg4Xmjqjnu5nlsY/luZUKCiMjIOeKtuaAgeivreS5iemAn+afpQoK5a6M5pW06KeE5YiZ6KeBIFvnirbmgIHor63kuYldKGRvY3Mv54q25oCB6K+t5LmJLm1kKeOAggoKfCBnYXRld2F5IOWunua1i+Wtl+autSB8IOWuoOeJqeeKtuaAgSB8IOihqOeOsCB8CnwtLS18LS0tfC0tLXwKfCDml6DkvJror53vvIzmiJYgYHN0YXR1c2Ag6ZSu57y655yBIHwgYGlkbGVgIHwg5ZG85ZC444CB5YG25bCU55yo55y8IHwKfCBgc3RhdHVzPXJ1bm5pbmdgIOS4lCBgaGFzQWN0aXZlUnVuPXRydWVgIHwgYHdvcmtpbmdgIHwg5Z+L5aS05bmy5rS7IHwKfCBgcGVybWlzc2lvbk1vZGVQZW5kaW5nPXRydWVgIHwgYHdhaXRpbmdgIHwgKirkuL7niYzlrZDvvIjmnIDphpLnm67vvIkqKiB8CnwgYHVucmVhZD10cnVlYCB8IGB3YWl0aW5nYCB8IOWQjOS4iiB8CnwgYHN0YXR1cz1kb25lYCB8IGBkb25lYCB8IOaZg+S4gOS4iyB8CnwgYHN0YXR1cz1lcnJvcmAgfCBgZXJyb3JgIHwg5oSj5L2PIHwKfCBgaXNCYWNrZ3JvdW5kPXRydWVgIHwgKuaOkumZpCogfCDlkI7lj7DkvJror53kuI3lj4LkuI7lrqDniannirbmgIEgfAoKIyMg5paH5qGjCgp8IOaWh+ahoyB8IOWGheWuuSB8CnwtLS18LS0tfAp8IFvnoazku7bmjIfljZddKGRvY3Mv56Gs5Lu25oyH5Y2XLm1kKSB8IEJPTeOAgeaOpee6v+OAgeWuieWFqOinhOWImeOAgeWIsOi0p+W/hea1i+mhuSB8CnwgW+eKtuaAgeivreS5iV0oZG9jcy/nirbmgIHor63kuYkubWQpIHwgZ2F0ZXdheSDlrZfmrrUg4oaSIOWuoOeJqeeKtuaAgeeahOWujOaVtOinhOWImSB8CnwgW+aXi+mSrl0oZG9jcy/ml4vpkq4ubWQpIHwg5omL5Yq/44CBYGdlc3R1cmVzLmpzb25gIOagvOW8j+OAgemhtemdouaooeWeiyB8CnwgW2ZlYXR1cmUg5byA5Y+RXShkb2NzL2ZlYXR1cmXlvIDlj5EubWQpIHwg5oCO5LmI5Yqg5LiA5Liq5paw5Yqf6IO9IHwKfCBb576O5pyv6KeE6IyDXShkb2NzL+e+juacr+inhOiMgy5tZCkgfCDlsLrlr7jjgIHluKfmlbDjgIHlkb3lkI3jgIHlr4bluqbmoaPkvY0gfAp8IFvlm7rku7bmnoTlu7pdKGRvY3Mv5Zu65Lu25p6E5bu6Lm1kKSB8IEVTUC1JREYg546v5aKD44CB5p6E5bu644CB54On5b2V44CB6YWN572RIHwKfCBb5pWF6Zqc5o6S5p+lXShkb2NzL+aVhemanOaOkuafpS5tZCkgfCDov57kuI3kuIogLyDpu5HlsY8gLyDoirHlsY8gfAp8IFvlvIDmupDot6/nur9dKGRvY3Mv5byA5rqQ6Lev57q/Lm1kKSB8IOS7k+W6k+e7k+aehOOAgeWRveWQjeOAgeWPkeW4g+a4heWNleOAgeWQiOinhOWIpOaWrSB8CgojIyDot6/nur8KCnwg54mI5pysIHwg5YaF5a65IHwKfC0tLXwtLS18CnwgdjAuMSB8IHBldGQg6LeR6YCa77yI6K6i6ZiFIOKGkiDmmKDlsIQg4oaSIOa4suafkyDihpIg5o6o5bin77yJ77yb5Zu65Lu26LeR6YCa77yIV2ktRmkgKyDmmL7npLogKyDml4vpkq7vvInvvJvmjqXnur/lm74gKyBCT00gKyBSRUFETUUgfAp8IHYwLjIgfCDnoazku7bmjIfljZfooaXlhajjgIHpooTnvJbor5Hlm7rku7bjgIFEb2NrZXLjgIFmZWF0dXJlIOaWh+ahoyB8CnwgdjEuMCB8IOm7mOiupOinkuiJsueoi+W6j+WMlueUn+aIkO+8m+S4ieWdl+mhtemdoiArIOaXi+mSruivreS5ieihqOW8gOaUviB8CgojIyDlj4LkuI4KCuingSBbQ09OVFJJQlVUSU5HLm1kXShDT05UUklCVVRJTkcubWQp44CC5Luj56CB5LiO576O5pyvKirliIblvIDmjojmnYMqKiDigJTigJQg6KeB6K+l5paH5Lu244CCCgojIyDorrjlj6/or4EKCvCflLQgKirlvoXlrprjgIIqKiDlu7rorq4gQXBhY2hlLTIuMO+8iOavlCBNSVQg5aSa5LiA5bGC5LiT5Yip5o6I5p2D77yM5a+556Gs5Lu2K+i9r+S7tua3t+WQiOmhueebruabtOeos++8ieOAgumAieWumuWQjuihpSBgTElDRU5TRWDjgIIKCiMjIOaVsOaNrua1geWQkQoKcGV0ZCDor7vnmoTmmK8qKuS9oOiHquW3sSBQaSDkuIoqKueahCBPcGVuQ2xhdyDkvJror53nirbmgIHvvIjmoIfpopjjgIHnirbmgIHjgIHmmK/lkKbmnInmnKror7vvvInjgIIqKuS4jeS4iuS6keOAgeS4jeWkluS8oOOAgioqIOivpuingSBbU0VDVVJJVFkubWRdKFNFQ1VSSVRZLm1kKeOAggo=
+# ai-agent-pet
+
+**给 AI agent 装一张脸。**
+
+> 仓库名：`ai-agent-pet`。下面这份文档是**设计契约**，不是已发布软件 —— 读之前先看状态标记。
+
+> 🟡 **项目状态：设计阶段。** 硬件选型已闭合，代码未开工，零件未下单。
+> 本文与 `docs/` 是**设计契约**，不是已发布软件。文中标记：🟢 已一手实测 · 🟡 已定案待实现 · 🔴 待验证
+
+<img src="docs/assets/hero.gif" width="300" alt="agent 干活时它在旁边打工人">
+
+*（图占位。等宠物真能跑起来再录 —— 没有实物之前不放假图。）*
+
+---
+
+## 为什么
+
+agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是不是在等你点批准。这个项目把它的工作状态摆成一张脸：
+
+- 跑工具时**埋头干活**
+- 等你审批时**举起牌子**（最醒目的一个状态）
+- 任务完成时**晃一下**
+- 出错时**愣住**
+
+外加一个旋转编码器：转它切换会话，短按切页面，长按强制刷新，按住+旋转换信息密度。
+
+## 三个硬约束（决定了整个架构）
+
+1. **脑子在 Pi，屏幕是哑终端** 🟡 — 业务逻辑全在 Pi 上的 petd，设备端只做「收帧显示 + 按键上报」。改功能不用刷固件。
+2. **设备端零中文字库** 🟡 — 所有文字由 petd 用 Pillow 渲染进 JPEG 推过去。240×320 的屏放不下一套中文字库，也没必要。
+3. **设备不直连 gateway** 🟡 — 设备只认 petd，petd 才认 gateway。设备不持有任何 gateway 凭据。
+
+## 架构
+
+```
+┌──────────────────────┐   WS :18860    ┌───────────────┐   WS :18789   ┌──────────┐
+│  ESP32-S3             │ ────────────▶ │     petd      │ ────────────▶ │ gateway  │
+│  ├ ST7789 2.4" 240×320│ ◀──────────── │  (Pi, Python) │ ◀──────────── │          │
+│  ├ KY-040 旋转编码器   │   JPEG 帧      │  状态映射     │   会话事件    └──────────┘
+│  └ TJpgDec 流式直刷    │               │  渲染 / 插件   │
+└──────────────────────┘               └───────────────┘
+                                          ▲
+                                          │ feature 插件
+                          localtime · 天气 · 待办 · 番茄钟 · …
+```
+
+设备侧的渲染走 TJpgDec 的 MCU 流式直刷（16 行 line buffer，7.68KB），**不做全屏帧缓冲** —— 150KB 单块分配在 Wi-Fi 栈起来后有 OOM 风险。🟢
+
+## 快速开始
+
+### 只跑 petd（不需要硬件）🟡
+
+```bash
+pip install ai-agent-pet      # 待发布
+ai-agent-pet --port 18860
+ai-agent-pet --mock-device     # 用浏览器当设备，先看画面
+```
+
+### 接真硬件 🟡
+
+1. 按 [硬件指南](docs/硬件指南.md) 接线（三块料，约 ¥41，零打板零焊接）
+2. 烧录固件（[固件构建](docs/固件构建.md)）
+3. 设备配网，设备用 mDNS 找 petd（`petd.local`）
+4. petd 订阅 gateway 会话流，状态映射成表情推给屏幕
+
+## 状态语义速查
+
+完整规则见 [状态语义](docs/状态语义.md)。
+
+| gateway 实测字段 | 宠物状态 | 表现 |
+|---|---|---|
+| 无会话，或 `status` 键缺省 | `idle` | 呼吸、偶尔眨眼 |
+| `status=running` 且 `hasActiveRun=true` | `working` | 埋头干活 |
+| `permissionModePending=true` | `waiting` | **举牌子（最醒目）** |
+| `unread=true` | `waiting` | 同上 |
+| `status=done` | `done` | 晃一下 |
+| `status=error` | `error` | 愣住 |
+| `isBackground=true` | *排除* | 后台会话不参与宠物状态 |
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [硬件指南](docs/硬件指南.md) | BOM、接线、安全规则、到货必测项 |
+| [状态语义](docs/状态语义.md) | gateway 字段 → 宠物状态的完整规则 |
+| [旋钮](docs/旋钮.md) | 手势、`gestures.json` 格式、页面模型 |
+| [feature 开发](docs/feature开发.md) | 怎么加一个新功能 |
+| [美术规范](docs/美术规范.md) | 尺寸、帧数、命名、密度档位 |
+| [固件构建](docs/固件构建.md) | ESP-IDF 环境、构建、烧录、配网 |
+| [故障排查](docs/故障排查.md) | 连不上 / 黑屏 / 花屏 |
+| [开源路线](docs/开源路线.md) | 仓库结构、命名、发布清单、合规判断 |
+
+## 路线
+
+| 版本 | 内容 |
+|---|---|
+| v0.1 | petd 跑通（订阅 → 映射 → 渲染 → 推帧）；固件跑通（Wi-Fi + 显示 + 旋钮）；接线图 + BOM + README |
+| v0.2 | 硬件指南补全、预编译固件、Docker、feature 文档 |
+| v1.0 | 默认角色程序化生成；三块页面 + 旋钮语义表开放 |
+
+## 参与
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。代码与美术**分开授权** —— 见该文件。
+
+## 许可证
+
+🔴 **待定。** 建议 Apache-2.0（比 MIT 多一层专利授权，对硬件+软件混合项目更稳）。选定后补 `LICENSE`。
+
+## 数据流向
+
+petd 读的是**你自己 Pi 上**的 OpenClaw 会话状态（标题、状态、是否有未读）。**不上云、不外传。** 详见 [SECURITY.md](SECURITY.md)。

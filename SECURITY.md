@@ -1,1 +1,51 @@
-IyDlronlhagKCiMjIHBldGQg6ZyA6KaB5LuA5LmI5p2D6ZmQCgp8IOadg+mZkCB8IOS4uuS7gOS5iCB8IOWPr+mAieWQlyB8CnwtLS18LS0tfC0tLXwKfCBgb3BlcmF0b3IucmVhZGAgfCDor7vkvJror53nirbmgIHvvIjmoIfpopjjgIHmmK/lkKblnKjot5HjgIHmnInml6DmnKror7vvvIkgfCDlv4XpgIkgfAp8IGBvcGVyYXRvci53cml0ZWAgfCB2MiDnmoTjgIzmjInkuIDkuIvlm57or53jgI0gfCB2MSDkuI3opoEgfAp8IOe9keWFsyB0b2tlbiB8IOi/nuaOpSBnYXRld2F5IHwg5b+F6YCJIHwKCvCfn6EgdjEg5Y+q55Sz6K+3IGBvcGVyYXRvci5yZWFkYOOAggoKIyMg5pWw5o2u5rWB5ZCRCgpgYGAKZ2F0ZXdheSAo5L2g55qEIFBpKSDilIDilIDilrYgcGV0ZCAo5L2g55qEIFBpKSDilIDilIDilrYg5L2g55qE6K6+5aSHICjkvaDnmoQgV2ktRmkpCmBgYAoKKirlhajpg6jlnKjmnKzmnLrkuI7kvaDnmoTlsYDln5/nvZHlhoXjgIIqKiBwZXRkIOS4jeaKiuS8muivneaVsOaNruWPkeWIsOS7u+S9leesrOS4ieaWueOAggoKcGV0ZCDkvJror7vliLDnmoTkuJzopb/vvJrkvJror53moIfpopjjgIHmmL7npLrlkI3jgIHnirbmgIHlrZfmrrXjgIHmmK/lkKbmnInmnKror7vjgIIqKuS4jeS8muivu+a2iOaBr+ato+aWhyoq77yI6Zmk6Z2eIHYyIOS9oOS4u+WKqOWunueOsO+8ieOAggoKIyMg5Yet5o2u5oCO5LmI566hCgp8IOWHreaNriB8IOWtmOaUviB8IOadg+mZkCB8CnwtLS18LS0tfC0tLXwKfCDnvZHlhbMgdG9rZW4gfCBzeXN0ZW1kIEVudmlyb25tZW50RmlsZSB8IGBjaG1vZCA2MDBg77yMKirkuI3lhaXlupMqKiB8Cnwg6K6+5aSH5Luk54mMIHwg6K6+5aSHIE5WU++8iOmmluasoee7keWumuaXtuWGmeWFpe+8ie+8m3BldGQg5L6n5a2Y5ZOI5biMIHwg4oCU4oCUIHwKfCBXaS1GaSDlh63mja4gfCDlm7rku7bnmoQgYHdpZmlfY29uZmlnLmhgIHwgKirov5sgLmdpdGlnbm9yZSoqIHwKCioq5LiN6KaBKirmiorku7vkvZXlh63mja7mj5DkuqTov5vku5PlupPjgILmlLbliLDlkKvlh63mja7nmoQgUFIg55u05o6l5Yig5o6J77yM5bm25o+Q6YaS5o+Q5Lqk6ICF44CCCgojIyDorr7lpIfkvqfnmoTlronlhajovrnnlYwKCi0g6K6+5aSHKirkuI3mjIHmnIkqKiBnYXRld2F5IOWHreaNriDigJTigJQg5a6D5Y+q6K6kIHBldGQKLSDorr7lpIfnlKggTUFDIOa0vueUn+eahCBkZXZpY2VJZCArIOWFseS6q+iuvuWkh+S7pOeJjOmJtOadg++8jOmYsuatouWQjOe9keauteS7u+aEj+iuvuWkh+aOqOW4pwotIHBldGQg5Y+q57uRIExBTu+8iGAwLjAuMC4wOjE4ODYwYO+8ie+8jCoq5LiN5YqgIG5naW54IOi3r+W+hOOAgeS4jee7meWFrOe9kSBVUkwqKgoKIyMg5oql5ZGK5ryP5rSeCgrnlKggR2l0SHViIOeahCBwcml2YXRlIHZ1bG5lcmFiaWxpdHkgcmVwb3J0aW5n77yM5oiW55u05o6l6IGU57O757u05oqk6ICF44CCCgoqKuivt+S4jeimgSoq5Zyo5YWs5byAIGlzc3VlIOmHjOi0tOWQqyB0b2tlbiDnmoTml6Xlv5fjgIIKCiMjIOWFjei0o+WjsOaYjgoK6L+Z5piv5LiA5Liq5qGM6Z2i5pGG5Lu2IC8g54q25oCB5oyH56S65Zmo44CCCgotICoq5LiN5pivKirnm5HmiqTorr7lpIfjgIHljLvnlpforr7lpIfjgIHlronlhajns7vnu58KLSDlsY/luZXlhoXlrrnlj5blhrPkuo4gYWdlbnQg55qE54q25oCB77yMKirkuI3og73nlKjmnaXliKTmlq3ku7vliqHmmK/lkKbnnJ/nmoTlrozmiJAqKgotIOWuoOeJqeihqOaDheaYr+aLn+S6uuWMlueahO+8jCoq5LiN6KaB55So5a6D5YGa5YWz6ZSu5Yaz562W55qE5L6d5o2uKioK
+# 安全
+
+## petd 需要什么权限
+
+| 权限 | 为什么 | 可选吗 |
+|---|---|---|
+| `operator.read` | 读会话状态（标题、是否在跑、有无未读） | 必选 |
+| `operator.write` | v2 的「按一下回话」 | v1 不要 |
+| 网关 token | 连接 gateway | 必选 |
+
+🟡 v1 只申请 `operator.read`。
+
+## 数据流向
+
+```
+gateway (你的 Pi) ──▶ petd (你的 Pi) ──▶ 你的设备 (你的 Wi-Fi)
+```
+
+**全部在本机与你的局域网内。** petd 不把会话数据发到任何第三方。
+
+petd 会读到的东西：会话标题、显示名、状态字段、是否有未读。**不会读消息正文**（除非 v2 你主动实现）。
+
+## 凭据怎么管
+
+| 凭据 | 存放 | 权限 |
+|---|---|---|
+| 网关 token | systemd EnvironmentFile | `chmod 600`，**不入库** |
+| 设备令牌 | 设备 NVS（首次绑定时写入）；petd 侧存哈希 | —— |
+| Wi-Fi 凭据 | 固件的 `wifi_config.h` | **进 .gitignore** |
+
+**不要**把任何凭据提交进仓库。收到含凭据的 PR 直接删掉，并提醒提交者。
+
+## 设备侧的安全边界
+
+- 设备**不持有** gateway 凭据 —— 它只认 petd
+- 设备用 MAC 派生的 deviceId + 共享设备令牌鉴权，防止同网段任意设备推帧
+- petd 只绑 LAN（`0.0.0.0:18860`），**不加 nginx 路径、不给公网 URL**
+
+## 报告漏洞
+
+用 GitHub 的 private vulnerability reporting，或直接联系维护者。
+
+**请不要**在公开 issue 里贴含 token 的日志。
+
+## 免责声明
+
+这是一个桌面摆件 / 状态指示器。
+
+- **不是**监护设备、医疗设备、安全系统
+- 屏幕内容取决于 agent 的状态，**不能用来判断任务是否真的完成**
+- 宠物表情是拟人化的，**不要用它做关键决策的依据**

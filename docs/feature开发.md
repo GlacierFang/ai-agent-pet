@@ -1,1 +1,118 @@
-IyBmZWF0dXJlIOW8gOWPkQoKPiDwn5+hIOaOpeWPo+W3suiuvuiuoe+8jOS7o+eggeacquWunueOsOOAggoKcGV0ZCDnmoTlip/og73ku6UqKuaPkuS7tioq5b2i5byP5oyC44CC5Yqg5LiA5Liq5paw5Yqf6IO9ID0g5Yqg5LiA5LiqIGZlYXR1cmUg5qih5Z2XICsg5LiA5Liq576O5pyv55uu5b2V77yMKirorr7lpIflm7rku7bkuIDooYzkuI3mlLkqKuOAggoKIyMg55uu5b2VCgpgYGAKc2tpbGxzL2FpLWFnZW50LXBldC8gICAgICAgICAgICMg5b6F5bu6CuKUlOKUgOKUgCBiYWNrZW5kLwogICAg4pSc4pSA4pSAIGFwcC5weSAgICAgICAgICAgICAgICAgIyDlhaXlj6PvvJpSRVNUICsgV1Mg5ZCM56uv5Y+jIDE4ODYwCiAgICDilJzilIDilIAgY29yZS8KICAgIOKUgiAgIOKUnOKUgOKUgCBnYXRld2F5X2NsaWVudC5weSAgIyDirZAg5o+h5omL5LiOIHNjb3BlIOmAu+i+keWPquWcqOi/meS4gOS4quaWh+S7tgogICAg4pSCICAg4pSc4pSA4pSAIHN0YXRlX21hcHBlci5weSAgICAjIOKtkCDnirbmgIHor63kuYkKICAgIOKUgiAgIOKUnOKUgOKUgCByZW5kZXJlci5weSAgICAgICAgIyBQaWxsb3cg5riy5p+TCiAgICDilIIgICDilJzilIDilIAgZnJhbWVfc2VydmVyLnB5ICAgICMg6K6+5aSHIFdTIOacjeWKoQogICAg4pSCICAg4pSc4pSA4pSAIGRldmljZV9yZWdpc3RyeS5weSAjIOiuvuWkh+e7keWumuS4jumJtOadgwogICAg4pSCICAg4pSU4pSA4pSAIGZlYXR1cmVfcmVnaXN0cnkucHkjIOKtkCDmianlsZXngrkKICAgIOKUnOKUgOKUgCBmZWF0dXJlcy8gICAgICAgICAgICAgICMg4q2QIOWPr+aPkuaLlOWKn+iDvQogICAg4pSCICAg4pSU4pSA4pSAIGxvY2FsdGltZS5weSAgICAgICAjIOacgOWwj+ekuuS+iwogICAg4pSc4pSA4pSAIGRhdGEvCiAgICDilIIgICDilJzilIDilIAgZ2VzdHVyZXMuanNvbiAgICAgICMg5peL6ZKu6K+t5LmJ6KGoCiAgICDilIIgICDilJTilIDilIAgc3RhdGVfcnVsZXMuanNvbiAgICMg54q25oCB5pig5bCE6KeE5YiZCiAgICDilJTilIDilIAgYXNzZXRzLwogICAgICAgIOKUnOKUgOKUgCBmcmFtZXMvPHN0YXRlPi8gICAgIyDnirbmgIHluKfpm4YKICAgICAgICDilJTilIDilIAgc2tpbnMvPHNraW4+LyAgICAgICMg55qu6IKk5YyFCmBgYAoKIyMgZmVhdHVyZSDmjqXlj6MKCuS4gOS4qiBmZWF0dXJlIOaYr+S4quaZrumAmiBQeXRob24g5a+56LGh77yaCgpgYGBweXRob24KIyBmZWF0dXJlcy9sb2NhbHRpbWUucHkKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZXRpbWUKCmNsYXNzIExvY2FsVGltZToKICAgIG5hbWUgPSAibG9jYWx0aW1lIgogICAgcHJpb3JpdHkgPSAxMCAgICAgICAgICAjIOWkmiBmZWF0dXJlIOWQjOaXtuaDs+aUueeUu+mdouaXtu+8jHByaW9yaXR5IOWkp+eahOi1ogoKICAgIGRlZiBjb250ZXh0KHNlbGYpIC0+IGRpY3Q6CiAgICAgICAgIiIi6L+U5Zue6KaB5pi+56S655qE5YaF5a6544CC57qv5pWw5o2u77yM5LiN56KwIElP44CCIiIiCiAgICAgICAgbm93ID0gZGF0ZXRpbWUubm93KCkKICAgICAgICByZXR1cm4geyJ0ZXh0Ijogbm93LnN0cmZ0aW1lKCIlSDolTSIpfQoKICAgIGRlZiByZW5kZXIoc2VsZiwgY3R4OiBkaWN0LCBkcmF3LCBmb250cykgLT4gTm9uZToKICAgICAgICAiIiLlnKjnlLvluIPkuIrnlLvjgIJkcmF3L2ZvbnRzIOeUsSBwZXRkIOS8oOWFpeOAgiIiIgogICAgICAgIGRyYXcudGV4dCgoMTIsIDEyMCksIGN0eFsidGV4dCJdLCBmb250PWZvbnRzWyJib2R5Il0sIGZpbGw9KDI1NSwgMjU1LCAyNTUpKQoKICAgIGRlZiB3YW50cyhzZWxmLCBzdGF0ZTogc3RyKSAtPiBib29sOgogICAgICAgICIiIui/meS4qiBmZWF0dXJlIOaDs+imgeaOpeeuoeWTquS4queKtuaAgeOAgui/lOWbniBGYWxzZSDlsLHorqnkvY3jgIIiIiIKICAgICAgICByZXR1cm4gc3RhdGUgPT0gImlkbGUiCmBgYAoKIyMg5LiJ5p2h56Gs6L6555WMCgpmZWF0dXJlICoq5LiN5b6XKirvvJoKCjEuIOKdjCAqKuebtOaOpei/nuaOpSBnYXRld2F5Kiog4oCU4oCUIOWPquiDvemAmui/h+S4iuS4i+aWh+aLvyBnYXRld2F5IOe7meeahOaVsOaNrgoyLiDinYwgKirnm7TmjqXlhpnorr7lpIcqKiDigJTigJQg5Y+q6IO96K+35rGCIHBldGQg5o6o5binCjMuIOKdjCAqKue7lei/h+iuvuWkh+eKtuaAgeacuioqIOKAlOKAlCDkuI3og73oh6rlt7HlrprkuYnorr7lpIfor6XmmL7npLrku4DkuYgKCui/meS4ieadoeaYr+mYsuWxjuWxseeahOWFs+mUruOAgmZlYXR1cmUg5piv44CM5b6A55S76Z2i5LiK5Yqg5Lic6KW/44CN77yM5LiN5piv44CM5Y+m6LW35LiA5aWX57O757uf44CN44CCCgojIyDms6jlhowKCmBgYHB5dGhvbgojIGNvcmUvZmVhdHVyZV9yZWdpc3RyeS5weQpmcm9tIGZlYXR1cmVzLmxvY2FsdGltZSBpbXBvcnQgTG9jYWxUaW1lCgpGRUFUVVJFUyA9IFtMb2NhbFRpbWUoKV0KYGBgCgrmiJbogIXnlKjoo4XppbDlmajoh6rliqjms6jlhozvvIjmm7TnnIHkuovvvIzkvYblr7zlhaXpobrluo/kvJrlj5jmiJDpmpDlvI/kvp3otZYg4oCU4oCUIOaWsOS6uuWuueaYk+i4qeWdke+8jOW7uuiuruWFiOaYvuW8j++8ieOAggoKIyMg5LyY5YWI57qnCgrlkIzkuIDml7bliLvlpJrkuKogZmVhdHVyZSDpg73mg7PmjqXnrqHnlLvpnaLml7bvvIzmjIkgYHByaW9yaXR5YCDlpKfnmoTotaLjgILpu5jorqQgMOOAggoK5YaF572uIGZlYXR1cmUg55qE5LyY5YWI57qn57qm5a6a77yaCgp8IGZlYXR1cmUgfCBwcmlvcml0eSB8IOivtOaYjiB8CnwtLS18LS0tfC0tLXwKfCDnirbmgIHooajmg4XvvIjlhoXnva7vvIzpnZ4gZmVhdHVyZe+8iSB8IDEwMCB8IOaguOW/g+eKtuaAgeawuOi/nOacgOmrmCB8Cnwg5b6F5YqeIC8g5o+Q6YaSIHwgNTAgfCB8Cnwg5aSp5rCUIHwgMzAgfCB8CnwgbG9jYWx0aW1lIHwgMTAgfCB8Cnwg6KOF6aWwIHwgMCB8IHwKCiMjIOWKoOS4gOS4quaWsOWKn+iDvQoKMS4g5ZyoIGBmZWF0dXJlcy9gIOW7uuaooeWdl++8jOWunueOsOS4iumdoueahOaOpeWPowoyLiDlnKggYGZlYXR1cmVfcmVnaXN0cnkucHlgIOazqOWGjAozLiDvvIjlj6/pgInvvInlnKggYGFzc2V0cy9mcmFtZXMvYCDliqDnvo7mnK8KNC4g5paH5qGj6YeM6KGl5LiA5q616K+05piOCgoqKuS4jemcgOimgSoq56Kw5Zu65Lu244CB5LiN6ZyA6KaB56Kw6K6+5aSH5Y2P6K6u44CCCgojIyDmjqjkuIDlvKDoh6rlrprkuYnnlLvpnaIKCmZlYXR1cmUg5LmL5aSW77yM6LCD6K+V5pe25Y+v5Lul55SoIEhUVFAg5o6l5Y+j55u05o6l5o6o5LiA5byg5a6M5pW055S76Z2i77yaCgpgYGBiYXNoCmN1cmwgLVggUE9TVCBodHRwOi8vMTI3LjAuMC4xOjE4ODYwL2FwaS9mcmFtZSBcCiAgLUggIkNvbnRlbnQtVHlwZTogYXBwbGljYXRpb24vanNvbiIgXAogIC1kICd7ImltYWdlIjogIjxiYXNlNjQgSlBFRz4iLCAiZHVyYXRpb25NcyI6IDMwMDB9JwpgYGAKCiMjIOa1i+ivlQoKZmVhdHVyZSDlupTor6Xog73ohLHnprvorr7lpIfljZXni6zmtYvvvJoKCmBgYGJhc2gKcHl0aG9uIC1tIHBldGQudG9vbHMucmVuZGVyX2ZlYXR1cmUgbG9jYWx0aW1lIC0tb3V0IC90bXAvb3V0LnBuZwpgYGAKCua4suafk+WHuuadpeeahCBQTkcg5Lq65bel55yL5LiA55y85bCx6KGMIOKAlOKAlCDov5nmmK/mnIDkvr/lrpznmoTlj43ppojlm57ot6/jgIIK
+# feature 开发
+
+> 🟡 接口已设计，代码未实现。
+
+petd 的功能以**插件**形式挂。加一个新功能 = 加一个 feature 模块 + 一个美术目录，**设备固件一行不改**。
+
+## 目录
+
+```
+skills/ai-agent-pet/           # 待建
+└── backend/
+    ├── app.py                 # 入口：REST + WS 同端口 18860
+    ├── core/
+    │   ├── gateway_client.py  # ⭐ 握手与 scope 逻辑只在这一个文件
+    │   ├── state_mapper.py    # ⭐ 状态语义
+    │   ├── renderer.py        # Pillow 渲染
+    │   ├── frame_server.py    # 设备 WS 服务
+    │   ├── device_registry.py # 设备绑定与鉴权
+    │   └── feature_registry.py# ⭐ 扩展点
+    ├── features/              # ⭐ 可插拔功能
+    │   └── localtime.py       # 最小示例
+    ├── data/
+    │   ├── gestures.json      # 旋钮语义表
+    │   └── state_rules.json   # 状态映射规则
+    └── assets/
+        ├── frames/<state>/    # 状态帧集
+        └── skins/<skin>/      # 皮肤包
+```
+
+## feature 接口
+
+一个 feature 是个普通 Python 对象：
+
+```python
+# features/localtime.py
+from datetime import datetime
+
+class LocalTime:
+    name = "localtime"
+    priority = 10          # 多 feature 同时想改画面时，priority 大的赢
+
+    def context(self) -> dict:
+        """返回要显示的内容。纯数据，不碰 IO。"""
+        now = datetime.now()
+        return {"text": now.strftime("%H:%M")}
+
+    def render(self, ctx: dict, draw, fonts) -> None:
+        """在画布上画。draw/fonts 由 petd 传入。"""
+        draw.text((12, 120), ctx["text"], font=fonts["body"], fill=(255, 255, 255))
+
+    def wants(self, state: str) -> bool:
+        """这个 feature 想要接管哪个状态。返回 False 就让位。"""
+        return state == "idle"
+```
+
+## 三条硬边界
+
+feature **不得**：
+
+1. ❌ **直接连接 gateway** —— 只能通过上下文拿 gateway 给的数据
+2. ❌ **直接写设备** —— 只能请求 petd 推帧
+3. ❌ **绕过设备状态机** —— 不能自己定义设备该显示什么
+
+这三条是防屎山的关键。feature 是「往画面上加东西」，不是「另起一套系统」。
+
+## 注册
+
+```python
+# core/feature_registry.py
+from features.localtime import LocalTime
+
+FEATURES = [LocalTime()]
+```
+
+或者用装饰器自动注册（更省事，但导入顺序会变成隐式依赖 —— 新人容易踩坑，建议先显式）。
+
+## 优先级
+
+同一时刻多个 feature 都想接管画面时，按 `priority` 大的赢。默认 0。
+
+内置 feature 的优先级约定：
+
+| feature | priority | 说明 |
+|---|---|---|
+| 状态表情（内置，非 feature） | 100 | 核心状态永远最高 |
+| 待办 / 提醒 | 50 | |
+| 天气 | 30 | |
+| localtime | 10 | |
+| 装饰 | 0 | |
+
+## 加一个新功能
+
+1. 在 `features/` 建模块，实现上面的接口
+2. 在 `feature_registry.py` 注册
+3. （可选）在 `assets/frames/` 加美术
+4. 文档里补一段说明
+
+**不需要**碰固件、不需要碰设备协议。
+
+## 推一张自定义画面
+
+feature 之外，调试时可以用 HTTP 接口直接推一张完整画面：
+
+```bash
+curl -X POST http://127.0.0.1:18860/api/frame \
+  -H "Content-Type: application/json" \
+  -d '{"image": "<base64 JPEG>", "durationMs": 3000}'
+```
+
+## 测试
+
+feature 应该能脱离设备单独测：
+
+```bash
+python -m petd.tools.render_feature localtime --out /tmp/out.png
+```
+
+渲染出来的 PNG 人工看一眼就行 —— 这是最便宜的反馈回路。
