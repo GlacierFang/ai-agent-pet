@@ -136,3 +136,23 @@ def test_password_not_in_public_config_view():
     cfg["gateway"]["token"] = "SECRET"
     pub = config.public_view(cfg)
     assert "SECRET" not in str(pub)
+
+
+def test_dashboard_body_not_hidden_by_default(no_pw_client):
+    """没设口令时主体必须可见。
+
+    回归：加口令那次给 <main> 加了 class=hidden，而解锁它的 hideGate()
+    只在登录成功后调用 —— 没设口令的路径没人调，页面只剩页头页脚。
+    """
+    html = no_pw_client.get("/admin/").text
+    assert '<main id="app">' in html
+    assert '<main id="app" class="hidden">' not in html
+
+
+def test_dashboard_unlocks_body_in_js(no_pw_client):
+    """app.js 必须自己解锁 #app，不能指望 hideGate()。
+
+    没设口令时没人调 hideGate()，解锁只能写在 startDashboard() 里。
+    """
+    js = no_pw_client.get("/admin/assets/app.js").text
+    assert "el('app').classList.remove('hidden')" in js

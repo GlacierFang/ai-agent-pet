@@ -321,6 +321,10 @@ function onGateSubmit(ev) {
 function startDashboard() {
   if (S.started) return;
   S.started = true;
+  /* 主体默认可见：没设口令的路径直接走到这里，没人调 hideGate()。
+     gate 路径下由 showGate() 隐藏，这里再确认一次 ——
+     免得以后有人在 HTML 里加回 hidden，页面又只剩页头页脚。 */
+  el('app').classList.remove('hidden');
   var img = el('preview');
   img.addEventListener('load', function () {
     el('preview-empty').classList.add('hidden');
