@@ -25,13 +25,29 @@ jobs:
         with:
           python-version: "3.11"
 
+      # ESP-IDF 本体加 esp32s3 工具链约 2GB，每次从零拉要十几分钟，
+      # runner 网络一慢能卡死半小时。缓存住，第二次开始省掉整段下载。
+      - name: 缓存 ESP-IDF 与工具链
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/esp-idf
+            ~/.espressif
+          key: esp-idf-v5.5-esp32s3-${{ runner.os }}
+
       # 不用 espressif/install-esp-idf-action：它没有 target 入参，
       # 装不装 esp32s3 工具链取决于它的内部推断，猜不得。
       # 官方 install.sh 显式指定目标，行为确定。
       # 不用 espressif/idf —— 那个 action 不存在（GitHub 上 404）。
       - name: 拉取并安装 ESP-IDF v5.5（esp32s3 工具链）
         run: |
-          git clone -b v5.5 --depth 1 --recursive https://github.com/espressif/esp-idf.git "$HOME/esp-idf"
+          set +e
+          if [ ! -d "$HOME/esp-idf/.git" ]; then
+            git clone -b v5.5 --depth 1 --recursive https://github.com/espressif/esp-idf.git "$HOME/esp-idf"
+          else
+            echo "ESP-IDF 本体已就位（缓存命中），跳过 clone"
+          fi
+          # install.sh 是幂等的：工具链装过了就跳过下载，没装过的照常装。
           "$HOME/esp-idf/install.sh" esp32s3
           echo "IDF_PATH=$HOME/esp-idf" >> "$GITHUB_ENV"
 
