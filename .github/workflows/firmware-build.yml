@@ -10,7 +10,9 @@ on:
 jobs:
   build:
     name: 编译固件
-    runs-on: ubuntu-latest
+    # 不用 ubuntu-latest：它正在迁到 Ubuntu 26，Python 版本会漂。
+    # IDF v5.5 对 Python 3.13+ 支持没把握，22.04 + setup-python 3.11 最稳。
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -23,31 +25,51 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 注意：不能用 espressif/idf —— 那个 action 不存在（GitHub 上 404）。
-      # 官方现役的是 espressif/install-esp-idf-action，原生装工具链，不依赖 Docker。
-      # 若该 action 对 v5.5 不支持，退回官方脚本版：
-      #   git clone -b v5.5 --depth 1 --recursive https://github.com/espressif/esp-idf.git
-      #   cd esp-idf && ./install.sh esp32s3 && . ./export.sh
-      - name: 安装 ESP-IDF v5.5
-        uses: espressif/install-esp-idf-action@v1
-        with:
-          version: "v5.5"
+      # 不用 espressif/install-esp-idf-action：它没有 target 入参，
+      # 装不装 esp32s3 工具链取决于它的内部推断，猜不得。
+      # 官方 install.sh 显式指定目标，行为确定。
+      # 不用 espressif/idf —— 那个 action 不存在（GitHub 上 404）。
+      - name: 拉取并安装 ESP-IDF v5.5（esp32s3 工具链）
+        run: |
+          git clone -b v5.5 --depth 1 --recursive https://github.com/espressif/esp-idf.git "$HOME/esp-idf"
+          "$HOME/esp-idf/install.sh" esp32s3
+          echo "IDF_PATH=$HOME/esp-idf" >> "$GITHUB_ENV"
 
       - name: 编译
         run: |
+          set +e
+          . "$HOME/esp-idf/export.sh"
           cd firmware
-          idf.py set-target esp32s3
-          idf.py build
-          idf.py size
+          idf.py set-target esp32s3 2>&1 | tee /tmp/set-target.log
+          idf.py build 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          # 把错误行转成 GitHub annotation —— 日志文件下载走不通时，
+          # annotation 是唯一能读到的失败原因。
+          echo "--- build errors ---" >> "$GITHUB_STEP_SUMMARY"
+          grep -hE 'error:|CMake Error|fatal error|FAILED|FatalError' /tmp/set-target.log /tmp/build.log \
+            | head -60 | while IFS= read -r l; do
+              esc=$(printf '%s' "$l" | sed 's/%/%25/g')
+              echo "::error::$esc"
+              echo "- $l" >> "$GITHUB_STEP_SUMMARY"
+            done
+          if [ "$rc" != "0" ]; then
+            echo "### 最后 40 行" >> "$GITHUB_STEP_SUMMARY"
+            tail -40 /tmp/build.log >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $rc
 
       # 整片镜像（0x0 起，含 bootloader）—— 用 CMake 目标，
       # esptool 的命令行细节由 IDF 自己定，不依赖我猜参数。
       - name: 合并整片镜像
-        run: ninja -C firmware/build merge-bin
+        run: |
+          . "$HOME/esp-idf/export.sh"
+          ninja -C firmware/build merge-bin
 
       # UF2：能生成就上传；生成不了不阻断（主烧录路径是 esptool 刷整片镜像）。
       - name: 生成 UF2
-        run: ninja -C firmware/build uf2
+        run: |
+          . "$HOME/esp-idf/export.sh"
+          ninja -C firmware/build uf2
         continue-on-error: true
 
       - name: 上传构建产物
@@ -74,7 +96,7 @@ jobs:
     name: 发布到 Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/fw-v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
