@@ -15,6 +15,10 @@
     "port": 18860,
     "allowPublic": false
   },
+  "mdns": {
+    "enabled": true,
+    "hostname": "petd.local"
+  },
   "render": {
     "width": 240,
     "height": 320,

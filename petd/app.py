@@ -21,6 +21,10 @@ log = logging.getLogger("petd.app")
 ACTIVE_STATES = ("working", "waiting", "error", "done")
 PAGES = ("face", "session", "notify")
 
+# 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
+# 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
+SETUP_STATE_PATH = config_mod.DATA_DIR / "setup_state.json"
+
 STATE_SUBTITLE = {
     "idle": "", "working": "正在处理", "waiting": "等你确认",
     "done": "已完成", "error": "出错了", "sleeping": "zZ",
@@ -47,6 +51,10 @@ class PetApp:
         self._gateway = None
         self._phase = 0.0
         self._picked = None
+        self.mdns = None          # server 生命周期里塞进来的 MdnsAdvertiser
+        # 实际在听的端口。命令行 --port 会盖过配置，但不该被写回配置文件 ——
+        # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
+        self.listen_port = int((cfg.get("server", {}) or {}).get("port", 18860))
 
     @staticmethod
     def _load_rules():
@@ -107,6 +115,7 @@ class PetApp:
                       "activeFps": self.cfg.get("frame", {}).get("activeFps", 10)},
         })
         self.log("info", "设备握手完成: " + s.device_id)
+        self._mark_device_seen(s)
 
     async def on_device_message(self, raw):
         try:
@@ -123,6 +132,12 @@ class PetApp:
                 s.rssi = msg.get("rssi", 0)
                 s.decode_ms = msg.get("decodeMs", 0)
                 s.last_frame_ms = msg.get("lastFrameMs", 0)
+                # ip / provisioned 是给下一版固件留的字段：固件还没上报就不动，
+                # 旧固件的报文照样能收。
+                if "ip" in msg:
+                    s.ip = str(msg.get("ip") or "")
+                if "provisioned" in msg:
+                    s.provisioned = bool(msg.get("provisioned"))
         elif t == "input":
             await self.on_knob(msg)
         elif t == "log":
@@ -308,3 +323,107 @@ class PetApp:
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},
         }
+
+    # ---------- 首次使用指引 ----------
+    def _load_setup_state(self):
+        """读落盘的状态。读不了就当没有 —— 引导页不该因为一个文件挂掉。"""
+        try:
+            blob = json.loads(SETUP_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return blob if isinstance(blob, dict) else {}
+
+    def _save_setup_state(self, blob):
+        try:
+            SETUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SETUP_STATE_PATH.write_text(json.dumps(blob, ensure_ascii=False, indent=2),
+                                        encoding="utf-8")
+        except Exception as exc:
+            self.log("error", "保存引导状态失败: %s" % exc)
+
+    def _mark_device_seen(self, session):
+        """记下「设备连过」—— 断开后后台不该把这一项退回未开始。"""
+        state = self._load_setup_state()
+        state["everConnected"] = True
+        if session is not None and session.device_id:
+            state["deviceId"] = session.device_id
+        state["maxFrames"] = max(int(state.get("maxFrames") or 0),
+                                 int(session.frame_count) if session else 0)
+        self._save_setup_state(state)
+
+    def on_device_disconnected(self, session):
+        """设备走了，把帧数落盘。"""
+        state = self._load_setup_state()
+        state["everConnected"] = True
+        state["maxFrames"] = max(int(state.get("maxFrames") or 0),
+                                 int(session.frame_count) if session else 0)
+        self._save_setup_state(state)
+
+    def _mdns_view(self):
+        """mDNS 广播现状。
+
+        enabled 取配置（用户关了就是 false）；addresses 取广播器实际广播的地址 ——
+        广播器没起来时是空列表，页面据此告诉用户「设备还连不上」。
+        """
+        adv = self.mdns
+        cfg_mdns = self.cfg.get("mdns", {}) or {}
+        addresses = []
+        if adv is not None and adv.running:
+            addresses = adv.addresses()
+        return {
+            "enabled": bool(cfg_mdns.get("enabled", True)),
+            "hostname": (adv.hostname if adv is not None
+                         else str(cfg_mdns.get("hostname") or "petd.local")),
+            "addresses": addresses,
+            "port": self.listen_port,
+        }
+
+    def setup_payload(self):
+        """后台「第一次用」的引导数据。
+
+        字段名是前后端契约 —— 前端按这些键渲染，改名就白屏。
+        """
+        state = self._load_setup_state()
+        ever = bool(state.get("everConnected"))
+        session = self.devices.session
+        online = self.devices.online
+
+        device_done = bool(online or ever)
+        device_detail = ""
+        if session is not None and session.device_id:
+            device_detail = session.device_id
+        elif state.get("deviceId"):
+            device_detail = str(state.get("deviceId"))
+
+        frames = int(session.frame_count) if session is not None else 0
+        frames = max(frames, int(state.get("maxFrames") or 0))
+        frames_done = device_done and frames > 0
+
+        sessions = len(self.engine.sessions)
+        pet_done = sessions > 0
+
+        steps = [
+            {"id": "admin", "label": "后台已就绪", "done": True,
+             "detail": "petd 正在运行", "hint": ""},
+            {"id": "device", "label": "设备已连接", "done": device_done,
+             "detail": device_detail,
+             "hint": "" if device_done else "设备刷好固件后会自己连上来"},
+            {"id": "frames", "label": "屏幕已出画面", "done": frames_done,
+             "detail": ("已推送 %d 帧" % frames) if frames_done else "", "hint": ""},
+            {"id": "pet", "label": "宠物已上线", "done": pet_done,
+             "detail": ("%d 个会话" % sessions) if pet_done else "",
+             "hint": "" if pet_done else "宠物需要至少一个会话才能醒"},
+        ]
+        return {
+            "steps": steps,
+            "mdns": self._mdns_view(),
+            # 配网能力说明。等固件 v0.2.0 落地后，supported 改由固件 hello/status
+            # 报文里的字段决定（petd 侧已经预留了 provisioned）。
+            "provisioning": {
+                "supported": True,
+                "apSsidPattern": "petd-setup-XXXX",
+                "apUrl": "http://192.168.4.1",
+                "note": "密码显示在设备屏幕上",
+            },
+        }
+

@@ -35,7 +35,7 @@ def main(argv=None):
         print("[petd] 监听 %s:%d" % (host, port))
     print("[petd] 控制台 http://%s:%d/admin/" % (host, port))
 
-    app = create_app(cfg, start_gateway=not args.no_gateway)
+    app = create_app(cfg, start_gateway=not args.no_gateway, port=port)
     uvicorn.run(app, host=host, port=port, log_level=args.log_level,
                 ws_ping_interval=20, ws_ping_timeout=10)
     return 0

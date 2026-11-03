@@ -29,6 +29,8 @@ def defaults():
         "frame": {"idleFps": 1, "activeFps": 10, "maxInFlight": 2},
         "state": {"sleepAfterMin": 10},
         "ui": {"skin": "default", "density": 1, "page": "face"},
+        # mDNS 广播：设备靠它把 petd.local 解析成 IP。起不来不影响 petd 本身。
+        "mdns": {"enabled": True, "hostname": "petd.local"},
     }
 
 

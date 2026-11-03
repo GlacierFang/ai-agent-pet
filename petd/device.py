@@ -29,6 +29,10 @@ class DeviceSession:
         self.rssi = 0
         self.fw = info.get("fw", "")
         self.device_id = info.get("deviceId", "")
+        # 下一版固件会上报：设备自己的 IP + 是否已配网。
+        # 旧固件不上报就保持默认值，不影响现有流程。
+        self.ip = str(info.get("ip", "") or "")
+        self.provisioned = bool(info.get("provisioned", False))
 
     async def send_json(self, obj):
         await self.ws.send_text(json.dumps(obj, ensure_ascii=False))
@@ -82,6 +86,8 @@ class DeviceManager:
             "lastFrameMs": s.last_frame_ms,
             "decodeMs": s.decode_ms,
             "rssi": s.rssi,
+            "ip": s.ip,
+            "provisioned": s.provisioned,
         }
 
     async def attach(self, ws, info):
