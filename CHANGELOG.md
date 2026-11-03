@@ -3,6 +3,22 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+**服务端 petd**
+
+- **mDNS 广播器**（`petd/mdns.py`）：纯标准库实现，不加第三方依赖。在 UDP 5353 上应答 `petd.local` 的 A 查询和 `_petd._tcp.local` 的 PTR 查询（连带 SRV + TXT + A），让设备能用固件默认的 `petd.local` 找到服务端 —— 之前固件一直在问、服务端从来不答，整条链路是堵的
+  - 应答报文严格按 lwIP 的解析口径写：必须带回 question 段且不用压缩指针、class 正好是 IN（不带 cache-flush 位）、单播回查询源端口（lwIP 的 DNS pcb 不加入组播组，只认发回自己端口的包）
+  - `SO_REUSEADDR` + `SO_REUSEPORT` 与机器上已有的 avahi 共存，实测 avahi 的应答不受影响
+  - 起不来只记日志，petd 照跑 —— mDNS 是增强功能，没有它设备还能用 IP 直连
+  - 配置开关：`petd/data/config.json` 里 `"mdns": {"enabled": true}`（默认开）
+- **首次使用指引接口** `GET /admin/api/setup`：四步进度（后台就绪 / 设备已连接 / 屏幕已出画面 / 宠物已上线）+ mDNS 现状 + 配网说明
+  - 「设备连过没有」落盘到 `petd/data/setup_state.json`，重启 petd 不会退回未开始
+- 设备状态预留 `ip` / `provisioned` 两个字段（固件 v0.2.0 配网落地后上报），旧固件不受影响
+- mDNS 自测脚本 `petd/tools/check_mdns.py`：手工拼 DNS 查询验应答，无硬件也能跑
+
 ## [0.1.0] - 2026-11-03
 
 首个可用版本。服务端与固件都能真实跑起来，但**还没有实机验证**（硬件未到货）。

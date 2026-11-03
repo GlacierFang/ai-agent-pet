@@ -14,3 +14,4 @@ petd/data/state.json
 # 用户自己的资产：不进仓库
 petd/data/capabilities.local.json
 petd/data/skins/
+petd/data/setup_state.json

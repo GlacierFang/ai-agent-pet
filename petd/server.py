@@ -30,6 +30,7 @@ from . import capabilities as capabilities_mod
 from . import config as config_mod
 from . import skins as skins_mod
 from .app import PetApp
+from .mdns import MdnsAdvertiser
 
 log = logging.getLogger("petd.server")
 
@@ -66,10 +67,40 @@ def _token_ok(key, raw):
         return False
 
 
-def create_app(cfg=None, start_gateway=True):
+def _start_mdns(pet):
+    """开 mDNS 广播。
+
+    mDNS 是增强功能：起不来只记日志，petd 该跑还得跑 ——
+    没有它设备还能用 IP 直连，只是用不了 petd.local。
+    """
+    cfg_mdns = pet.cfg.get("mdns", {}) or {}
+    if not cfg_mdns.get("enabled", True):
+        pet.log("info", "mDNS 已关闭（配置 mdns.enabled=false）")
+        return
+    hostname = str(cfg_mdns.get("hostname") or "petd.local")
+    adv = MdnsAdvertiser(port=pet.listen_port, hostname=hostname)
+    adv.start()   # 起不来只记日志，petd 照跑
+    pet.mdns = adv
+
+
+def _stop_mdns(pet):
+    adv = pet.mdns
+    pet.mdns = None
+    if adv is not None:
+        try:
+            adv.stop()
+        except Exception as exc:
+            log.warning("停止 mDNS 失败: %s", exc)
+
+
+def create_app(cfg=None, start_gateway=True, port=None):
     cfg = cfg or config_mod.load()
     cfg["_repo_root"] = str(REPO_ROOT)
     pet = PetApp(cfg)
+    # 命令行 --port 只影响这次运行，不写回 cfg —— 否则配置文件会被改掉。
+    # mDNS 要广播的是实际在听的端口。
+    if port:
+        pet.listen_port = int(port)
 
     # 后台口令：没设就不鉴权（clone 下来直接能跑）。
     # 设了就是一把共享锁 —— 不是账号体系，没有注册/多用户。
@@ -99,11 +130,13 @@ def create_app(cfg=None, start_gateway=True):
             gateway = GatewayClient(cfg, on_sessions=pet.on_sessions)
             pet._gateway = gateway
             gateway_task = asyncio.create_task(gateway.run_forever())
+        _start_mdns(pet)
         await pet.start(gateway)
         try:
             yield
         finally:
             await pet.stop()
+            _stop_mdns(pet)
             if gateway_task:
                 gateway_task.cancel()
                 with contextlib.suppress(Exception):
@@ -137,6 +170,7 @@ def create_app(cfg=None, start_gateway=True):
             pet.log("error", "设备连接异常: %s" % exc)
         finally:
             if session is not None:
+                pet.on_device_disconnected(session)
                 await pet.devices.detach(session)
 
     async def admin_index(request):
@@ -181,6 +215,10 @@ def create_app(cfg=None, start_gateway=True):
 
     async def api_status(request):
         return JSONResponse(pet.snapshot())
+
+    async def api_setup(request):
+        """首次使用指引 —— 字段是前后端契约，别改名字。"""
+        return JSONResponse(pet.setup_payload())
 
     async def api_config_get(request):
         return JSONResponse(config_mod.public_view(pet.cfg))
@@ -338,6 +376,7 @@ def create_app(cfg=None, start_gateway=True):
         Route("/admin/api/session", api_session),
         Route("/admin/api/preview.jpg", _guard(api_preview)),
         Route("/admin/api/status", _guard(api_status)),
+        Route("/admin/api/setup", _guard(api_setup)),
         Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
         Route("/admin/api/logs", _guard(api_logs)),
