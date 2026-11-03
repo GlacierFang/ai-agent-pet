@@ -327,6 +327,8 @@ function startDashboard() {
   el('app').classList.remove('hidden');
   var img = el('preview');
   img.addEventListener('load', function () {
+    /* 初始是占位图（data URI），不算真帧 —— 别把「暂无帧」提前藏掉 */
+    if (img.src.indexOf('preview.jpg') === -1) return;
     el('preview-empty').classList.add('hidden');
   });
   img.addEventListener('error', function () {

@@ -149,6 +149,17 @@ def test_dashboard_body_not_hidden_by_default(no_pw_client):
     assert '<main id="app" class="hidden">' not in html
 
 
+def test_preview_img_has_no_static_src(no_pw_client):
+    """预览图不能用静态 src。
+
+    回归：<img src="api/preview.jpg"> 是静态引用，浏览器一解析 HTML 就发请求，
+    那时还没登录、没有 cookie -> 401。真实 URL 由 app.js 在登录后设置。
+    """
+    html = no_pw_client.get("/admin/").text
+    assert 'src="api/preview.jpg"' not in html
+    assert "data:image/gif;base64" in html
+
+
 def test_dashboard_unlocks_body_in_js(no_pw_client):
     """app.js 必须自己解锁 #app，不能指望 hideGate()。
 

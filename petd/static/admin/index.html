@@ -29,7 +29,9 @@
   <section class="card">
     <h2>实时预览</h2>
     <div class="preview-wrap">
-      <img id="preview" src="api/preview.jpg" alt="设备当前画面">
+      <!-- 初始用透明占位图：静态 src 会在登录前就发请求，那没有 cookie 会拿到 401。
+           真实 URL 由 app.js 在登录成功后设置。 -->
+      <img id="preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="设备当前画面">
       <div class="preview-empty" id="preview-empty">暂无帧</div>
     </div>
     <p class="note">与设备屏幕显示的是同一帧画面。</p>

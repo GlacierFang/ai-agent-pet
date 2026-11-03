@@ -43,6 +43,8 @@
 - **后台页文案改成产品语言** —— 原来第一屏是红色横幅骂「任何能打开这个链接的人都能看状态、改配置」，页脚还在解释「OTA 按钮在 v1 不可用，所以这里不放一个假的 OTA 按钮」。这些是写给开发者的自述，不是功能页该给使用者看的东西。现在改成中性页头 + 鉴权状态徽章，安全提示收到页脚
 - **启动提示与实际鉴权状态不符** —— 设了 `PETD_ADMIN_PASSWORD` 仍然打印「本服务无鉴权」
 - **CI 三个版本全挂** —— `starlette.testclient` 依赖 `httpx`，但 `requirements.txt` 是运行时依赖不含它，测试在收集阶段就 error。CI 改为显式装 `httpx`
+- **未登录时页面报 `preview.jpg 401`** —— `<img src="api/preview.jpg">` 是静态引用，浏览器一解析 HTML 就发请求，那时还没登录、没有 cookie。改成初始用透明占位图，真实 URL 由 app.js 在登录后设置
+- **无头 chromium 验证在这台机上必须加 `--no-proxy-server`** —— 全局 `HTTP_PROXY` 会把浏览器导航劫持，表现是截图只有一种颜色、dump-dom 只有 40 字节空 HTML。之前那批「已上线」的截图就是这么废掉的
 - **`systemctl restart petd` 会卡死** —— 后台页开着 SSE 长连接（`/admin/api/events`），生成器不查断连，uvicorn 优雅关闭会一直等它，服务卡在 `stop-sigterm`。现在 SSE 每轮检查断连并退出，unit 另加 `TimeoutStopSec=15` 兜底
 - **gateway 事件与请求抢包**：`sessions.list` 在事件密集时会成串失败（同一毫秒最多 11 条）。根因是 `_call()` 自己 `recv()`，收到 event 就顺手处理，而 event handler 内部又调 `_call()` —— 内层 recv 把外层等的那条 res 吃掉，外层只能超时。现在改成单一 reader 任务按 `id` 派发 future，event 进队列串行处理
 - `ESP_ERR_INVALID_FORMAT` 在 ESP-IDF v5.5 里不存在（`esp_err.h` 只有 18 个错误码）→ 改用 `ESP_ERR_INVALID_RESPONSE`
