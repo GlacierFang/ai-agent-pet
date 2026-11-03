@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "longPressMs": 600,
+  "stepsPerAction": 4,
+  "modes": {
+    "face": {
+      "rot": "session.next",
+      "press_short": "page.next",
+      "press_long": "state.refresh",
+      "rot_press": "density.cycle"
+    },
+    "session": {
+      "rot": "session.next",
+      "press_short": "page.next",
+      "press_long": "state.refresh",
+      "rot_press": "density.cycle"
+    },
+    "notify": {
+      "rot": "notify.next",
+      "press_short": "page.next",
+      "press_long": "state.refresh",
+      "rot_press": "density.cycle"
+    }
+  }
+}

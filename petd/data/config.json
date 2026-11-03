@@ -1,0 +1,37 @@
+{
+  "gateway": {
+    "url": "ws://127.0.0.1:18789",
+    "token": "",
+    "clientId": "gateway-client",
+    "clientMode": "backend",
+    "role": "operator",
+    "scopes": [
+      "operator.read"
+    ],
+    "subscribeLimit": 30
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 18860,
+    "allowPublic": false
+  },
+  "render": {
+    "width": 240,
+    "height": 320,
+    "quality": 85,
+    "subsampling": 2
+  },
+  "frame": {
+    "idleFps": 1,
+    "activeFps": 10,
+    "maxInFlight": 2
+  },
+  "state": {
+    "sleepAfterMin": 10
+  },
+  "ui": {
+    "skin": "default",
+    "density": 1,
+    "page": "face"
+  }
+}

@@ -1,0 +1,4 @@
+starlette>=0.37
+uvicorn[standard]>=0.30
+websockets>=13
+pillow>=10

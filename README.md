@@ -4,7 +4,9 @@
 
 > 仓库名：`ai-agent-pet`。下面这份文档是**设计契约**，不是已发布软件 —— 读之前先看状态标记。
 
-> 🟡 **项目状态：设计阶段。** 硬件选型已闭合，代码未开工，零件未下单。
+> 🟢 **项目状态：petd 服务端已落地并实测跑通**（2026-11-03）。固件源码 + CI 正在推进，零件未下单。
+>
+> 已实测：gateway 真实接入（6 个会话，状态映射正确）、JPEG 整帧渲染（240×320，6.8–9.9KB）、后台预览接口返回合法 JPEG。
 >
 > 🟢 **定位：私有化部署。** 这是**装在你自己桌上的一只宠物** —— 一台硬件对一个 petd，petd 对你自己机器上的 OpenClaw gateway。**没有账号、没有登录、没有多租户、没有云端。** 你 clone 下来自己编译自己跑。
 > 本文与 `docs/` 是**设计契约**，不是已发布软件。文中标记：🟢 已一手实测 · 🟡 已定案待实现 · 🔴 待验证
@@ -50,22 +52,26 @@ agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是�
 
 ## 快速开始
 
-**完整流程见 [部署手册](docs/部署手册.md)。**
-
-### 只跑 petd（不需要硬件）🟡
-
 ```bash
-pip install ai-agent-pet      # 待发布
-ai-agent-pet --port 18860
-ai-agent-pet --mock-device     # 用浏览器当设备，先看画面
+git clone https://github.com/GlacierFang/ai-agent-pet.git
+cd ai-agent-pet
+pip install -r requirements.txt
+
+# 告诉 petd 你的 gateway token（读 ~/.openclaw/openclaw.json 的 gateway.auth.token）
+export PETD_GATEWAY_TOKEN=xxxx
+
+python3 -m petd --port 18860
 ```
 
-### 接真硬件 🟡
+打开 <http://127.0.0.1:18860/admin/> 看后台控制台。
 
-1. 按 [硬件指南](docs/硬件指南.md) 接线（三块料，约 ¥41，零打板零焊接）
-2. 烧录固件（[固件构建](docs/固件构建.md)）
-3. 设备配网，设备用 mDNS 找 petd（`petd.local`）
-4. petd 订阅 gateway 会话流，状态映射成表情推给屏幕
+**没有硬件也能跑通整条链路**：
+
+```bash
+python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
+```
+
+完整流程见 [部署手册](docs/部署手册.md)。
 
 ## 状态语义速查
 
@@ -95,6 +101,7 @@ ai-agent-pet --mock-device     # 用浏览器当设备，先看画面
 | [开源路线](docs/开源路线.md) | 仓库结构、命名、发布清单、合规判断 |
 | [后台控制台](docs/后台控制台.md) | 部署者的管理面板：预览、设备状态、配置、固件更新 |
 | [部署手册](docs/部署手册.md) | 从零到跑起来：买什么 → 接线 → 编译 → 看到宠物动 |
+| [协议](docs/协议.md) | 设备 ↔ petd 线上协议（握手、帧格式、旋钮事件、错误码） |
 
 ## 路线
 

@@ -1,22 +1,13 @@
-# 编译产物
 build/
-build-*/
 managed_components/
-dependencies.lock
 *.elf
-*.map
-
-# 预编译固件（走 GitHub Releases，不进 git）
-firmware/build/*.bin
-firmware/build/*.elf
-
-# Python
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
 __pycache__/
-*.py[cod]
+*.pyc
 .venv/
 venv/
-
-# 编辑器 / 系统
-.vscode/
-.idea/
-.DS_Store
+.pytest_cache/
+petd/data/secrets.json
+petd/data/state.json

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "priority": [
+    "error",
+    "waiting",
+    "working",
+    "done",
+    "idle"
+  ],
+  "stability": {
+    "idleAfterMs": 3000,
+    "idleGraceMs": 30000,
+    "eventDebounceMs": 200
+  },
+  "exclude": {
+    "isBackground": true
+  },
+  "rules": {
+    "error": {
+      "all": [
+        {
+          "status": "error"
+        }
+      ]
+    },
+    "waiting": {
+      "any": [
+        {
+          "permissionModePending": true
+        },
+        {
+          "unread": true
+        }
+      ]
+    },
+    "working": {
+      "all": [
+        {
+          "status": "running"
+        },
+        {
+          "hasActiveRun": true
+        }
+      ]
+    },
+    "done": {
+      "all": [
+        {
+          "status": "done"
+        }
+      ]
+    },
+    "idle": {
+      "none": [
+        {
+          "status": "running",
+          "hasActiveRun": true
+        }
+      ]
+    }
+  }
+}

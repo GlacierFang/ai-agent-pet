@@ -1,0 +1,24 @@
+[project]
+name = "ai-agent-pet"
+version = "0.1.0"
+description = "AI agent 桌面宠物服务端（petd）—— 私有化部署，无账号体系"
+requires-python = ">=3.10"
+dependencies = [
+  "starlette>=0.37",
+  "uvicorn[standard]>=0.30",
+  "websockets>=13",
+  "pillow>=10",
+]
+
+[project.scripts]
+petd = "petd.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["petd", "petd.tools"]
+
+[tool.setuptools.package-data]
+petd = ["data/*.json", "static/admin/*"]
