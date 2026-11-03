@@ -69,6 +69,10 @@ python3 -m petd --port 18860
 
 打开 <http://127.0.0.1:18860/admin/> 看后台控制台。
 
+> ⚠️ **后台无鉴权** —— 能连到这个端口的人都能看状态、改配置。只在内网用；
+> 要放到公网请自己加一层认证（nginx `auth_basic` 或后端 token）。
+> 部署到自己的反向代理后面也不用改代码 —— 后台页用的是相对路径。
+
 **没有硬件也能跑通整条链路**：
 
 ```bash
@@ -107,6 +111,8 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 | [部署手册](docs/部署手册.md) | 从零到跑起来：买什么 → 接线 → 编译 → 看到宠物动 |
 | [协议](docs/协议.md) | 设备 ↔ petd 线上协议（握手、帧格式、旋钮事件、错误码） |
 | [固件 README](firmware/README.md) | 固件结构、TJpgDec 实测数据、烧录方式、待上机确认清单 |
+| [更新日志](CHANGELOG.md) | 每个版本改了什么 |
+| [第三方声明](THIRD_PARTY_NOTICES.md) | 依赖的第三方软件及其许可证 |
 
 ## 路线
 
@@ -122,7 +128,9 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 
 ## 许可证
 
-🔴 **待定。** 建议 Apache-2.0（比 MIT 多一层专利授权，对硬件+软件混合项目更稳）。选定后补 `LICENSE`。
+**Apache-2.0** —— 见 [LICENSE](LICENSE)。比 MIT 多一层专利授权，对硬件+软件混合项目更稳。
+
+美术素材**单独授权** —— 每个皮肤包的 `meta.json` 里声明 `license` 字段。见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 数据流向
 

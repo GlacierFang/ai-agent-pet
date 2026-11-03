@@ -6,7 +6,8 @@
   /admin/api/*         控制台接口
   /firmware/           固件下载（供设备 OTA）
 
-**无鉴权** —— 只允许绑定内网地址，禁止暴露公网。
+**无鉴权** —— 能连到这个端口的人都能看状态、改配置。
+公网入口由 nginx 反代到 /ai-agent-pet/ 前缀。
 """
 import asyncio
 import contextlib
@@ -15,7 +16,8 @@ import logging
 import pathlib
 
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import (HTMLResponse, JSONResponse, RedirectResponse,
+                                 Response, StreamingResponse)
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -91,6 +93,14 @@ def create_app(cfg=None, start_gateway=True):
             return HTMLResponse("<h1>petd admin</h1><p>后台页缺失</p>", status_code=404)
         return HTMLResponse(index.read_text(encoding="utf-8"))
 
+    async def admin_redirect(request):
+        """规范成 /admin/。
+
+        后台页用相对路径加载资源，URL 必须以 / 结尾，
+        否则浏览器会把 assets/app.js 解析成 /assets/app.js。
+        """
+        return RedirectResponse("/admin/", status_code=307)
+
     async def api_preview(request):
         if not pet.last_jpeg:
             return Response(b"", media_type="image/jpeg", status_code=404)
@@ -163,7 +173,8 @@ def create_app(cfg=None, start_gateway=True):
         return JSONResponse({"items": items})
 
     routes = [
-        Route("/admin", admin_index),
+        Route("/admin", admin_redirect),
+        Route("/admin/", admin_index),
         Route("/admin/api/preview.jpg", api_preview),
         Route("/admin/api/status", api_status),
         Route("/admin/api/config", api_config_get, methods=["GET"]),

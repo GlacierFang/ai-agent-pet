@@ -1,7 +1,11 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。 */
 
-var API = '/admin/api';
+/* API 基址跟着页面走。
+   页面用相对路径加载资源，所以同一个 build 挂在 petd 自带的 /admin/ 下，
+   或者挂在反代前缀 /ai-agent-pet/ 下都能用 —— 不用改代码。
+   document.baseURI 一定以 / 结尾（服务端把 /admin 规范成 /admin/）。 */
+var API = new URL('api', document.baseURI).href.replace(/\/+$/, '');
 
 var S = {
   lastSeq: 0,     // 已收到的最大日志 seq，用来去重 + 增量拉取

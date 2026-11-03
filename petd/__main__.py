@@ -27,7 +27,7 @@ def main(argv=None):
     port = args.port or cfg["server"]["port"]
 
     if host in ("0.0.0.0", "::"):
-        print("[petd] 警告：监听 %s —— 本服务无鉴权，只能内网使用，禁止暴露公网。" % host)
+        print("[petd] 监听 %s —— 本服务无鉴权：能连到这个端口的人都能看状态、改配置。" % host)
     else:
         print("[petd] 监听 %s:%d" % (host, port))
     print("[petd] 控制台 http://%s:%d/admin/" % (host, port))

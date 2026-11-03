@@ -8,7 +8,7 @@
 
 | 内容 | 授权 |
 |---|---|
-| 代码（petd / firmware） | 见根目录 `LICENSE`（🔴 待定，建议 Apache-2.0） |
+| 代码（petd / firmware） | 见根目录 `LICENSE`（Apache-2.0） |
 | 美术（`assets/`、`skins/`） | **每份素材单独声明**，见 `meta.json` 的 `license` 字段 |
 | 文档 | 同代码 |
 

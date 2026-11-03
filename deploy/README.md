@@ -34,6 +34,14 @@ journalctl --user -u petd -f
 
 ## 注意
 
-- 服务监听 `0.0.0.0`（局域网），**petd 本身无鉴权**。只在你信任的局域网里用。
+- 服务监听 `0.0.0.0`（局域网），**petd 本身无鉴权**。只在你信任的局域网里用；
+  要放到公网请先加一层认证（nginx `auth_basic` 或后端 token）。
+- **只能跑一个实例**。两个用同样 `client.id=gateway-client` 的 petd 会互相顶掉，
+  后启动的那个会被网关拒为 `NOT_PAIRED` / `DEVICE_IDENTITY_REQUIRED`。
+  换实例前先 `systemctl --user stop petd`。
 - 要跑在开机自启，需要 `loginctl enable-linger $USER`。
 - 端口、渲染质量等改 `petd/data/config.json`，改完 `systemctl --user restart petd`。
+- **pip 装不上？** 环境里设了全局 `HTTP_PROXY` 时 PyPI 会 403。
+  这时用 `python3 -m venv --system-site-packages .venv` 复用系统已装的依赖。
+- `deploy/petd.service` 里的 `%h` 是家目录。仓库不在家目录下时，
+  复制后要改 `WorkingDirectory` / `ExecStart` / `ReadWritePaths` 三处。
