@@ -114,7 +114,7 @@ def test_done_shows_done_face():
 
 # ---------- 夜间睡觉 ----------
 def test_night_shows_sleeping_face():
-    """夜里没事干 —— 睡脸。"""
+    """夜里没事干 —— 睡着了。"""
     d = screen_mod.ScreenDirector()
     view = d.update(1000.0, "idle", {}, [FakeFeature()], night=True)
     assert view["layer"] == screen_mod.MESSAGE_LAYER
