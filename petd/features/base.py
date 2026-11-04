@@ -48,6 +48,10 @@ class Feature:
         """
         return None
 
+    def reset(self):
+        """设置变了 —— 丢掉缓存，下次取数重新来。可选，不覆盖就什么都不做。"""
+        return None
+
     def poll(self, ctx=None):
         """后台取数钩子。可选 —— 不覆盖就什么都不做。
 

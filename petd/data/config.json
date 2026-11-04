@@ -28,7 +28,7 @@
     "maxInFlight": 2
   },
   "ui": {
-    "skin": "default",
+    "skin": "柴犬麦兜",
     "density": 1,
     "features": [
       "clock",

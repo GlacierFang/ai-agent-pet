@@ -1,7 +1,7 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
 
-   五个区块：我的宠物 / 宠物库 / 功能清单 / 安装与诊断 / 开始使用。
+   五个区块：我的宠物 / 宠物库 / 宠物设定 / 安装与诊断 / 开始使用。
    默认落在「我的宠物」—— 这是内容页，不是系统监控页。
 
    文案只有一个来源：T 字典。
@@ -66,7 +66,7 @@ var T = {
   tabs: {
     pet: '我的宠物',
     skins: '宠物库',
-    features: '功能清单',
+    settings: '宠物设定',
     diag: '安装与诊断',
     setup: '开始使用'
   },
@@ -152,10 +152,10 @@ var T = {
     uploadFail: '上传失败'
   },
 
-  features: {
-    title: '功能清单',
-    noteHtml: '这里列的每一项都能立刻生效 —— 挑一个你想要的，宠物就照着来。',
-    empty: '清单是空的',
+  settings: {
+    title: '宠物设定',
+    note: '宠物能做的，和做事的节奏。都在这儿改，改完立刻生效。',
+    empty: '还没有设定项',
     failed: '改不了：{e}',
     sleepRange: '{a} → {b}',
     sleepHour: '{h} 小时',
@@ -303,7 +303,8 @@ var S = {
   gated: false,    // 停在口令页时为 true
   started: false,  // dashboard 是否已经启动过
   sessions: [],
-  features: [],    // 功能清单（GET /features）
+  capabilities: [],  // 宠物会做哪些（GET /settings）
+  settings: [],      // 做事的节奏（GET /settings）
   skins: [],
   skin: '',
   skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
@@ -410,7 +411,7 @@ function switchTab(name) {
     else p.classList.add('hidden');
   });
   if (name === 'skins') loadSkins();
-  if (name === 'features') loadFeatures();
+  if (name === 'settings') loadSettings();
 }
 
 /* ---------------- 我的宠物 ---------------- */
@@ -1045,80 +1046,177 @@ function closeSkinModal(saved) {
   el('skin-modal').classList.add('hidden');
 }
 
-/* ---------------- 功能清单 ---------------- */
+/* ---------------- 宠物设定 ---------------- */
 
 /* 一项一张卡，卡里是这一项能选的值 —— 点一下就生效。
    跟以前那份「能力清单」的区别：那一列的勾选框背后没有任何代码读它，
    勾掉了什么也不会发生。这份每一项都对应服务端一个真的 setter。 */
-function renderFeatures() {
-  var box = el('feature-list');
+/* 一个控件，按 type 渲染：选择 / 输入 / 数字 / 单选。 */
+function renderControl(o) {
+  if (o.type === 'timerange') return renderTimeRange(o);
+
+  if (o.type === 'number') {
+    var nw = document.createElement('div');
+    nw.className = 'ctl ctl-number';
+    var ni = document.createElement('input');
+    ni.type = 'number';
+    ni.min = String(o.min === undefined ? 0 : o.min);
+    ni.value = String(o.value);
+    ni.addEventListener('change', function () {
+      var v = parseInt(ni.value, 10);
+      if (isNaN(v)) { ni.value = String(o.value); return; }
+      setSetting(o.id, v);
+    });
+    nw.appendChild(ni);
+    if (o.unit) {
+      var nu = document.createElement('span');
+      nu.className = 'muted';
+      nu.textContent = o.unit;
+      nw.appendChild(nu);
+    }
+    return nw;
+  }
+
+  if (o.type === 'text') {
+    var tw = document.createElement('div');
+    tw.className = 'ctl ctl-text';
+    var ti = document.createElement('input');
+    ti.type = 'text';
+    ti.value = o.value || '';
+    ti.addEventListener('change', function () { setSetting(o.id, ti.value.trim()); });
+    tw.appendChild(ti);
+    return tw;
+  }
+
+  if (o.type === 'select') {
+    var sw = document.createElement('div');
+    sw.className = 'ctl ctl-select';
+    var sel = document.createElement('select');
+    (o.options || []).forEach(function (op) {
+      var opt = document.createElement('option');
+      opt.value = String(op.value);
+      opt.textContent = op.label;
+      if (String(op.value) === String(o.value)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', function () { setSetting(o.id, sel.value); });
+    sw.appendChild(sel);
+    return sw;
+  }
+
+  /* radio —— 每个选项带着自己的一句说明 */
+  var rw = document.createElement('div');
+  rw.className = 'ctl ctl-radio';
+  (o.options || []).forEach(function (op) {
+    var lab = document.createElement('label');
+    lab.className = 'radio-item';
+    var r = document.createElement('input');
+    r.type = 'radio';
+    r.name = 'radio-' + o.id;
+    r.checked = String(op.value) === String(o.value);
+    r.addEventListener('change', function () {
+      if (r.checked) setSetting(o.id, op.value);
+    });
+    lab.appendChild(r);
+    var tx = document.createElement('span');
+    tx.textContent = op.label;
+    lab.appendChild(tx);
+    if (op.desc) {
+      var d = document.createElement('span');
+      d.className = 'muted radio-desc';
+      d.textContent = op.desc;
+      lab.appendChild(d);
+    }
+    rw.appendChild(lab);
+  });
+  return rw;
+}
+
+/* 能力卡 —— 勾上就上屏轮播。 */
+function capabilityCard(c) {
+  var card = document.createElement('div');
+  card.className = 'set-card cap';
+
+  var head = document.createElement('label');
+  head.className = 'cap-head';
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!c.enabled;
+  cb.addEventListener('change', function () { toggleCapability(c.name, cb.checked); });
+  head.appendChild(cb);
+  var nm = document.createElement('span');
+  nm.className = 'cap-name';
+  nm.textContent = c.title;
+  head.appendChild(nm);
+  card.appendChild(head);
+
+  if (c.tip) {
+    var tip = document.createElement('div');
+    tip.className = 'cap-tip';
+    tip.textContent = c.tip;
+    card.appendChild(tip);
+  }
+
+  (c.options || []).forEach(function (o) {
+    var row = document.createElement('div');
+    row.className = 'cap-opt';
+    var lb = document.createElement('span');
+    lb.className = 'cap-opt-label';
+    lb.textContent = o.name;
+    row.appendChild(lb);
+    row.appendChild(renderControl(o));
+    card.appendChild(row);
+  });
+
+  return card;
+}
+
+/* 设定卡 —— 时长、密度、睡觉时段。 */
+function settingCard(s) {
+  var card = document.createElement('div');
+  card.className = 'set-card' + (s.type === 'timerange' ? ' wide' : '');
+  var head = document.createElement('div');
+  head.className = 'set-head';
+  var nm = document.createElement('div');
+  nm.className = 'set-name';
+  nm.textContent = s.name;
+  head.appendChild(nm);
+  if (s.desc) {
+    var d = document.createElement('div');
+    d.className = 'set-desc';
+    d.textContent = s.desc;
+    head.appendChild(d);
+  }
+  card.appendChild(head);
+  card.appendChild(renderControl(s));
+  return card;
+}
+
+function renderSettings() {
+  var box = el('settings-grid');
   box.textContent = '';
-  if (!S.features.length) {
+  if (!S.capabilities.length && !S.settings.length) {
     var e = document.createElement('div');
     e.className = 'empty';
-    e.textContent = t('features:empty');
+    e.textContent = t('settings:empty');
     box.appendChild(e);
     return;
   }
-  S.features.forEach(function (f) {
-    var card = document.createElement('div');
-    card.className = 'feature-card';
-
-    var head = document.createElement('div');
-    head.className = 'feature-head';
-    var nm = document.createElement('div');
-    nm.className = 'feature-name';
-    nm.textContent = f.name;
-    head.appendChild(nm);
-    if (f.desc) {
-      var de = document.createElement('div');
-      de.className = 'feature-desc';
-      de.textContent = f.desc;
-      head.appendChild(de);
-    }
-    card.appendChild(head);
-
-    /* 时间范围型（睡觉时段）—— 起止两个选择器在一张卡里 */
-    if (f.type === 'timerange') {
-      card.appendChild(renderTimeRange(f));
-      box.appendChild(card);
-      return;
-    }
-
-    var opts = document.createElement('div');
-    opts.className = 'feature-opts';
-    (f.options || []).forEach(function (o) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      /* 当前选中项不画灰底 —— 一眼看出现在是哪个 */
-      if (f.multi) {
-        /* 多选：勾中的排前面，勾选状态用高亮边标出来 */
-        var picked = (f.value || []).map(function (x) { return String(x); });
-        var on = picked.indexOf(String(o.value)) >= 0;
-        b.className = on ? 'picked' : 'ghost';
-        b.textContent = (on ? '✓ ' : '') + o.label;
-      } else {
-        var on1 = String(o.value) === String(f.value);
-        b.className = on1 ? '' : 'ghost';
-        b.textContent = o.label;
-      }
-      if (o.desc) b.title = o.desc;
-      b.addEventListener('click', function () {
-        if (f.multi) {
-          var cur = (f.value || []).map(function (x) { return String(x); });
-          var at = cur.indexOf(String(o.value));
-          if (at >= 0) { cur.splice(at, 1); } else { cur.push(String(o.value)); }
-          setFeature(f.id, cur);
-        } else {
-          setFeature(f.id, o.value);
-        }
-      });
-      opts.appendChild(b);
-    });
-    card.appendChild(opts);
-    box.appendChild(card);
-  });
+  S.capabilities.forEach(function (c) { box.appendChild(capabilityCard(c)); });
+  S.settings.forEach(function (s) { box.appendChild(settingCard(s)); });
 }
+
+/* 勾一个能力 —— 提交勾上的那一份完整名单。 */
+function toggleCapability(name, on) {
+  var cur = [];
+  S.capabilities.forEach(function (c) { if (c.enabled) cur.push(c.name); });
+  var at = cur.indexOf(name);
+  if (on && at < 0) cur.push(name);
+  if (!on && at >= 0) cur.splice(at, 1);
+  setSetting('features', cur);
+}
+
+
 
 /* 睡觉时段：一条 24 小时轴，在轴上划出一段连续的区间。
 
@@ -1150,9 +1248,9 @@ function tlSegments(a, b) {
 function tlDuration(min) {
   var h = Math.floor(min / 60);
   var m = min % 60;
-  var s = fill(t('features:sleepHour'), { h: h });
+  var s = fill(t('settings:sleepHour'), { h: h });
   if (!m) return s;
-  return s + ' ' + fill(t('features:sleepMin'), { m: m });
+  return s + ' ' + fill(t('settings:sleepMin'), { m: m });
 }
 
 function renderTimeRange(f) {
@@ -1217,18 +1315,18 @@ function renderTimeRange(f) {
 
     var aLabel = tlToLabel(a);
     var bLabel = (pending !== null && hoverMin === null) ? '?' : tlToLabel(b);
-    var line = fill(t('features:sleepRange'), { a: aLabel, b: bLabel });
+    var line = fill(t('settings:sleepRange'), { a: aLabel, b: bLabel });
 
     if (known && a !== b) {
       var dur = ((b - a) + 1440) % 1440;
       line += ' · ' + tlDuration(dur);
-      if (b < a) line += ' · ' + t('features:sleepCross');
+      if (b < a) line += ' · ' + t('settings:sleepCross');
     }
     readout.textContent = line;
 
     hint.textContent = pending === null
-      ? t('features:sleepHint')
-      : t('features:sleepHintPending');
+      ? t('settings:sleepHint')
+      : t('settings:sleepHintPending');
   }
 
   function minuteAt(ev) {
@@ -1242,7 +1340,7 @@ function renderTimeRange(f) {
   }
 
   function submit() {
-    setFeature(f.id, {
+    setSetting(f.id, {
       from: tlToLabel(startMin),
       to: tlToLabel(endMin),
       enabled: on
@@ -1304,21 +1402,22 @@ function renderTimeRange(f) {
   return wrap;
 }
 
-function loadFeatures() {
-  return fetch(API + '/features', { cache: 'no-store' })
+/* 改一项 —— 服务端改完立刻生效，页面按返回的新清单重画。 */
+function loadSettings() {
+  return fetch(API + '/settings', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (blob) {
-      S.features = blob.items || [];
-      renderFeatures();
+      S.capabilities = blob.capabilities || [];
+      S.settings = blob.settings || [];
+      renderSettings();
     })
     .catch(function () { /* 忽略 */ });
 }
 
-/* 改一项 —— 服务端改完立刻生效，页面按返回的新清单重画。 */
-function setFeature(id, value) {
-  var meta = el('feature-meta');
+function setSetting(id, value) {
+  var meta = el('settings-meta');
   meta.textContent = t('common:saving');
-  fetch(API + '/features', {
+  fetch(API + '/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: id, value: value })
@@ -1326,15 +1425,18 @@ function setFeature(id, value) {
     .then(function (r) { return r.json(); })
     .then(function (b) {
       if (!b.ok) {
-        meta.textContent = fill(t('features:failed'), { e: b.error || '' });
+        meta.textContent = fill(t('settings:failed'), { e: b.error || '' });
         return;
       }
       meta.textContent = t('common:saved');
-      S.features = b.items || [];
-      renderFeatures();
+      S.capabilities = b.capabilities || [];
+      S.settings = b.settings || [];
+      renderSettings();
     })
     .catch(function () { meta.textContent = t('common:netError'); });
 }
+
+
 
 /* ---------------- 原始遥测 ---------------- */
 

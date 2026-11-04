@@ -625,3 +625,49 @@ footer p { margin: 4px 0; }
   overflow: auto;
 }
 button:disabled { opacity: .4; cursor: default; }
+
+
+/* 宠物设定 —— 能力卡 + 设定卡混排 */
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
+.set-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.set-card.wide { grid-column: 1 / -1; }
+.set-head { display: grid; gap: 2px; }
+.set-name { font-weight: 600; }
+.set-desc { color: var(--muted); font-size: 12px; }
+.cap-head { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.cap-name { font-weight: 600; }
+.cap-tip { color: var(--muted); font-size: 12px; }
+.cap-opt {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+.cap-opt-label { color: var(--muted); font-size: 12px; }
+.ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ctl-number input { width: 96px; }
+.ctl-text input { flex: 1 1 160px; }
+.ctl-select select { flex: 1 1 auto; }
+.ctl-radio { display: grid; gap: 6px; }
+.radio-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text);
+}
+.radio-desc { flex-basis: 100%; padding-left: 22px; }

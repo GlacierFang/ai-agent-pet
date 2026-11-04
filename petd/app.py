@@ -270,6 +270,19 @@ class PetApp:
         self._persist_config()
         self.log("info", "形象 -> " + name)
 
+    def set_weather_city(self, city):
+        """天气城市。空 = 按网络位置自动判断。"""
+        city = str(city or "").strip()
+        self.cfg.setdefault("ui", {})["weatherCity"] = city
+        self._persist_config()
+        # 缓存里还���旧城市的数据 —— 扔掉，让它重新取
+        for f in feature_mod.all_features():
+            reset = getattr(f, "reset", None)
+            if callable(reset):
+                reset()
+        self.log("info", "天气城市 -> " + (city or "自动"))
+        self._wake_poll()
+
     def set_session(self, key):
         """关注某个会话。空 = 自动（跟着最活跃的那个）。"""
         key = str(key or "")
@@ -557,7 +570,7 @@ class PetApp:
 
     # ---------- 功能清单 ----------
     def settings_payload(self):
-        """后台「功能清单」—— 每一项都对应上面某个 setter。"""
+        """后台「宠物设定」—— 每一项都对应上面某个 setter。"""
         return settings_mod.build(self)
 
     # ---------- 首次使用指引 ----------

@@ -59,6 +59,12 @@ class Weather(Feature):
     def wants(self, state):
         return True
 
+    def reset(self):
+        """城市改了 —— 旧数据作废，重新取。"""
+        with _lock:
+            _cache["at"] = 0.0
+            _cache["data"] = None
+
     def poll(self, ctx=None):
         """后台线程里调 —— 网络慢也不拖住渲染。"""
         with _lock:

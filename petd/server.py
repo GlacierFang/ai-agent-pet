@@ -424,12 +424,12 @@ def create_app(cfg=None, start_gateway=True, port=None):
         """会话列表 —— 宠物反应全部会话，这里看得到每一条。"""
         return JSONResponse({"items": pet.public_sessions()})
 
-    async def api_features_get(request):
-        """功能清单 —— 每一项都对应一个真的能改的设置。"""
-        return JSONResponse({"items": pet.settings_payload()})
+    async def api_settings_get(request):
+        """宠物设定 —— 每一项都对应一个真的能改的设置。"""
+        return JSONResponse(pet.settings_payload())
 
-    async def api_features_post(request):
-        """改一项设置。改完立刻生效，也写进配置。"""
+    async def api_settings_post(request):
+        """改一项设定。改完立刻生效，也写进配置。"""
         try:
             body = await request.json()
         except Exception:
@@ -453,12 +453,16 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 await pet.set_skin(str(value))
             elif fid == "session":
                 pet.set_session(str(value or ""))
+            elif fid == "weatherCity":
+                pet.set_weather_city(str(value or ""))
             else:
                 return JSONResponse({"ok": False, "error": "未知项：%s" % fid},
                                     status_code=400)
         except (TypeError, ValueError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-        return JSONResponse({"ok": True, "items": pet.settings_payload()})
+        body = pet.settings_payload()
+        body["ok"] = True
+        return JSONResponse(body)
 
     async def api_skins_get(request):
         root = pet.cfg.get("_repo_root", ".")
@@ -586,8 +590,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
         Route("/admin/api/logs", _guard(api_logs)),
         Route("/admin/api/sessions", _guard(api_sessions)),
-        Route("/admin/api/features", _guard(api_features_get), methods=["GET"]),
-        Route("/admin/api/features", _guard(api_features_post), methods=["POST"]),
+        Route("/admin/api/settings", _guard(api_settings_get), methods=["GET"]),
+        Route("/admin/api/settings", _guard(api_settings_post), methods=["POST"]),
         Route("/admin/api/skins", _guard(api_skins_get), methods=["GET"]),
         Route("/admin/api/skins", _guard(api_skins_post), methods=["POST"]),
         Route("/admin/api/skins/frame", _guard(api_skin_frame_post), methods=["POST"]),
