@@ -234,7 +234,7 @@ def test_short_press_has_no_action():
 @pytest.mark.parametrize("st", ["idle", "working", "waiting", "done", "error", "sleeping"])
 def test_render_produces_valid_jpeg(st):
     cfg = config.load()
-    jpeg = render.render_frame(cfg, st, "正在处理", "会话名", density=1, phase=0.2)
+    jpeg = render.render_frame(cfg, st, "正在处理", "会话名", density=1)
     assert jpeg[:2] == b"\xff\xd8", "JPEG 头缺失"
     assert jpeg[-2:] == b"\xff\xd9", "JPEG 尾缺失"
 

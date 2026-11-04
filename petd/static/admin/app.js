@@ -138,6 +138,7 @@ var T = {
     noAssets: '没有素材',
     missingStates: '还缺 {n} 个状态',
     sixStatesNote: '一套形象要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。',
+    onePerState: '每种状态一张图。',
     setCurrent: '设为当前',
     remove: '删除',
     deleteAsk: '删除形象 {name}？素材会一起没。',
@@ -149,9 +150,8 @@ var T = {
     needName: '先起个名字',
     created: '建好了',
     createFail: '创建失败',
-    frameTitle: '上传一帧',
+    frameTitle: '上传状态图',
     state: '状态',
-    index: '序号',
     image: '图片',
     upload: '上传',
     pickImage: '先选个图片',
@@ -811,9 +811,7 @@ function renderSkinList() {
     var st = document.createElement('span');
     st.className = 'sub';
     var keys = Object.keys(sk.states || {});
-    st.textContent = keys.length
-      ? keys.map(function (k) { return k + '×' + sk.states[k]; }).join(' ')
-      : t('skins:noAssets');
+    st.textContent = keys.length ? keys.join(' ') : t('skins:noAssets');
     row.appendChild(st);
     /* 六态不齐的形象不能设为当前 —— 屏上任何一刻都可能是六态中的任意一态。 */
     var miss = sk.missing || [];
@@ -898,7 +896,6 @@ function onSkinFrame(ev) {
         name: el('skin-frame-name').value.trim(),
         /* value 是英文 id —— 后端协议认这个，别改成中文 */
         state: el('skin-frame-state').value,
-        index: parseInt(el('skin-frame-index').value, 10) || 0,
         data: data
       })
     })

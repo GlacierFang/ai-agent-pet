@@ -498,17 +498,13 @@ def create_app(cfg=None, start_gateway=True, port=None):
         name = str(body.get("name") or "").strip()
         state = str(body.get("state") or "").strip()
         try:
-            index = int(body.get("index", 0))
-        except Exception:
-            index = 0
-        try:
             png = base64.b64decode(str(body.get("data") or ""))
         except Exception:
             return JSONResponse({"ok": False, "error": "图片数据不是 base64"},
                                 status_code=400)
         root = pet.cfg.get("_repo_root", ".")
         try:
-            path = skins_mod.save_frame(root, name, state, index, png)
+            path = skins_mod.save_image(root, name, state, png)
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         pet.log("info", "形象素材已保存 %s" % path.name)

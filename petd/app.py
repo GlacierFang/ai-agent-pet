@@ -71,7 +71,6 @@ class PetApp:
         # 后台取数线程的唤醒 / 退出信号
         self._poll_event = threading.Event()
         self._gateway = None
-        self._phase = 0.0
         self._picked = None
         # 屏上仲裁：宠物脸 ↔ feature 卡片
         self.director = screen_mod.ScreenDirector(self.rules)
@@ -259,7 +258,7 @@ class PetApp:
 
     async def set_skin(self, name):
         root = self.cfg.get("_repo_root", ".")
-        if name != "default" and name not in skins_mod.list_skins(root):
+        if name not in skins_mod.list_skins(root):
             raise ValueError("没有这个形象")
         # 六态必须齐 —— 屏上任何一刻都可能是六态中的任意一态，
         # 缺一态就等于那一刻屏上是空的。
@@ -420,17 +419,15 @@ class PetApp:
         if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
             cstate = str(card.get("state") or state)
-            frames = skins_mod.load_frames(root, self.skin, cstate)
-            jpeg = render_mod.render_card(self.cfg, card, phase=self._phase,
-                                          skin_frames=frames)
+            skin_img = skins_mod.load_image(root, self.skin, cstate)
+            jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img)
         else:
             face = str(view.get("face") or state)
             sub = self._subtitle()
             name = self._session_name()
-            frames = skins_mod.load_frames(root, self.skin, face)
+            skin_img = skins_mod.load_image(root, self.skin, face)
             jpeg = render_mod.render_frame(self.cfg, face, sub, name,
-                                           density=self.density, phase=self._phase,
-                                           skin_frames=frames)
+                                           density=self.density, skin_image=skin_img)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
@@ -507,7 +504,6 @@ class PetApp:
                    else self.cfg.get("frame", {}).get("idleFps", 1))
             interval = 1.0 / max(0.2, float(fps))
             t0 = time.time()
-            self._phase = (self._phase + interval) % 1000.0
             try:
                 jpeg = self.render_now()
             except Exception as exc:

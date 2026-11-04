@@ -2,19 +2,18 @@
 """check_assets.py —— 校验皮肤素材是否符合 docs/美术规范.md。
 
 目录约定：
-    skins/<skin>/frames/<state>/<state>_NN.png
+    skins/<skin>/<state>.png
 
 检查项：
-    - 状态目录名合法（idle/working/waiting/done/error/sleeping）
-    - 文件名是 <state>_两位序号.png
-    - 图片能打开，尺寸大于 0，有 alpha 或 RGB 通道
-    - 帧数达到下限（idle 6 / working 4 / waiting 3 / done 4 / error 3 / sleeping 4）
+    - 六个状态各一张 PNG（idle/working/waiting/done/error/sleeping）
+    - 文件名就是状态名 + .png
+    - 图片能打开，有 alpha 通道
+    - 没有多出来的文件（旧的 frames/ 结构会被点名）
 
-退出码 0 = 通过；非 0 = 有错。仓库里还没有素材时，报「没有找到皮肤」并以非 0 退出。
+退出码 0 = 通过；非 0 = 有错。
 """
 import argparse
 import os
-import re
 import sys
 
 try:
@@ -24,16 +23,10 @@ except Exception:
 
 STATES = ("idle", "working", "waiting", "done", "error", "sleeping")
 
-MIN_FRAMES = {
-    "idle": 6,
-    "working": 4,
-    "waiting": 3,
-    "done": 4,
-    "error": 3,
-    "sleeping": 4,
-}
+# 允许存在的附属文件 —— 只有出处信息，不参与渲染
+ALLOWED_EXTRA = ("meta.json",)
 
-NAME_RE = re.compile(r"^([a-z]+)_(\d{2})\.png$")
+NAME_RE = __import__("re").compile(r"^([a-z]+)\.png$")
 
 
 def repo_root():
@@ -64,10 +57,9 @@ def check_image(path):
                 return False, "尺寸非法 %dx%d" % (w, h)
             mode = im.mode
             has_alpha = mode in ("RGBA", "LA", "PA") or "transparency" in im.info
-            has_rgb = mode.startswith("RGB")
-            if not (has_alpha or has_rgb):
-                return False, "既没有 alpha 也没有 RGB 通道（mode=%s）" % mode
-            return True, "%dx%d mode=%s" % (w, h, mode)
+            if not has_alpha:
+                return False, "没有 alpha 通道（mode=%s）—— 宠物要叠在背景上" % mode
+            return True, "%dx%d mode=%s ✓" % (w, h, mode)
     except Exception as exc:
         return False, "打不开: %s" % exc
 
@@ -77,48 +69,38 @@ def check_skin(skin_dir):
     errors = []
     notes = []
     name = os.path.basename(skin_dir)
-    frames_root = os.path.join(skin_dir, "frames")
-    if not os.path.isdir(frames_root):
-        errors.append("%s: 缺少 frames/ 目录" % name)
-        return errors, notes
 
-    state_dirs = sorted(
-        d for d in os.listdir(frames_root)
-        if os.path.isdir(os.path.join(frames_root, d))
-    )
-    if not state_dirs:
-        errors.append("%s: frames/ 下没有任何状态目录" % name)
-        return errors, notes
+    old = os.path.join(skin_dir, "frames")
+    if os.path.isdir(old):
+        errors.append("%s: 还有旧的 frames/ 目录 —— 新结构是直接放六张 <状态>.png" % name)
 
-    for state in state_dirs:
-        if state not in STATES:
-            errors.append("%s: 非法状态目录 %s（只允许 %s）"
-                          % (name, state, "/".join(STATES)))
+    present = []
+    for state in STATES:
+        fname = "%s.png" % state
+        path = os.path.join(skin_dir, fname)
+        if not os.path.isfile(path):
+            errors.append("%s: 缺 %s" % (name, fname))
             continue
-        sdir = os.path.join(frames_root, state)
-        pngs = sorted(f for f in os.listdir(sdir) if f.lower().endswith(".png"))
-        if not pngs:
-            errors.append("%s/%s: 没有 PNG 帧" % (name, state))
+        ok, why = check_image(path)
+        if not ok:
+            errors.append("%s/%s: %s" % (name, fname, why))
             continue
-        for f in pngs:
-            m = NAME_RE.match(f)
-            if not m or m.group(1) != state:
-                errors.append("%s/%s: 文件名不合规 %s（应为 %s_NN.png）"
-                              % (name, state, f, state))
-                continue
-            ok, why = check_image(os.path.join(sdir, f))
-            if not ok:
-                errors.append("%s/%s/%s: %s" % (name, state, f, why))
-        need = MIN_FRAMES[state]
-        if len(pngs) < need:
-            errors.append("%s/%s: 帧数不足 %d/%d（至少 %d 张）"
-                          % (name, state, len(pngs), need, need))
-        else:
-            notes.append("%s/%s: %d 帧（≥%d）✓" % (name, state, len(pngs), need))
+        present.append(state)
 
-    missing = [s for s in STATES if s not in state_dirs]
-    if missing:
-        notes.append("%s: 缺状态目录 %s" % (name, ", ".join(missing)))
+    # 不该有的文件 —— 一态只有一张，多出来说明还留着旧的多帧素材
+    for f in sorted(os.listdir(skin_dir)):
+        p = os.path.join(skin_dir, f)
+        if os.path.isdir(p):
+            continue
+        if f in ALLOWED_EXTRA:
+            continue
+        if not NAME_RE.match(f):
+            errors.append("%s: 多出来的文件 %s（只允许六张 <状态>.png）" % (name, f))
+
+    if len(present) == len(STATES):
+        notes.append("%s: 六态齐 ✓" % name)
+    else:
+        notes.append("%s: 有 %d/6 态" % (name, len(present)))
     return errors, notes
 
 
@@ -135,7 +117,6 @@ def main(argv=None):
 
     if not skins:
         print("没有找到皮肤：%s/skins 下没有任何皮肤目录" % root)
-        print("提示：素材尚未产出时这是正常的 —— 提交素材前再跑一次本脚本。")
         return 2
 
     all_errors = []

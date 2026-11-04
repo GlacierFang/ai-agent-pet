@@ -41,7 +41,7 @@
     "cardDwellSec": 8,
     "messageHoldSec": 3,
     "sleepStart": "22:00",
-    "sleepEnd": "07:00",
+    "sleepEnd": "06:30",
     "sleepEnabled": true,
     "weatherCity": ""
   },

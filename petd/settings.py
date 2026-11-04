@@ -111,11 +111,12 @@ def build(pet):
         [{"value": d, "label": DENSITY_LABELS.get(d, str(d)),
           "desc": DENSITY_DESCS.get(d, "")} for d in (0, 1, 2)]))
 
-    # default 永远在列表里 —— 它是程序画的那张脸（skins/ 是空的时候就是它），
-    # 不在磁盘上，但确实是个能选的值。
+    # default 是仓库自带的那只 —— 列表里永远有它。
     skins = skins_mod.list_skins(root)
-    skin_opts = [{"value": "default", "label": "默认", "desc": "程序画的那张脸"}]
+    skin_opts = [{"value": "default", "label": "默认", "desc": "仓库自带"}]
     for s in skins:
+        if s == "default":
+            continue
         skin_opts.append({
             "value": s, "label": s,
             "desc": "你自己建的" if skins_mod.skin_source(root, s) == "user"

@@ -4,7 +4,6 @@
 v1 只有三种信息密度，差别是表情区高度，文字区跟着变。
 """
 import io
-import math
 import pathlib
 
 from PIL import Image, ImageDraw, ImageFont
@@ -101,80 +100,6 @@ def _gradient(img, top, bottom):
         d.line([(0, y), (w, y)], fill=col)
 
 
-def _draw_pet(base, cx, cy, r, state, phase):
-    """程序化默认角色 —— 几何形状 + 状态参数，不依赖任何美术素材。"""
-    d = ImageDraw.Draw(base, "RGBA")
-    pal = PALETTE.get(state, PALETTE["idle"])
-    body = pal["body"]
-    glow = pal["glow"]
-
-    breathe = 1.0 + 0.04 * math.sin(phase * 2 * math.pi)
-    rr = r * breathe
-
-    # 光晕
-    for i in range(6, 0, -1):
-        alpha = int(10 + i * 3)
-        d.ellipse([cx - rr * (1 + i * 0.06), cy - rr * (1 + i * 0.06),
-                   cx + rr * (1 + i * 0.06), cy + rr * (1 + i * 0.06)],
-                  fill=glow + (alpha,))
-
-    # 耳朵
-    ear = rr * 0.34
-    d.polygon([(cx - rr * 0.72, cy - rr * 0.55), (cx - rr * 0.30, cy - rr * 1.18),
-               (cx - rr * 0.10, cy - rr * 0.62)], fill=body)
-    d.polygon([(cx + rr * 0.72, cy - rr * 0.55), (cx + rr * 0.30, cy - rr * 1.18),
-               (cx + rr * 0.10, cy - rr * 0.62)], fill=body)
-
-    # 身体
-    d.ellipse([cx - rr, cy - rr * 0.95, cx + rr, cy + rr * 1.05], fill=body)
-
-    # 脸
-    ex = rr * 0.38
-    ey = cy - rr * 0.12
-    er = rr * 0.17
-    ink = (26, 28, 38)
-    blink = state in ("idle", "sleeping") and (phase % 1.0) > 0.92
-    if state == "error":
-        for sx in (cx - ex, cx + ex):
-            d.line([(sx - er, ey - er), (sx + er, ey + er)], fill=ink, width=max(3, int(rr * 0.08)))
-            d.line([(sx - er, ey + er), (sx + er, ey - er)], fill=ink, width=max(3, int(rr * 0.08)))
-    elif blink:
-        for sx in (cx - ex, cx + ex):
-            d.line([(sx - er, ey), (sx + er, ey)], fill=ink, width=max(3, int(rr * 0.07)))
-    elif state == "working":
-        for sx in (cx - ex, cx + ex):
-            d.line([(sx - er, ey - er * 0.2), (sx + er, ey - er * 0.2)], fill=ink, width=max(3, int(rr * 0.07)))
-    else:
-        for sx in (cx - ex, cx + ex):
-            d.ellipse([sx - er, ey - er * 1.15, sx + er, ey + er * 1.15], fill=ink)
-            if state == "waiting":
-                d.ellipse([sx - er * 0.45, ey - er * 0.5, sx + er * 0.45, ey + er * 0.35],
-                          fill=(255, 255, 255))
-
-    # 嘴
-    my = cy + rr * 0.42
-    if state in ("idle", "done", "sleeping"):
-        d.arc([cx - rr * 0.28, my - rr * 0.20, cx + rr * 0.28, my + rr * 0.24],
-              start=10, end=170, fill=ink, width=max(3, int(rr * 0.07)))
-    elif state == "waiting":
-        d.ellipse([cx - rr * 0.12, my - rr * 0.12, cx + rr * 0.12, my + rr * 0.16], fill=ink)
-    elif state == "working":
-        d.line([(cx - rr * 0.22, my + rr * 0.06), (cx + rr * 0.22, my + rr * 0.06)],
-               fill=ink, width=max(3, int(rr * 0.07)))
-    elif state == "error":
-        d.arc([cx - rr * 0.26, my - rr * 0.10, cx + rr * 0.26, my + rr * 0.36],
-              start=190, end=350, fill=ink, width=max(3, int(rr * 0.07)))
-
-    # waiting 举牌子
-    if state == "waiting":
-        bx = cx + rr * 1.05
-        by = cy - rr * 1.05
-        d.rounded_rectangle([bx - rr * 0.28, by - rr * 0.34, bx + rr * 0.28, by + rr * 0.34],
-                            radius=int(rr * 0.08), fill=(255, 226, 120))
-        _center(d, bx, by - rr * 0.30, "!", int(rr * 0.42), (40, 34, 20))
-    return base
-
-
 CARD_BG_TOP = (24, 28, 44)
 CARD_BG_BOTTOM = (13, 15, 24)
 
@@ -211,7 +136,7 @@ def draw_standard_card(img, draw, box, card, pet=None):
         img.paste(pet, (x, y + h - pet.size[1]), pet)
 
 
-def render_card(cfg, card, phase=0.0, skin_frames=None):
+def render_card(cfg, card, skin_image=None):
     """内容层：一张 feature 整屏卡片。
 
     内容层和消息层互斥 —— 屏上永远只有一样东西。
@@ -240,7 +165,6 @@ def render_card(cfg, card, phase=0.0, skin_frames=None):
     body = [str(b) for b in (card.get("body") or [])][:3]
     rows = [r for r in (card.get("rows") or []) if isinstance(r, dict)][:5]
     source = str(card.get("source") or "")
-    pet_state = str(card.get("state") or "idle")
 
     ty = int(14 * scale)
     if title:
@@ -283,16 +207,13 @@ def render_card(cfg, card, phase=0.0, skin_frames=None):
     area_bottom = height * scale - int(6 * scale)
     area_h = max(int(40 * scale), area_bottom - area_top)
     pet = Image.new("RGBA", (width * scale, area_h), (0, 0, 0, 0))
-    if skin_frames:
-        frame = skin_frames[int(phase * len(skin_frames)) % len(skin_frames)]
-        fw, fh = frame.size
+    if skin_image is not None:
+        # 皮肤图 —— 一态一张，等比缩放，不拉伸
+        fw, fh = skin_image.size
         factor = min((width * scale) / fw, area_h / fh)
         nw, nh = max(1, int(fw * factor)), max(1, int(fh * factor))
-        frame = frame.resize((nw, nh), Image.LANCZOS)
+        frame = skin_image.resize((nw, nh), Image.LANCZOS)
         pet.paste(frame, ((width * scale - nw) // 2, (area_h - nh) // 2), frame)
-    else:
-        radius = int(min(width * scale * 0.30, area_h * 0.34))
-        _draw_pet(pet, width * scale // 2, int(area_h * 0.52), radius, pet_state, phase)
     big.paste(pet, (0, area_top), pet)
 
     img = big.resize((width, height), Image.LANCZOS)
@@ -301,8 +222,8 @@ def render_card(cfg, card, phase=0.0, skin_frames=None):
     return buf.getvalue()
 
 
-def render_frame(cfg, state, subtitle="", session_name="", density=1, phase=0.0,
-                 skin_frames=None):
+def render_frame(cfg, state, subtitle="", session_name="", density=1,
+                 skin_image=None):
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
     quality = int(cfg.get("render", {}).get("quality", 85))
@@ -319,21 +240,15 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1, phase=0.0,
 
     # 表情区
     pet = Image.new("RGBA", (width * scale, face_px), (0, 0, 0, 0))
-    if skin_frames:
-        # 有皮肤素材就贴第一帧，缩放裁切不拉伸
-        frame = skin_frames[int(phase * len(skin_frames)) % len(skin_frames)]
-        sw, sh = frame.size
-        box_h = face_px
+    if skin_image is not None:
+        # 皮肤图 —— 一态一张，等比缩放，不拉伸
+        sw, sh = skin_image.size
         box_w = width * scale
-        scale_factor = min(box_w / sw, box_h / sh)
-        nw, nh = int(sw * scale_factor), int(sh * scale_factor)
-        frame = frame.resize((nw, nh), Image.LANCZOS)
-        ox = (box_w - nw) // 2
-        oy = (box_h - nh) // 2
-        pet.paste(frame, (ox, oy), frame)
-    else:
-        _draw_pet(pet, width * scale // 2, int(face_px * 0.52),
-                  int(min(width * scale * 0.34, face_px * 0.36)), state, phase)
+        box_h = face_px
+        factor = min(box_w / sw, box_h / sh)
+        nw, nh = max(1, int(sw * factor)), max(1, int(sh * factor))
+        frame = skin_image.resize((nw, nh), Image.LANCZOS)
+        pet.paste(frame, ((box_w - nw) // 2, (box_h - nh) // 2), frame)
     big.paste(pet, (0, 0), pet)
 
     d = ImageDraw.Draw(big)
