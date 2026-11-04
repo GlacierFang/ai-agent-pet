@@ -462,6 +462,7 @@ footer {
   padding: 2px 20px 32px;
   color: var(--muted);
   font-size: 12px;
+  text-align: center;
 }
 footer p { margin: 4px 0; }
 /* 多选项的勾选态 —— 勾中的按钮描一圈边，灰底的表示没选 */

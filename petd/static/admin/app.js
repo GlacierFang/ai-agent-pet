@@ -24,7 +24,7 @@ var T = {
     /* 服务端暂时没有暴露版本接口，这里先写死一份。
        改了 petd/__init__.py 的 __version__ 记得同步这一行。 */
     version: '0.1.0',
-    versionLine: '宠物屏幕 · 版本 {v}'
+    versionLine: '宠物屏幕 · 活在小屏幕上的AI宠物助理'
   },
 
   common: {
@@ -93,13 +93,13 @@ var T = {
   },
 
   pet: {
-    forLabel: '顾着：',
+    forLabel: '跟进：',
     noOne: '没人',
     nobodyBusy: '没人在忙',
     needConfirm: '需要你确认',
     needConfirmMore: '（{n} 件事等你）',
     taskError: '有任务出错了',
-    calm: '不用你管',
+    calm: '不用你动手',
     connOk: '连接 正常',
     connBad: '连接 断了',
     devOnline: '设备 在线',
@@ -108,39 +108,38 @@ var T = {
     previewTitle: '设备画面',
     previewNote: '与设备屏幕显示的是同一帧画面。',
     previewRefresh: '立即刷新',
-    previewAuto: '每秒自动刷新',
+    previewAuto: '自动刷新',
     previewEmpty: '暂无帧',
     previewOff: '自动刷新已关闭',
-    previewEverySec: '每秒刷新',
     sessionTitle: '会话',
-    sessionNote: '宠物反应全部会话 —— 它现在顾着谁，就写谁。',
+    sessionNote: '宠物状态：正在帮你跟进会话状态',
     noSession: '还没有会话',
-    inFocus: '宠物在顾',
+    inFocus: '宠物在跟',
     watching: '你正看',
-    skinTitle: '形象',
+    skinTitle: '宠物',
     skinCurrent: '当前：',
-    skinNote: '在「素材仓库」里可以新建形象、传素材、设为当前。',
-    noSkins: '还没有形象',
+    skinNote: '在「素材仓库」里可以新建宠物、传素材、设为当前。',
+    noSkins: '还没有宠物',
     screenLabel: '屏上：',
     layerMessage: '消息层',
     layerContent: '内容层'
   },
 
   skins: {
-    title: '形象',
+    title: '宠物',
     /* 只留带 <code> 的版本 —— 页面渲染的就是它 */
-    noteHtml: '仓库自带的形象随版本走；你自己建的存放在 <code>petd/data/skins/</code>，不进仓库。',
-    empty: '还没有形象 —— 建一个，或者传素材。',
+    noteHtml: '仓库自带的宠物随版本走；你自己建的存放在 <code>petd/data/skins/</code>，不进仓库。',
+    empty: '还没有宠物 —— 建一个，或者传素材。',
     yours: '你的',
     builtin: '自带',
     noAssets: '没有素材',
     missingStates: '还缺 {n} 个状态',
-    sixStatesNote: '一套形象要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。',
+    sixStatesNote: '一套宠物要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。',
     onePerState: '每种状态一张图。',
     setCurrent: '设为当前',
     remove: '删除',
-    deleteAsk: '删除形象 {name}？素材会一起没。',
-    newTitle: '新建形象',
+    deleteAsk: '删除宠物 {name}？素材会一起没。',
+    newTitle: '新建宠物',
     name: '名称',
     namePlaceholder: 'cat',
     create: '创建',
@@ -225,7 +224,7 @@ var T = {
     'pet.since': '状态起始',
     'pet.page': '宠物页码',
     'pet.density': '宠物密度',
-    'pet.skin': '当前形象',
+    'pet.skin': '当前宠物',
     'pet.sessions': '会话数',
     'pet.selected': '当前会话',
     'pet.attribution': '归属会话',
@@ -1368,7 +1367,6 @@ function tickPreview() {
   }
   refreshPreview();
   S.previewTimer = setInterval(refreshPreview, 1000);
-  el('preview-meta').textContent = t('pet:previewEverySec');
 }
 
 /* ---------------- 配置 ---------------- */

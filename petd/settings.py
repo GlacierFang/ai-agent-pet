@@ -131,7 +131,7 @@ def build(pet):
                      "label": s.get("name") or s.get("key") or "",
                      "desc": s.get("state") or ""})
     items.append(_item(
-        "session", "关注的会话", "宠物优先显示哪个会话（不影响状态判断）",
+        "session", "显示哪个会话", "宠物优先显示哪个会话（不影响状态判断）",
         pet.engine.selected_key or "", opts))
 
     return items

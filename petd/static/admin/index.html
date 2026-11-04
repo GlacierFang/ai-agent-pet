@@ -79,38 +79,38 @@
         <p class="note" data-i18n="pet:previewNote">与设备屏幕显示的是同一帧画面。</p>
         <div class="row">
           <button type="button" id="btn-preview" data-i18n="pet:previewRefresh">立即刷新</button>
-          <label class="inline"><input type="checkbox" id="preview-auto" checked> <span data-i18n="pet:previewAuto">每秒自动刷新</span></label>
+          <label class="inline"><input type="checkbox" id="preview-auto" checked> <span data-i18n="pet:previewAuto">自动刷新</span></label>
           <span class="muted" id="preview-meta"></span>
         </div>
       </section>
 
       <section class="card">
         <h2 data-i18n="pet:sessionTitle">会话</h2>
-        <p class="note" data-i18n="pet:sessionNote">宠物反应全部会话 —— 它现在顾着谁，就写谁。</p>
+        <p class="note" data-i18n="pet:sessionNote">宠物状态：正在帮你跟进会话状态</p>
         <div class="list" id="session-list"></div>
       </section>
     </div>
 
     <section class="card">
-      <h2 data-i18n="pet:skinTitle">形象</h2>
+      <h2 data-i18n="pet:skinTitle">宠物</h2>
       <p class="note"><span data-i18n="pet:skinCurrent">当前：</span><strong id="skin-current">—</strong></p>
       <div class="row" id="skin-picker"></div>
-      <p class="note" data-i18n="pet:skinNote">在「素材仓库」里可以新建形象、传素材、设为当前。</p>
+      <p class="note" data-i18n="pet:skinNote">在「素材仓库」里可以新建宠物、传素材、设为当前。</p>
     </section>
   </section>
 
   <!-- ============ 素材仓库 ============ -->
   <section class="panel hidden" data-panel="skins">
     <section class="card">
-      <h2 data-i18n="skins:title">形象</h2>
-      <p class="note" data-i18n-html="skins:noteHtml">仓库自带的形象随版本走；你自己建的存放在 petd/data/skins/，不进仓库。</p>
-      <p class="note" data-i18n="skins:sixStatesNote">一套形象要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。</p>
+      <h2 data-i18n="skins:title">宠物</h2>
+      <p class="note" data-i18n-html="skins:noteHtml">仓库自带的宠物随版本走；你自己建的存放在 petd/data/skins/，不进仓库。</p>
+      <p class="note" data-i18n="skins:sixStatesNote">一套宠物要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。</p>
       <div class="list" id="skin-list"></div>
     </section>
 
     <div class="grid2">
       <section class="card">
-        <h2 data-i18n="skins:newTitle">新建形象</h2>
+        <h2 data-i18n="skins:newTitle">新建宠物</h2>
         <form id="form-skin-new" autocomplete="off">
           <label><span data-i18n="skins:name">名称</span><input type="text" id="skin-new-name" placeholder="cat" data-i18n-placeholder="skins:namePlaceholder"></label>
           <div class="row"><button type="submit" data-i18n="skins:create">创建</button>
@@ -121,7 +121,7 @@
       <section class="card">
         <h2 data-i18n="skins:frameTitle">上传状态图</h2>
         <form id="form-skin-frame" autocomplete="off">
-          <label><span data-i18n="skins:name">形象</span><input type="text" id="skin-frame-name" placeholder="cat" data-i18n-placeholder="skins:namePlaceholder"></label>
+          <label><span data-i18n="skins:name">宠物</span><input type="text" id="skin-frame-name" placeholder="cat" data-i18n-placeholder="skins:namePlaceholder"></label>
           <!-- option 的 value 是后端协议认的英文 id；显示文字写死一份中文，
                JS 起来后会再用字典刷新一遍（没有 JS 也不至于空白） -->
           <label><span data-i18n="skins:state">状态</span><select id="skin-frame-state">
@@ -226,7 +226,7 @@
 </main>
 
 <footer>
-  <p id="footer-version">宠物屏幕 · 版本 0.1.0</p>
+  <p id="footer-version">宠物屏幕 · 活在小屏幕上的AI宠物助理</p>
   <p id="footer-security" class="hidden" data-i18n="auth:footerWarn">未设置访问口令，请勿把本控制台暴露到公网。</p>
 </footer>
 
