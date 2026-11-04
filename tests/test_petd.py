@@ -276,3 +276,15 @@ def test_deep_merge_preserves_nested():
     base = {"a": {"b": 1, "c": 2}}
     out = config._deep_merge(base, {"a": {"b": 9}})
     assert out["a"]["b"] == 9 and out["a"]["c"] == 2
+
+
+# ---------- 随版本走的默认配置 ----------
+def test_shipped_state_rules_match_code_priority():
+    """随仓库走的 state_rules.json 必须和代码里的默认优先级一致。
+
+    这个文件会整体覆盖代码里的默认值 —— 两者一旦分叉，实际行为就以文件为准，
+    文档和测试里写明的优先级就成了空话。这条测试专门挡这种分叉。
+    """
+    p = ROOT / 'petd' / 'data' / 'state_rules.json'
+    blob = json.loads(p.read_text(encoding='utf-8'))
+    assert blob['priority'] == state.PRIORITY

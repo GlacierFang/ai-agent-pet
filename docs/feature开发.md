@@ -108,7 +108,7 @@ class MyFeature(Feature):
     {"key": "...", "name": "跑测试", "state": "done",
      "lastActivityAt": 1750.0, "unread": False, "pending": False},
   ],
-  "skin": "default",         # 当前形象
+  "skin": "default",         # 当前宠物
   "focused": "session-key",  # 用户关注的会话
   "device": {...},           # 设备状态
   "weatherCity": "",         # 天气用的城市（空 = 用默认城市）
