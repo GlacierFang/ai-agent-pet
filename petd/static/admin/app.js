@@ -20,12 +20,11 @@ var API = new URL('api', document.baseURI).href.replace(/\/+$/, '');
 
 var T = {
   app: {
-    title: 'petd 控制台',
+    title: '宠物屏幕',
     /* 服务端暂时没有暴露版本接口，这里先写死一份。
        改了 petd/__init__.py 的 __version__ 记得同步这一行。 */
     version: '0.1.0',
-    versionLine: 'petd 控制台 · 版本 {v}',
-    footerNote: '这里的改动都存在你自己电脑上，关掉页面再打开还在。'
+    versionLine: '宠物屏幕 · 版本 {v}'
   },
 
   common: {
@@ -39,10 +38,9 @@ var T = {
   },
 
   auth: {
-    need: '需要口令',
     off: '未设口令',
     logout: '退出登录',
-    title: 'petd 控制台',
+    title: '宠物屏幕',
     note: '需要口令才能查看。',
     password: '口令',
     enter: '进入',
@@ -250,11 +248,10 @@ var T = {
       '在电脑上把 petd 跑起来（<code>python -m petd</code>），它会监听设备并接收画面。',
       '打开这个后台页面，「开始使用」里能看到每一步的进度，「我的宠物」里能看到设备屏幕上的画面。'
     ],
-    addrTitle: '设备地址',
-    addrHint: '设备要连到这台电脑 —— 下面哪个地址都填。',
-    addrHost: '本机名字：{v}',
-    addrIp: 'IP 地址：{v}',
-    addrPort: '端口：{v}',
+    addrTitle: '设备怎么找到这台电脑',
+    addrHint: '在设备上填下面任意一个地址：',
+    addrHost: '{v}',
+    addrIp: '{v}',
     addrNone: '暂时没拿到地址',
     addrMdnsOff: '本机名字发现没开',
     addrUnknown: '还没有拿到设备地址 —— petd 起来后会自动显示。',
@@ -602,7 +599,6 @@ function renderSetupAddr(boxId, data) {
   }
   var addrs = m.addresses || [];
   lines.push(fill(t('setup:addrIp'), { v: addrs.length ? addrs.join('、') : t('setup:addrNone') }));
-  if (m.port) lines.push(fill(t('setup:addrPort'), { v: m.port }));
   lines.forEach(function (txt) {
     var line = document.createElement('div');
     line.className = 'addr-line';
@@ -1446,10 +1442,13 @@ function renderAuth(s) {
     return;
   }
   out.classList.add('hidden');
-  badge.classList.remove('hidden');
   if (s.authRequired) {
-    setBadge(badge, 'warn', t('auth:need'));
+    /* 没登录 —— 右上角什么都不挂。口令框就在下面，
+       再写一个「需要口令」纯属重复。 */
+    badge.classList.add('hidden');
   } else {
+    /* 没设口令 —— 这是安全提醒，得留着。 */
+    badge.classList.remove('hidden');
     setBadge(badge, 'warn', t('auth:off'));
     el('footer-security').classList.remove('hidden');
   }

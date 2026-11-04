@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>petd 控制台</title>
+<title>宠物屏幕</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
 <header class="banner">
-  <strong id="banner-note" data-i18n="app:title">petd 控制台</strong>
+  <strong id="banner-note" data-i18n="app:title">宠物屏幕</strong>
   <span class="banner-sub" data-i18n="tabs:pet">我的宠物</span>
   <span class="badge" id="badge-auth">—</span>
   <button type="button" class="badge logout hidden" id="btn-logout" data-i18n="auth:logout">退出登录</button>
@@ -17,7 +17,7 @@
 
 <div class="gate hidden" id="gate">
   <form id="form-gate" autocomplete="off">
-    <h1 data-i18n="auth:title">petd 控制台</h1>
+    <h1 data-i18n="auth:title">宠物屏幕</h1>
     <p class="note" data-i18n="auth:note">需要口令才能查看。</p>
     <label><span data-i18n="auth:password">口令</span><input type="password" id="gate-password" autocomplete="current-password"></label>
     <button type="submit" data-i18n="auth:enter">进入</button>
@@ -39,8 +39,8 @@
     <h2 data-i18n="setup:title">开始使用</h2>
     <ol class="guide-list" id="gate-guide"></ol>
     <div class="addr-box">
-      <h3 data-i18n="setup:addrTitle">设备地址</h3>
-      <p class="note" data-i18n="setup:addrHint">设备要连到这台电脑 —— 下面哪个地址都填。</p>
+      <h3 data-i18n="setup:addrTitle">设备怎么找到这台电脑</h3>
+      <p class="note" data-i18n="setup:addrHint">在设备上填下面任意一个地址：</p>
       <div id="gate-addr"></div>
     </div>
   </section>
@@ -215,8 +215,8 @@
         <summary data-i18n="setup:guideTitle">第一次用？按这四步来</summary>
         <ol class="guide-list" id="setup-guide"></ol>
         <div class="addr-box">
-          <h3 data-i18n="setup:addrTitle">设备地址</h3>
-          <p class="note" data-i18n="setup:addrHint">设备要连到这台电脑 —— 下面哪个地址都填。</p>
+          <h3 data-i18n="setup:addrTitle">设备怎么找到这台电脑</h3>
+          <p class="note" data-i18n="setup:addrHint">在设备上填下面任意一个地址：</p>
           <div id="setup-addr"></div>
         </div>
       </details>
@@ -226,8 +226,7 @@
 </main>
 
 <footer>
-  <p id="footer-version">petd 控制台 · 版本 0.1.0</p>
-  <p data-i18n="app:footerNote">这里的改动都存在你自己电脑上，关掉页面再打开还在。</p>
+  <p id="footer-version">宠物屏幕 · 版本 0.1.0</p>
   <p id="footer-security" class="hidden" data-i18n="auth:footerWarn">未设置访问口令，请勿把本控制台暴露到公网。</p>
 </footer>
 
