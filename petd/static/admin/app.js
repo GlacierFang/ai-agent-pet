@@ -68,6 +68,7 @@ var T = {
     skins: '宠物库',
     settings: '宠物设定',
     diag: '连接与诊断',
+    docs: '文档',
     setup: '使用说明'
   },
 
@@ -292,6 +293,18 @@ var T = {
   },
 
   /* 使用说明 —— 这页只讲「怎么用」，不讲系统状态 */
+  docs: {
+    title: '文档',
+    note: '装好之后随时回来查。左边的列表是仓库里的文档，点一篇看正文。',
+    empty: '没有文档',
+    unavailable: '这份安装里没有 docs 目录 —— 装的时候少了源码目录？',
+    loading: '正在读…',
+    readFail: '读不了：{e}',
+    notFound: '没有这篇文档',
+    repoLink: '在 GitHub 上看全部文档',
+    other: '其它'
+  },
+
   manual: {
     title: '使用说明',
     useTitle: '一、宠物怎么用',
@@ -362,6 +375,8 @@ var S = {
   sessions: [],
   features: [],      // 屏上会显示哪些内容（GET /settings）
   settings: [],      // 做事的节奏（GET /settings）
+  docGroups: [],     // 文档分组（GET /docs）
+  docName: '',       // 现在打开的那篇
   skins: [],
   skin: '',
   skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
@@ -469,6 +484,7 @@ function switchTab(name) {
   });
   if (name === 'skins') loadSkins();
   if (name === 'settings') loadSettings();
+  if (name === 'docs') loadDocs();
 }
 
 /* ---------------- 我的宠物 ---------------- */
@@ -1750,6 +1766,129 @@ function deleteAlbum(file, btn) {
       loadSettings();
     })
     .catch(function () { btn.disabled = false; });
+}
+
+
+/* ---------------- 文档 ---------------- */
+
+/* 文档清单 —— 服务端分组好了，前端照着画，不自己分。 */
+function loadDocs() {
+  fetch(API + '/docs', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      S.docGroups = b.groups || [];
+      S.docAvailable = b.available !== false;
+      renderDocList(b);
+      /* 打开第一篇 —— 空着手进文档页没意义 */
+      if (S.docAvailable && !S.docName) {
+        var first = null;
+        for (var i = 0; i < S.docGroups.length; i++) {
+          if (S.docGroups[i].docs && S.docGroups[i].docs.length) {
+            first = S.docGroups[i].docs[0].name;
+            break;
+          }
+        }
+        if (first) openDoc(first);
+      }
+    })
+    .catch(function () {
+      S.docAvailable = false;
+      renderDocList({ available: false });
+    });
+}
+
+function renderDocList(blob) {
+  var box = el('doc-groups');
+  box.textContent = '';
+  if (!blob || blob.available === false) {
+    var e = document.createElement('div');
+    e.className = 'muted';
+    e.textContent = t('docs:unavailable');
+    box.appendChild(e);
+    var link = document.createElement('a');
+    link.className = 'doc-repo-link';
+    link.href = blob.repoUrl || '';
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.textContent = t('docs:repoLink');
+    box.appendChild(link);
+    return;
+  }
+  if (!S.docGroups.length) {
+    var em = document.createElement('div');
+    em.className = 'muted';
+    em.textContent = t('docs:empty');
+    box.appendChild(em);
+    return;
+  }
+  S.docGroups.forEach(function (g) {
+    var gt = document.createElement('div');
+    gt.className = 'doc-group-title';
+    gt.textContent = g.title;
+    box.appendChild(gt);
+    (g.docs || []).forEach(function (d) {
+      var a = document.createElement('a');
+      a.className = 'doc-link' + (d.name === S.docName ? ' active' : '');
+      a.href = '#';
+      a.textContent = d.title;
+      if (d.desc) {
+        var sub = document.createElement('span');
+        sub.className = 'doc-link-desc';
+        sub.textContent = d.desc;
+        a.appendChild(sub);
+      }
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        openDoc(d.name);
+      });
+      box.appendChild(a);
+    });
+  });
+}
+
+/* 打开一篇文档。 */
+function openDoc(name) {
+  S.docName = name;
+  var body = el('doc-body');
+  body.textContent = t('docs:loading');
+  fetch(API + '/docs/read?file=' + encodeURIComponent(name), { cache: 'no-store' })
+    .then(function (r) {
+      if (r.status === 404) throw new Error(t('docs:notFound'));
+      return r.json();
+    })
+    .then(function (b) {
+      if (!b.ok) throw new Error(b.error || t('common:unknownError'));
+      body.innerHTML = b.html || '';
+      body.scrollTop = 0;
+      /* 文档里的相对链接（doc:xxx）改成页内跳 */
+      wireDocLinks(body);
+      renderDocList({ available: true });
+    })
+    .catch(function (err) {
+      body.textContent = fill(t('docs:readFail'), {
+        e: (err && err.message) ? err.message : t('common:unknownError')
+      });
+    });
+}
+
+/* 文档里的 [协议](协议.md) 被服务端改成了 doc:协议.md —— 拦下来在页内跳。 */
+function wireDocLinks(body) {
+  var links = body.querySelectorAll('a[href^="doc:"]');
+  for (var i = 0; i < links.length; i++) {
+    (function (a) {
+      var target = a.getAttribute('href').slice(4);
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        openDoc(target);
+      });
+    })(links[i]);
+  }
+  /* 外链新窗口开 —— 别把后台页面顶掉 */
+  var ext = body.querySelectorAll('a[href^="http"]');
+  for (var j = 0; j < ext.length; j++) {
+    ext[j].target = '_blank';
+    ext[j].rel = 'noreferrer';
+  }
 }
 
 

@@ -53,6 +53,7 @@
     <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">宠物库</button>
     <button type="button" class="tab" data-tab="settings" data-i18n="tabs:settings">宠物设定</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">连接与诊断</button>
+    <button type="button" class="tab" data-tab="docs" data-i18n="tabs:docs">文档</button>
     <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">使用说明</button>
   </nav>
 
@@ -176,6 +177,18 @@
       <p class="note" data-i18n-html="diag:gesturesNoteHtml">设备上的旋钮能做的事。改 petd/data/gestures.json，重启 petd 后生效。</p>
       <div class="gesture-list" id="gesture-list"></div>
     </details>
+  </section>
+
+  <!-- ============ 文档 ============ -->
+  <section class="panel hidden" data-panel="docs">
+    <section class="card">
+      <h2 data-i18n="docs:title">文档</h2>
+      <p class="note" data-i18n="docs:note">装好之后随时回来查。左边的列表是仓库里的文档，点一篇看正文。</p>
+      <div class="doc-wrap">
+        <nav class="doc-side" id="doc-groups"></nav>
+        <article class="doc-body" id="doc-body"></article>
+      </div>
+    </section>
   </section>
 
   <!-- ============ 使用说明 ============ -->

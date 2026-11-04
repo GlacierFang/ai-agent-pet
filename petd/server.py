@@ -28,6 +28,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from . import album as album_mod
 from . import config as config_mod
+from . import docs as docs_mod
 from . import skins as skins_mod
 from .app import PetApp
 from .mdns import MdnsAdvertiser
@@ -37,6 +38,22 @@ log = logging.getLogger("petd.server")
 STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
 ADMIN_DIR = STATIC_DIR / "admin"
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+class _AdminAssets(StaticFiles):
+    """后台静态资源。
+
+    每个响应加一条 Cache-Control: no-cache —— 不是「不缓存」，是
+    「每次都来问，但可以用 304 快速确认」。
+
+    少了这一行，改了前端刷新页面拿到的还是旧 app.js：浏览器拿 etag
+    做协商缓存，光刷新不一定重拉。用户看到的东西和代码对不上。
+    """
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        resp = super().file_response(full_path, stat_result, scope, status_code)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 AUTH_COOKIE = "petd_admin"
 AUTH_TTL = 7 * 24 * 3600
@@ -411,6 +428,27 @@ def create_app(cfg=None, start_gateway=True, port=None):
                              "result": out.get("result", ""),
                              "toys": pet.toys_view()})
 
+    async def api_docs_list(request):
+        """文档清单 —— 分好组。没登记的新文档落进「其它」，不会消失。"""
+        root = pet.cfg.get("_repo_root", ".")
+        return JSONResponse(docs_mod.list_docs(root))
+
+    async def api_docs_read(request):
+        """读一篇文档，渲染成 HTML。
+
+        名字走 query 参数 —— 文档名可能带中文，浏览器会自动编码。
+        """
+        root = pet.cfg.get("_repo_root", ".")
+        # 参数名跟前端、和缩略图那条路统一叫 file。
+        # name 也认 —— 两个都收，省得以后有人改了又踩回去。
+        name = str(request.query_params.get("file")
+                   or request.query_params.get("name") or "")
+        doc = docs_mod.render_doc(root, name)
+        if doc is None:
+            return JSONResponse({"ok": False, "error": "没有这篇文档"},
+                                status_code=404)
+        return JSONResponse(doc)
+
     async def api_setup(request):
         """首次使用指引 —— 字段是前后端契约，别改名字。"""
         return JSONResponse(pet.setup_payload())
@@ -674,6 +712,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/sessions", _guard(api_sessions)),
         Route("/admin/api/settings", _guard(api_settings_get), methods=["GET"]),
         Route("/admin/api/settings", _guard(api_settings_post), methods=["POST"]),
+        Route("/admin/api/docs", _guard(api_docs_list), methods=["GET"]),
+        Route("/admin/api/docs/read", _guard(api_docs_read), methods=["GET"]),
         Route("/admin/api/album", _guard(api_album_get), methods=["GET"]),
         Route("/admin/api/album/upload", _guard(api_album_upload), methods=["POST"]),
         Route("/admin/api/album/delete", _guard(api_album_delete), methods=["POST"]),
@@ -689,7 +729,11 @@ def create_app(cfg=None, start_gateway=True, port=None):
         WebSocketRoute("/device", device_ws),
     ]
     if ADMIN_DIR.is_dir():
-        routes.append(Mount("/admin/assets", StaticFiles(directory=str(ADMIN_DIR)),
+        # no-cache —— 不是「不缓存」，是「每次都来问，但可以用 304 快速确认」。
+        # 少了这一行，改了前端刷新页面拿到的还是旧 app.js（浏览器拿 etag
+        # 做协商缓存，光刷新不一定重拉）。用户看到的东西和代码对不上。
+        routes.append(Mount("/admin/assets",
+                            _AdminAssets(directory=str(ADMIN_DIR)),
                             name="admin-assets"))
     fw_dir = REPO_ROOT / "firmware" / "build"
     if fw_dir.is_dir():
