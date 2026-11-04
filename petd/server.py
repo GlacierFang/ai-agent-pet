@@ -388,13 +388,26 @@ def create_app(cfg=None, start_gateway=True, port=None):
     async def api_status(request):
         return JSONResponse(pet.snapshot())
 
-    async def api_toys_dice(request):
-        """摇一次骰子 —— 后台按钮，等价于设备上短按一下旋钮。
+    async def api_knob(request):
+        """模拟一次旋钮手势 —— 走真手势表。
+
+        跟设备上按旋钮是同一条路：手势怎么分类、映射到哪个动作，全看
+        petd/data/gestures.json。用户改了映射，这里跟着变 —— 那才叫模拟。
 
         没有板子也能看见效果：按一下，屏上就变骰子。
         """
-        result = pet.roll_dice()
-        return JSONResponse({"ok": True, "result": result,
+        gesture = "press_short"
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                gesture = str(body.get("gesture") or gesture)
+        except Exception:
+            pass  # 没带 body 也行 —— 默认短按
+        out = await pet.simulate_gesture(gesture)
+        return JSONResponse({"ok": True,
+                             "gesture": out.get("gesture", gesture),
+                             "action": out.get("action", ""),
+                             "result": out.get("result", ""),
                              "toys": pet.toys_view()})
 
     async def api_setup(request):
@@ -594,7 +607,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/setup/public", api_setup_public),
         Route("/admin/api/preview.jpg", _guard(api_preview)),
         Route("/admin/api/status", _guard(api_status)),
-        Route("/admin/api/toys/dice", _guard(api_toys_dice), methods=["POST"]),
+        Route("/admin/api/knob", _guard(api_knob), methods=["POST"]),
         Route("/admin/api/setup", _guard(api_setup)),
         Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),

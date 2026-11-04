@@ -197,31 +197,68 @@ class PetApp:
 
     # ---------- 旋钮 ----------
     async def on_knob(self, msg):
+        """旋钮事件 -> 手势 -> 动作。
+
+        返回这次做了什么 {"gesture","action","result"} —— 后台的模拟按钮走的就是
+        这一条路，所以按钮和真设备的行为一定一致。
+        """
         gesture_key, magnitude = gestures_mod.classify(msg, self.gestures)
         if gesture_key is None:
-            return
+            return None
         action = gestures_mod.action_for(gesture_key, self.gestures)
         if not action:
-            return
+            return None
         self.log("info", "旋钮 %s -> %s (%s)" % (gesture_key, action, magnitude))
-        await self.run_action(action, magnitude)
+        result = await self.run_action(action, magnitude)
+        return {"gesture": gesture_key, "action": action, "result": result or "ok"}
+
+    async def simulate_gesture(self, gesture_key="press_short"):
+        """后台按钮：模拟一次旋钮手势。
+
+        造一条设备那种原始事件，走 on_knob —— 跟真设备同一条路。
+        短按到底干什么，看 gestures.json 的映射；改了映射，这个按钮跟着变。
+        那才叫「模拟」，不是在这儿直接调某个动作。
+        """
+        key = str(gesture_key or "press_short")
+        if key not in ("rot", "rot_press", "press_long", "press_short"):
+            return {"gesture": key, "action": "", "result": "unknown"}
+        raw = {"type": "input", "ev": "press", "ms": 100}
+        if key == "press_long":
+            raw["ms"] = int(self.gestures.get("longPressMs", 600)) + 10
+        elif key == "rot":
+            raw = {"type": "input", "ev": "rot", "dir": 1, "steps": 1}
+        elif key == "rot_press":
+            raw = {"type": "input", "ev": "rot_press", "dir": 1, "steps": 1}
+        out = await self.on_knob(raw)
+        if out is None:
+            self.log("info", "旋钮 %s 没分配动作" % key)
+            return {"gesture": key, "action": "", "result": "unassigned"}
+        return out
 
     async def run_action(self, action, magnitude=1):
+        """派发一个动作。返回这次的结果 —— 后台的模拟按钮要拿它说话。"""
         if action == "card.next":
             # 手动翻到下一张卡 —— 宠物在忙（消息层）时不翻
             if self.director.next_card():
                 self.log("info", "切到下一张卡")
+                return "next"
+            return "blocked"
         elif action == "density.cycle":
             await self.set_density((self.density + 1) % 3)
+            return "ok"
         elif action == "state.refresh":
             await self.refresh()
             await self.devices.send_json({"type": "refresh", "id": self.frame_seq})
+            return "ok"
         elif action == "session.next":
             await self.select_next_session(int(magnitude or 1))
+            return "ok"
         elif action == "skin.next":
             await self.cycle_skin()
+            return "ok"
         elif action == "dice.roll":
-            self.roll_dice()
+            return self.roll_dice()
+        return ""
 
     # ---------- 能改的设置 ----------
     # 后台设定和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
@@ -352,6 +389,8 @@ class PetApp:
             "night": night,
             # 现在按旋钮会不会弹骰子
             "canRoll": not busy and not night,
+            # 短按被映射到哪个动作 —— 页面照它说话，不替用户猜
+            "pressAction": gestures_mod.action_for("press_short", self.gestures),
         }
 
     async def cycle_skin(self):

@@ -131,19 +131,22 @@ var T = {
   /* 屏上的玩具 —— 不是宠物状态，是屏上的一次性覆盖层 */
   toys: {
     title: '屏上的玩具',
-    note: '骰子和功德箱不是宠物状态 —— 它们是屏上的一次性覆盖层，不改宠物在干什么。',
+    note: '骰子和功德箱是宠物能做的两件事。它们是屏上的一次性覆盖层，不改宠物在干什么 —— 所以不跟上面那拨轮播功能列在一起。',
     meritName: '功德箱',
     meritDesc: 'agent 每次真把活干完 +1，飘一句程序员玄学。数字存在本机，重启不清零。',
     diceName: '赛博骰子',
-    diceDesc: '设备上短按一下旋钮就摇一次。整屏变骰子，滚 1.5 秒出结果。',
-    rollBtn: '摇一次骰子',
+    diceDesc: '短按旋钮就摇一次。整屏变骰子，滚 1.5 秒出结果。',
+    rollBtn: '模拟短按旋钮',
     rolling: '骰子滚着…',
     result: '这次摇了 {n}',
     closed: '骰子收起来了',
     busy: '有活，先干活 —— 骰子让路',
     night: '睡着了，不吵醒它',
     canRoll: '现在按旋钮会弹骰子',
-    cannotRoll: '现在按旋钮不弹（{why}）'
+    cannotRoll: '现在按旋钮不弹（{why}）',
+    pressMapped: '短按旋钮现在被映射成「{a}」。改 petd/data/gestures.json 就换。',
+    pressUnmapped: '短按旋钮还没分配动作 —— 改 petd/data/gestures.json 才能用。',
+    pressed: '模拟短按 -> {a}'
   },
 
   skins: {
@@ -525,14 +528,16 @@ function renderPet(s) {
     addBadge(badges, 'ok', t('pet:diceOn'));
   }
 
-  renderToys(pet);
+  renderToys(pet.toys);
 }
 
-/* 屏上的玩具 —— 功德数、骰子状态、还有「现在按旋钮会不会弹」。 */
-function renderToys(pet) {
+/* 屏上的玩具 —— 功德数、骰子状态、还有「现在按旋钮会不会弹」。
+
+   入参是 toys 视图本身（status 里是 pet.toys）。 */
+function renderToys(toys) {
   var box = el('toy-merit');
   if (!box) return;
-  var toys = pet.toys || {};
+  toys = toys || {};
   box.textContent = String(toys.merit || 0);
 
   var dice = toys.dice || {};
@@ -552,16 +557,35 @@ function renderToys(pet) {
     }
   }
 
+  /* 按钮不禁用 —— 按下去会走手势表，服务端自己判断该不该弹。
+     忙或者夜里，点了会告诉用户为什么不行。 */
   var btn = el('btn-toy-dice');
-  if (btn) btn.disabled = !toys.canRoll;
+  if (btn) btn.disabled = false;
+
+  /* 短按被映射到哪个动作 —— 照实说，不替用户猜 */
+  var pEl = el('toy-press');
+  if (pEl) {
+    if (toys.pressAction) {
+      pEl.textContent = fill(t('toys:pressMapped'), { a: actionName(toys.pressAction) });
+    } else {
+      pEl.textContent = t('toys:pressUnmapped');
+    }
+  }
 }
 
-/* 摇一次骰子 —— 等价于设备上短按一下旋钮。没有板子也能看效果。 */
-function rollDice() {
+/* 模拟短按旋钮 —— 走的是真手势表，跟设备上按旋钮同一条路。
+
+   用户改了 petd/data/gestures.json，这个按钮跟着变。
+   所以这里不直接调某个动作，只发一条「按了一下旋钮」。 */
+function pressKnob() {
   var meta = el('toy-meta');
   var btn = el('btn-toy-dice');
   if (btn) btn.disabled = true;
-  fetch(API + '/toys/dice', { method: 'POST' })
+  fetch(API + '/knob', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gesture: 'press_short' })
+  })
     .then(function (r) { return r.json(); })
     .then(function (b) {
       if (!b.ok) {
@@ -573,21 +597,21 @@ function rollDice() {
         else if (b.result === 'closed') meta.textContent = t('toys:closed');
         else if (b.result === 'busy') meta.textContent = t('toys:busy');
         else if (b.result === 'night') meta.textContent = t('toys:night');
+        else if (b.result === 'unassigned') meta.textContent = t('toys:pressUnmapped');
+        else if (b.action) meta.textContent = fill(t('toys:pressed'), { a: actionName(b.action) });
       }
-      if (b.toys) {
-        var box = el('toy-merit');
-        if (box) box.textContent = String(b.toys.merit || 0);
-        var dEl = el('toy-dice');
-        if (dEl) {
-          dEl.textContent = (b.toys.dice && b.toys.dice.rolling)
-            ? t('toys:rolling')
-            : (b.toys.dice && b.toys.dice.active ? String(b.toys.dice.value) : t('common:dash'));
-        }
-      }
+      if (b.toys) renderToys(b.toys);
       /* 骰子占屏了 —— 预览立刻刷一帧，别等下一秒 */
       refreshPreview();
     })
     .catch(function () { if (meta) meta.textContent = t('common:netError'); });
+}
+
+/* 动作 id -> 中文名。手势表里写的是 id，页面上要给人看的话。 */
+function actionName(id) {
+  var k = 'diag:gestureActions:' + id;
+  var v = tv(k, '');
+  return v || id;
 }
 
 function addBadge(box, kind, text) {
@@ -2021,7 +2045,7 @@ function startDashboard() {
   });
 
   el('btn-preview').addEventListener('click', refreshPreview);
-  el('btn-toy-dice').addEventListener('click', rollDice);
+  el('btn-toy-dice').addEventListener('click', pressKnob);
   el('preview-auto').addEventListener('change', tickPreview);
 
   el('btn-log-clear').addEventListener('click', function () {

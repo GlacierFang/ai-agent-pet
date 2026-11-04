@@ -4,6 +4,7 @@
 """
 
 import pathlib
+import random
 import sys
 
 import pytest
@@ -74,8 +75,13 @@ def test_dice_distribution_is_fair():
 
     骰子要是偏斜，这东西就没有意义了 —— 抽 1000 次，
     任何一面低于 12% 或高于 22% 都算异常。
+
+    固定种子：不固定的话这条测试就是定时炸弹 ——
+    均匀分布下标准差约 11.8，阈值 120 落在 4 个标准差外，
+    总会偶发红一条，而红的时候跟骰子没关系。
+    测的是「有偏斜」，不是「某一次抽样碰巧偏了」。
     """
-    d = toys_mod.Dice()
+    d = toys_mod.Dice(rng=random.Random(20261104))
     counts = {i: 0 for i in range(1, toys_mod.DICE_FACES + 1)}
     for _ in range(1000):
         d.press(now=0.0)
@@ -197,37 +203,68 @@ def test_bubble_overlay_fades_out():
 
 @pytest.fixture
 def client(monkeypatch):
-    """后台接口跟鉴权无关 —— 显式关掉鉴权。"""
+    """后台接口跟鉴权无关 —— 显式关掉鉴权。
+
+    **把睡觉关掉**：骰子夜里不弹。这条 fixture 要是跟着墙上时钟走，
+    晚上跑这套测试就会莫名其妙全红 —— 测试不该看现在几点。
+    """
     from starlette.testclient import TestClient
     monkeypatch.setenv("PETD_ADMIN_AUTH", "off")
+    cfg = config.defaults()
+    cfg["ui"]["sleepEnabled"] = False
     from petd.server import create_app
-    with TestClient(create_app(config.defaults(), start_gateway=False)) as c:
+    with TestClient(create_app(cfg, start_gateway=False)) as c:
         yield c
 
 
-def test_toys_dice_endpoint_rolls(client):
-    """后台那个「摇一次骰子」按钮 —— 没有板子也能看效果。"""
-    body = client.post("/admin/api/toys/dice").json()
+def test_knob_endpoint_rolls_dice(client):
+    """后台那个「模拟短按旋钮」按钮 —— 没有板子也能看效果。"""
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
     assert body["ok"] is True
+    assert body["gesture"] == "press_short"
+    assert body["action"] == "dice.roll"
     assert body["result"] == "opened"
     assert body["toys"]["dice"]["active"] is True
     assert body["toys"]["dice"]["rolling"] is True
     assert 1 <= body["toys"]["dice"]["value"] <= 6
 
 
-def test_toys_dice_endpoint_toggles(client):
+def test_knob_endpoint_toggles(client):
     """按一下开，再按一下收 —— 跟设备上的旋钮一个行为。"""
-    client.post("/admin/api/toys/dice")
-    body = client.post("/admin/api/toys/dice").json()
+    client.post("/admin/api/knob", json={"gesture": "press_short"})
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
     assert body["result"] == "closed"
     assert body["toys"]["dice"]["active"] is False
 
 
-def test_toys_dice_refuses_when_busy(client):
+def test_knob_endpoint_follows_gesture_table(client):
+    """模拟按钮走的是真手势表 —— 改了映射，按钮跟着变。
+
+    这才是「模拟」：不是在这儿直接调某个动作。
+    """
+    pet = client.app.state.pet
+    pet.gestures["actions"]["press_short"] = "density.cycle"
+    before = pet.density
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
+    assert body["action"] == "density.cycle"
+    assert pet.density == (before + 1) % 3
+    assert body["toys"]["dice"]["active"] is False
+
+
+def test_knob_endpoint_reports_unassigned(client):
+    """短按没分配动作 —— 得说清楚，不能装成按了没反应。"""
+    pet = client.app.state.pet
+    pet.gestures["actions"]["press_short"] = ""
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
+    assert body["action"] == ""
+    assert body["result"] == "unassigned"
+
+
+def test_knob_endpoint_refuses_when_busy(client):
     """宠物在忙的时候不弹骰子 —— 有活先干活。"""
     pet = client.app.state.pet
     pet.engine.state = "working"
-    body = client.post("/admin/api/toys/dice").json()
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
     assert body["result"] == "busy"
     assert body["toys"]["canRoll"] is False
 
@@ -236,8 +273,14 @@ def test_toys_view_shape(client):
     """后台要显示玩具，字段名是前后端契约。"""
     pet = client.app.state.pet
     view = pet.toys_view()
-    assert set(view.keys()) == {"merit", "dice", "busy", "night", "canRoll"}
+    assert set(view.keys()) == {"merit", "dice", "busy", "night", "canRoll", "pressAction"}
     assert set(view["dice"].keys()) == {"active", "rolling", "value"}
+
+
+def test_toys_view_reports_press_mapping(client):
+    """页面要照实说短按被映射成什么 —— 不替用户猜。"""
+    pet = client.app.state.pet
+    assert pet.toys_view()["pressAction"] == "dice.roll"
 
 
 def test_status_carries_toys(client):
