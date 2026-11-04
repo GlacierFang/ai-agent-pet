@@ -7,7 +7,7 @@
 要加内容就往 BUILTIN 里加一行。
 """
 from .base import Feature
-from . import clock, device, notify, recent_done, sessions, weather
+from . import clock, host, notify, recent_done, sessions, weather
 
 # 注册顺序 = 轮播顺序
 BUILTIN = [
@@ -15,9 +15,26 @@ BUILTIN = [
     notify.Notify(),
     recent_done.RecentDone(),
     clock.Clock(),
-    device.DeviceStatus(),
+    host.HostStatus(),
     weather.Weather(),
 ]
+
+# 老名字 -> 新名字。
+# 「device」以前指的是那块 ESP32 屏（信号、固件、在线时长）—— 屏就在用户
+# 面前，做成轮播卡没意义。现在改成「host」，看运行 petd 的这台机器。
+ALIASES = {"device": "host"}
+
+
+def normalize(names):
+    """把老名字换成新名字，并去掉不认识的。"""
+    known = {f.name for f in BUILTIN}
+    out = set()
+    for n in names or []:
+        n = str(n).strip()
+        n = ALIASES.get(n, n)
+        if n in known:
+            out.add(n)
+    return out
 
 
 def all_features():

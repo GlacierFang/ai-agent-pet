@@ -43,7 +43,7 @@ def defaults():
             "skin": "default",
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
-            "features": ["sessions", "notify", "recent_done", "clock", "device"],
+            "features": ["sessions", "notify", "recent_done", "clock", "host"],
             "cardDwellSec": 8,      # 每张卡停留秒数
             "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
             "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）

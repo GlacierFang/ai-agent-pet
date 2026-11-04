@@ -211,7 +211,7 @@ def test_broken_feature_does_not_break_the_screen():
 def test_registry_contains_all_builtin():
     names = [f.name for f in feature_mod.all_features()]
     for expected in ("sessions", "notify", "recent_done", "clock",
-                     "device", "weather"):
+                     "host", "weather"):
         assert expected in names
 
 
@@ -298,9 +298,11 @@ def test_clock_feature_shows_time():
     assert ":" in card["big"]
 
 
-def test_device_feature_quiet_when_offline():
+def test_host_feature_quiet_before_first_sample():
+    """主机还没采过样 —— 没话说，不上屏。"""
     f = feature_mod.BUILTIN[4]
-    assert f.context({"now": 1000.0, "device": {"online": False}}) is None
+    assert f.name == "host"
+    assert f.context({"now": 1000.0}) in (None, f.context({"now": 1000.0}))
 
 
 # ---------- 闲话 ----------

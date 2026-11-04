@@ -59,6 +59,25 @@ def test_wmo_codes_all_have_chinese():
         assert not any("a" <= ch.lower() <= "z" for ch in cn), (code, cn)
 
 
+def test_wmo_terms_are_standard_chinese():
+    """用中国气象的观测术语 —— 别自造。"""
+    assert weather.WMO_CN[0] == "晴"
+    assert weather.WMO_CN[1] == "晴间多云"
+    assert weather.WMO_CN[2] == "多云"
+    assert weather.WMO_CN[3] == "阴"
+    assert weather.WMO_CN[61] == "小雨"
+    assert weather.WMO_CN[63] == "中雨"
+    assert weather.WMO_CN[65] == "大雨"
+    assert weather.WMO_CN[71] == "小雪"
+    assert weather.WMO_CN[73] == "中雪"
+    assert weather.WMO_CN[75] == "大雪"
+    assert weather.WMO_CN[80] == "阵雨"
+    assert weather.WMO_CN[95] == "雷阵雨"
+    # 这两个词不是气象术语，别再出现
+    assert "大致" not in weather.WMO_CN.values()
+    assert "局部多云" not in weather.WMO_CN.values()
+
+
 def test_city_table_covers_major_cities():
     for city in ("北京", "上海", "广州", "深圳", "杭州", "成都", "武汉", "西安"):
         assert city in weather.CITY_COORDINATES
@@ -83,6 +102,6 @@ def test_context_card_shape(monkeypatch):
     card = f.context({})
     assert card["title"] == "杭州"
     assert card["big"] == "15°"
-    assert card["body"] == ["局部多云"]
+    assert card["body"] == ["多云"]
     assert card["source"] == "Open-Meteo"
     assert [r["left"] for r in card["rows"]] == ["体感", "湿度"]

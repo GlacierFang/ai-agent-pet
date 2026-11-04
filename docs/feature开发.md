@@ -47,7 +47,7 @@ feature 是宠物**空闲时**屏上放的内容。OpenClaw 一开始干活，�
 | `notify` | 通知 | 未读消息和等你授权的事 |
 | `recent_done` | 最近完成 | 刚做完的事 |
 | `clock` | 时间 | 大字钟 + 日期 |
-| `device` | 设备 | 固件版本、信号、在线时长 |
+| `host` | 主机 | CPU、内存、磁盘、运行时间 |
 | `weather` | 天气 | 当前天气和温度 |
 
 后台「宠物设定」里的「功能」段是**多选** —— 勾哪几个，哪几个参与轮播。
@@ -63,7 +63,7 @@ feature 是宠物**空闲时**屏上放的内容。OpenClaw 一开始干活，�
         ├── notify.py
         ├── recent_done.py
         ├── clock.py
-        ├── device.py
+        ├── host.py
         └── weather.py
 
 ## feature 契约

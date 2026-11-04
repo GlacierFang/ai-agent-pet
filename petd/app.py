@@ -50,7 +50,8 @@ class PetApp:
         self.density = int(cfg.get("ui", {}).get("density", 1))
         self.skin = cfg.get("ui", {}).get("skin", "default")
         # 空闲时参与轮播的 feature
-        self.features_enabled = set(cfg.get("ui", {}).get("features") or [])
+        self.features_enabled = feature_mod.normalize(
+            cfg.get("ui", {}).get("features") or [])
         self.card_dwell_sec = int(cfg.get("ui", {}).get("cardDwellSec", 8))
         self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
         self.sleep_start = str(cfg.get("ui", {}).get(
@@ -205,12 +206,7 @@ class PetApp:
 
     def set_features(self, names):
         """勾选参与轮播的 feature。"""
-        known = {f.name for f in feature_mod.all_features()}
-        picked = set()
-        for n in names or []:
-            n = str(n).strip()
-            if n in known:
-                picked.add(n)
+        picked = feature_mod.normalize(names)
         self.features_enabled = picked
         self.cfg.setdefault("ui", {})["features"] = sorted(picked)
         self._persist_config()
