@@ -8,10 +8,13 @@ import logging
 import time
 from collections import deque
 
+from . import chatter as chatter_mod
 from . import config as config_mod
-from . import features as features_mod
+from . import features as feature_mod
 from . import gestures as gestures_mod
 from . import render as render_mod
+from . import screen as screen_mod
+from . import settings as settings_mod
 from . import skins as skins_mod
 from . import state as state_mod
 from .device import DeviceManager
@@ -21,7 +24,7 @@ log = logging.getLogger("petd.app")
 
 ACTIVE_STATES = ("working", "waiting", "error", "done")
 # 屏幕上的三块页面 —— 定义在 features.py，后台的功能清单和这里共用一份。
-PAGES = features_mod.PAGES
+PAGES = settings_mod.PAGES
 
 # 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
 # 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
@@ -55,6 +58,10 @@ class PetApp:
         self._gateway = None
         self._phase = 0.0
         self._picked = None
+        # 屏上分层：消息层（宠物本体）↔ 内容层（feature 卡片）
+        self.director = screen_mod.ScreenDirector(self.rules)
+        self.chatter = chatter_mod.Chatter()
+        self._feature_cache = None
         self.mdns = None          # server 生命周期里塞进来的 MdnsAdvertiser
         # 实际在听的端口。命令行 --port 会盖过配置，但不该被写回配置文件 ——
         # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
@@ -199,8 +206,13 @@ class PetApp:
 
     async def set_skin(self, name):
         root = self.cfg.get("_repo_root", ".")
-        if name not in skins_mod.list_skins(root):
+        if name != "default" and name not in skins_mod.list_skins(root):
             raise ValueError("没有这个形象")
+        # 六态必须齐 —— 屏上任何一刻都可能是六态中的任意一态，
+        # 缺一态就等于那一刻屏上是空的。
+        missing = skins_mod.missing_states(root, name)
+        if missing:
+            raise ValueError("还缺这些状态：%s" % "、".join(missing))
         self.skin = name
         self.cfg.setdefault("ui", {})["skin"] = name
         self._persist_config()
@@ -265,6 +277,12 @@ class PetApp:
         self._picked = picked
         state = self.engine.state
         sub = STATE_SUBTITLE.get(state, "")
+        if state == "idle":
+            # 空闲时副标题不是状态说明，是宠物自己想说的话。
+            # 有事等你时它不插嘴 —— 插嘴就变噪音了。
+            line = self.chatter.maybe(time.time(), state)
+            if line:
+                sub = line
         if state == "waiting" and picked:
             if picked.get("permissionModePending"):
                 sub = "等你授权"
@@ -306,16 +324,54 @@ class PetApp:
         return out
 
     def render_now(self):
-        sub = self._subtitle()
-        name = self._session_name()
         root = self.cfg.get("_repo_root", ".")
-        frames = skins_mod.load_frames(root, self.skin, self.engine.state)
-        jpeg = render_mod.render_frame(self.cfg, self.engine.state, sub, name,
-                                      density=self.density, phase=self._phase,
-                                      skin_frames=frames)
+        state = self.engine.state
+        view = self.director.update(time.time(), state,
+                                    self._feature_ctx(), self._features(root))
+        if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
+            card = view["card"]
+            cstate = str(card.get("state") or state)
+            frames = skins_mod.load_frames(root, self.skin, cstate)
+            jpeg = render_mod.render_card(self.cfg, card, phase=self._phase,
+                                          skin_frames=frames)
+        else:
+            sub = self._subtitle()
+            name = self._session_name()
+            frames = skins_mod.load_frames(root, self.skin, state)
+            jpeg = render_mod.render_frame(self.cfg, state, sub, name,
+                                           density=self.density, phase=self._phase,
+                                           skin_frames=frames)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
+
+    def _features(self, root="."):
+        """feature 列表。用户自建的 feature 改完要重启 petd 才生效。"""
+        if self._feature_cache is None:
+            self._feature_cache = feature_mod.all_features(root)
+        return self._feature_cache
+
+    def _feature_ctx(self):
+        """给 feature 的上下文。纯数据 —— feature 不许自己连 gateway。"""
+        return {
+            "now": time.time(),
+            "state": self.engine.state,
+            "sessions": self._feature_sessions(),
+            "skin": self.skin,
+        }
+
+    def _feature_sessions(self):
+        """给 feature 看的会话列表（脱敏：只有名字、状态、时间）。"""
+        out = []
+        for row in self.engine.sessions:
+            out.append({
+                "key": row.get("key"),
+                "name": self._name_of(row),
+                "status": str(row.get("status") or ""),
+                "state": self.engine.session_states.get(row.get("key"), "idle"),
+                "lastActivityAt": epoch_s(row.get("lastActivityAt")),
+            })
+        return out
 
     async def _frame_loop(self):
         while not self._stop:
@@ -361,16 +417,18 @@ class PetApp:
                     "sessions": len(self.engine.sessions),
                     "selected": self.engine.selected_key,
                     "attribution": self.engine.attribution,
-                    "counts": self.engine.counts},
+                    "counts": self.engine.counts,
+                    "layer": self.director.layer,
+                    "feature": self.director.snapshot().get("title") or ""},
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},
         }
 
     # ---------- 功能清单 ----------
-    def features_payload(self):
+    def settings_payload(self):
         """后台「功能清单」—— 每一项都对应上面某个 setter。"""
-        return features_mod.build(self)
+        return settings_mod.build(self)
 
     # ---------- 首次使用指引 ----------
     def _load_setup_state(self):

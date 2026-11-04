@@ -175,6 +175,88 @@ def _draw_pet(base, cx, cy, r, state, phase):
     return base
 
 
+CARD_BG_TOP = (24, 28, 44)
+CARD_BG_BOTTOM = (13, 15, 24)
+
+
+def draw_standard_card(img, draw, box, card, pet=None):
+    """自定义 feature 的默认版式：标题 + 正文 + 来源。
+
+    box 是 (x, y, w, h)，坐标是超采样后的（屏幕尺寸的两倍）。
+    pet 是那只宠物（RGBA 图），给了就画在下方。
+    """
+    x, y, w, h = box
+    ty = y
+    title = str(card.get("title") or "")
+    if title:
+        _center(draw, x + w // 2, ty, title, int(19 * 2), (238, 242, 250))
+        ty += int(34 * 2)
+    for line in [str(b) for b in (card.get("body") or [])][:3]:
+        _center(draw, x + w // 2, ty, line, int(13 * 2), (186, 196, 216))
+        ty += int(22 * 2)
+    source = str(card.get("source") or "")
+    if source:
+        _center(draw, x + w // 2, ty + 4, source, int(9 * 2), (118, 126, 146))
+    if pet is not None:
+        img.paste(pet, (x, y + h - pet.size[1]), pet)
+
+
+def render_card(cfg, card, phase=0.0, skin_frames=None):
+    """内容层：一张 feature 整屏卡片。
+
+    内容层和消息层互斥 —— 屏上永远只有一样东西。
+    卡里那只宠物就是用户选的那只（宠物本体复用，feature 不带自己的美术）。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+    quality = int(cfg.get("render", {}).get("quality", 85))
+    subsampling = int(cfg.get("render", {}).get("subsampling", 2))
+
+    scale = 2
+    big = Image.new("RGB", (width * scale, height * scale), CARD_BG_BOTTOM)
+    _gradient(big, CARD_BG_TOP, CARD_BG_BOTTOM)
+    d = ImageDraw.Draw(big)
+
+    title = str(card.get("title") or "")
+    body = [str(b) for b in (card.get("body") or [])][:3]
+    source = str(card.get("source") or "")
+    pet_state = str(card.get("state") or "idle")
+
+    ty = int(16 * scale)
+    if title:
+        _center(d, width * scale // 2, ty, title, int(19 * scale), (238, 242, 250))
+        ty += int(34 * scale)
+    for line in body:
+        _center(d, width * scale // 2, ty, line, int(13 * scale), (186, 196, 216))
+        ty += int(22 * scale)
+    if source:
+        _center(d, width * scale // 2, ty + int(2 * scale), source,
+                int(9 * scale), (118, 126, 146))
+        ty += int(20 * scale)
+
+    # 宠物本体 —— 屏上那只就是用户选的那只
+    area_top = ty + int(6 * scale)
+    area_bottom = height * scale - int(6 * scale)
+    area_h = max(int(40 * scale), area_bottom - area_top)
+    pet = Image.new("RGBA", (width * scale, area_h), (0, 0, 0, 0))
+    if skin_frames:
+        frame = skin_frames[int(phase * len(skin_frames)) % len(skin_frames)]
+        fw, fh = frame.size
+        factor = min((width * scale) / fw, area_h / fh)
+        nw, nh = max(1, int(fw * factor)), max(1, int(fh * factor))
+        frame = frame.resize((nw, nh), Image.LANCZOS)
+        pet.paste(frame, ((width * scale - nw) // 2, (area_h - nh) // 2), frame)
+    else:
+        radius = int(min(width * scale * 0.30, area_h * 0.34))
+        _draw_pet(pet, width * scale // 2, int(area_h * 0.52), radius, pet_state, phase)
+    big.paste(pet, (0, area_top), pet)
+
+    img = big.resize((width, height), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
+    return buf.getvalue()
+
+
 def render_frame(cfg, state, subtitle="", session_name="", density=1, phase=0.0,
                  skin_frames=None):
     width = int(cfg.get("render", {}).get("width", 240))

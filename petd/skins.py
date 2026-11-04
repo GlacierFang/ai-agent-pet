@@ -79,8 +79,23 @@ def skin_source(repo_root, skin):
     return ""
 
 
+def missing_states(repo_root, skin):
+    """还缺哪些状态。空列表 = 六态齐了。
+
+    default 是程序画的那张脸 —— 六态都有，不在磁盘上但照样能显示。
+    """
+    if str(skin) == "default":
+        return []
+    out = []
+    for st in STATES:
+        d = frames_dir(repo_root, skin, st)
+        if not d.is_dir() or not any(d.glob("*.png")):
+            out.append(st)
+    return out
+
+
 def skin_info(repo_root, skin):
-    """一个形象的详情：有哪些状态、各几帧。"""
+    """一个形象的详情：有哪些状态、各几帧、还缺哪些。"""
     info = {"name": skin, "source": skin_source(repo_root, skin),
             "states": {}, "frames": 0}
     for st in STATES:
@@ -89,6 +104,7 @@ def skin_info(repo_root, skin):
         if n:
             info["states"][st] = n
             info["frames"] += n
+    info["missing"] = missing_states(repo_root, skin)
     return info
 
 

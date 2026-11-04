@@ -266,7 +266,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
 
     async def api_features_get(request):
         """功能清单 —— 每一项都对应一个真的能改的设置。"""
-        return JSONResponse({"items": pet.features_payload()})
+        return JSONResponse({"items": pet.settings_payload()})
 
     async def api_features_post(request):
         """改一项设置。改完立刻生效，也写进配置。"""
@@ -292,7 +292,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
                                     status_code=400)
         except (TypeError, ValueError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-        return JSONResponse({"ok": True, "items": pet.features_payload()})
+        return JSONResponse({"ok": True, "items": pet.settings_payload()})
 
     async def api_skins_get(request):
         root = pet.cfg.get("_repo_root", ".")

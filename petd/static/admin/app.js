@@ -111,7 +111,10 @@ var T = {
     skinTitle: '形象',
     skinCurrent: '当前：',
     skinNote: '在「素材仓库」里可以新建形象、传素材、设为当前。',
-    noSkins: '还没有形象'
+    noSkins: '还没有形象',
+    screenLabel: '屏上：',
+    layerMessage: '消息层',
+    layerContent: '内容层'
   },
 
   skins: {
@@ -122,6 +125,8 @@ var T = {
     yours: '你的',
     builtin: '自带',
     noAssets: '没有素材',
+    missingStates: '还缺 {n} 个状态',
+    sixStatesNote: '一套形象要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。',
     setCurrent: '设为当前',
     remove: '删除',
     deleteAsk: '删除形象 {name}？素材会一起没。',
@@ -444,6 +449,13 @@ function renderPet(s) {
   } else {
     need.className = 'hero-line hero-need calm';
     need.textContent = t('pet:calm');
+  }
+
+  /* 屏上现在是哪一层 —— 分层是整屏切换的，不切屏。 */
+  var scr = el('pet-screen');
+  if (scr) {
+    var layer = pet.layer === 'content' ? t('pet:layerContent') : t('pet:layerMessage');
+    scr.textContent = t('pet:screenLabel') + layer + (pet.feature ? ' · ' + pet.feature : '');
   }
 
   var badges = el('pet-badges');
@@ -783,7 +795,15 @@ function renderSkinList() {
       ? keys.map(function (k) { return k + '×' + sk.states[k]; }).join(' ')
       : t('skins:noAssets');
     row.appendChild(st);
-    if (sk.name !== S.skin) {
+    /* 六态不齐的形象不能设为当前 —— 屏上任何一刻都可能是六态中的任意一态。 */
+    var miss = sk.missing || [];
+    if (miss.length) {
+      var mb = document.createElement('span');
+      mb.className = 'badge bad';
+      mb.textContent = fill(t('skins:missingStates'), { n: miss.length }) + '：' + miss.join('、');
+      row.appendChild(mb);
+    }
+    if (sk.name !== S.skin && !miss.length) {
       var act = document.createElement('button');
       act.type = 'button';
       act.className = 'ghost';

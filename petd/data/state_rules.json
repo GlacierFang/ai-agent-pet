@@ -12,6 +12,11 @@
     "idleGraceMs": 30000,
     "eventDebounceMs": 200
   },
+  "screen": {
+    "messageStates": ["waiting", "error"],
+    "messageHoldMs": 3000,
+    "contentDwellMs": 8000
+  },
   "exclude": {
     "isBackground": true
   },
