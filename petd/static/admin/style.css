@@ -468,3 +468,22 @@ footer p { margin: 4px 0; }
 .feature-opts button.picked {
   box-shadow: inset 0 0 0 2px rgba(120, 190, 255, 0.85);
 }
+
+/* 时间范围选择器（睡觉时段）—— 起止两个输入在同一行 */
+.timerange { display: grid; gap: 8px; }
+.timerange-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.timerange-row input[type="time"] {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+}
+.timerange-row input[type="time"]:disabled { opacity: 0.45; }
+.timerange-sep { color: var(--muted); font-size: 13px; }

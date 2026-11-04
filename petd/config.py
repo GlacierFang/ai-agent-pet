@@ -43,6 +43,7 @@ def defaults():
             "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
             "sleepStart": "22:00",  # 睡觉时段（可跨午夜）
             "sleepEnd": "07:00",
+            "sleepEnabled": True,    # 夜里要不要睡
             "weatherCity": "",
         },
         # mDNS 广播：设备靠它把 petd.local 解析成 IP。起不来不影响 petd 本身。

@@ -55,6 +55,7 @@ class PetApp:
         self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
         self.sleep_start = str(cfg.get("ui", {}).get("sleepStart", "22:00"))
         self.sleep_end = str(cfg.get("ui", {}).get("sleepEnd", "07:00"))
+        self.sleep_enabled = bool(cfg.get("ui", {}).get("sleepEnabled", True))
         # 后台选定的关注会话（空 = 自动跟最活跃的）
         self.engine.selected_key = cfg.get("ui", {}).get("session") or None
         self.frame_seq = 0
@@ -231,13 +232,20 @@ class PetApp:
         self._sync_director()
         self.log("info", "工作结束后保留 -> %d 秒" % seconds)
 
-    def set_sleep_window(self, start, end):
-        self.sleep_start = str(start or "off")
+    def set_sleep_window(self, start, end, enabled=None):
+        """设置睡觉时段。起止两个钟点 —— 跨午夜也认。"""
+        self.sleep_start = str(start or "22:00")
         self.sleep_end = str(end or "07:00")
-        self.cfg.setdefault("ui", {})["sleepStart"] = self.sleep_start
-        self.cfg.setdefault("ui", {})["sleepEnd"] = self.sleep_end
+        if enabled is not None:
+            self.sleep_enabled = bool(enabled)
+        ui = self.cfg.setdefault("ui", {})
+        ui["sleepStart"] = self.sleep_start
+        ui["sleepEnd"] = self.sleep_end
+        ui["sleepEnabled"] = self.sleep_enabled
         self._persist_config()
-        self.log("info", "睡觉时段 -> %s ~ %s" % (self.sleep_start, self.sleep_end))
+        self.log("info", "睡觉时段 -> %s" % (
+            ("%s ~ %s" % (self.sleep_start, self.sleep_end))
+            if self.sleep_enabled else "不睡"))
 
     async def set_density(self, level):
         level = max(0, min(2, int(level)))
@@ -319,6 +327,8 @@ class PetApp:
         睡觉只有一个来源 —— 用户配的时段。没有「空闲多久算睡着」那回事：
         空闲的时候宠物在轮播卡片里，一直醒着。
         """
+        if not self.sleep_enabled:
+            return False
         start = self._parse_hhmm(self.sleep_start)
         end = self._parse_hhmm(self.sleep_end)
         if start is None or end is None:

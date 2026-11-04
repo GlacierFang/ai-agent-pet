@@ -939,6 +939,13 @@ function renderFeatures() {
     }
     card.appendChild(head);
 
+    /* 时间范围型（睡觉时段）—— 起止两个选择器在一张卡里 */
+    if (f.type === 'timerange') {
+      card.appendChild(renderTimeRange(f));
+      box.appendChild(card);
+      return;
+    }
+
     var opts = document.createElement('div');
     opts.className = 'feature-opts';
     (f.options || []).forEach(function (o) {
@@ -972,6 +979,56 @@ function renderFeatures() {
     card.appendChild(opts);
     box.appendChild(card);
   });
+}
+
+/* 睡觉时段：起止两个时间选择器 + 一个「夜里不睡」开关。
+   一张卡里选完 —— 不拆成两张卡，起止本来就是一件事。 */
+function renderTimeRange(f) {
+  var wrap = document.createElement('div');
+  wrap.className = 'timerange';
+
+  var on = f.enabled !== false;
+
+  var row = document.createElement('div');
+  row.className = 'timerange-row';
+
+  var from = document.createElement('input');
+  from.type = 'time';
+  from.value = f.from || '22:00';
+  from.step = '3600';
+  from.disabled = !on;
+
+  var sep = document.createElement('span');
+  sep.className = 'timerange-sep';
+  sep.textContent = '→';
+
+  var to = document.createElement('input');
+  to.type = 'time';
+  to.value = f.to || '07:00';
+  to.step = '3600';
+  to.disabled = !on;
+
+  var commit = function () {
+    setFeature(f.id, { from: from.value, to: to.value, enabled: on });
+  };
+  from.addEventListener('change', commit);
+  to.addEventListener('change', commit);
+
+  row.appendChild(from);
+  row.appendChild(sep);
+  row.appendChild(to);
+  wrap.appendChild(row);
+
+  var toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = on ? '' : 'ghost';
+  toggle.textContent = on ? '✓ 夜里睡觉' : '夜里不睡';
+  toggle.addEventListener('click', function () {
+    setFeature(f.id, { from: from.value, to: to.value, enabled: !on });
+  });
+  wrap.appendChild(toggle);
+
+  return wrap;
 }
 
 function loadFeatures() {

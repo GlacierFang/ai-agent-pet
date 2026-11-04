@@ -28,6 +28,10 @@ HOLD_CHOICES = (0, 3, 5, 10)
 # 睡觉时段 —— 整点就够，分钟级精度没有意义
 HOUR_CHOICES = tuple(range(24))
 
+# 睡觉时段是**一项**，不是一个值 —— 起止两个钟点在一张卡里选。
+# value 是一个组合串："22:00-07:00"，或 "off"（不睡）。
+SLEEP_OFF = "off"
+
 
 def _item(fid, name, desc, value, options, multi=False):
     out = {"id": fid, "name": name, "desc": desc,
@@ -45,6 +49,31 @@ def _hour_options(current):
     if current and current not in [o["value"] for o in opts]:
         opts.append({"value": current, "label": current, "desc": ""})
     return opts
+
+
+def _sleep_item(pet):
+    """睡觉时段 —— 起止两个钟点在一张卡里选。
+
+    这一项的值是组合串（"22:00-07:00"），不是单值 —— 页面上给两个
+    时间选择器，别拆成两张卡。
+    """
+    start = pet.sleep_start
+    end = pet.sleep_end
+    enabled = bool(pet.sleep_enabled)
+    combined = ("%s-%s" % (start, end)) if enabled else SLEEP_OFF
+    return {
+        "id": "sleep",
+        "name": "睡觉时段",
+        "desc": "这个时段显示睡脸（可跨午夜）。夜里 OpenClaw 干活，宠物会醒着干",
+        "value": combined,
+        # 通用契约要求「当前值在可选项里」—— 放当前值进去。
+        # 这一项真正的界面是 type=timerange，options 不参与渲染。
+        "options": [{"value": combined, "label": combined, "desc": ""}],
+        "type": "timerange",
+        "from": start,
+        "to": end,
+        "enabled": enabled,
+    }
 
 
 def build(pet):
@@ -87,16 +116,7 @@ def build(pet):
     items.append(_item(
         "hold", "工作结束后保留", "活干完，宠物脸在屏上多留多久", hold, hold_opts))
 
-    start = pet.sleep_start
-    start_opts = [{"value": "off", "label": "不睡", "desc": "夜里也不睡"}]
-    start_opts += _hour_options(start if start != "off" else "")
-    items.append(_item(
-        "sleepStart", "睡觉时段 从", "这个钟点开始显示睡脸", start, start_opts))
-
-    end = pet.sleep_end
-    items.append(_item(
-        "sleepEnd", "睡觉时段 到", "这个钟点醒来（可以跨午夜）", end,
-        _hour_options(end)))
+    items.append(_sleep_item(pet))
 
     items.append(_item(
         "density", "信息密度", "屏幕上放多少东西", pet.density,

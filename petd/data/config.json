@@ -31,16 +31,18 @@
     "skin": "default",
     "density": 1,
     "features": [
-      "sessions",
+      "clock",
+      "device",
       "notify",
       "recent_done",
-      "clock",
-      "device"
+      "sessions",
+      "weather"
     ],
     "cardDwellSec": 8,
     "messageHoldSec": 3,
     "sleepStart": "22:00",
     "sleepEnd": "07:00",
+    "sleepEnabled": true,
     "weatherCity": ""
   },
   "mdns": {

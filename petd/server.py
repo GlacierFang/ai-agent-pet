@@ -166,6 +166,51 @@ def _stop_mdns(pet):
             log.warning("停止 mDNS 失败: %s", exc)
 
 
+def _parse_sleep(value, pet):
+    """解析睡觉时段的值。
+
+    三种形态都收：
+      "off"                      → 不睡
+      "22:00-07:00"             → 起止组合串
+      {"from": ..., "to": ..., "enabled": ...}  → 前端直接给结构
+
+    返回 (start, end, enabled)。起止非法就沿用当前值 —— 不因为
+    一个手滑的输入把宠物整晚不睡或整晚睡。
+    """
+    cur_start = pet.sleep_start
+    cur_end = pet.sleep_end
+    cur_on = pet.sleep_enabled
+
+    def valid(hhmm):
+        try:
+            parts = str(hhmm).split(":")
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+        except (TypeError, ValueError):
+            return False
+        return 0 <= h <= 23 and 0 <= m <= 59
+
+    if isinstance(value, dict):
+        start = str(value.get("from") or cur_start)
+        end = str(value.get("to") or cur_end)
+        enabled = value.get("enabled")
+        enabled = cur_on if enabled is None else bool(enabled)
+    else:
+        text = str(value or "").strip()
+        if not text or text.lower() in ("off", "none", "false"):
+            return cur_start, cur_end, False
+        if "-" in text:
+            a, _, b = text.partition("-")
+            start, end = a.strip(), b.strip()
+        else:
+            start, end = cur_start, cur_end
+        enabled = True
+
+    if not valid(start) or not valid(end):
+        raise ValueError("时间格式不对，应该是 HH:MM")
+    return start, end, enabled
+
+
 def create_app(cfg=None, start_gateway=True, port=None):
     cfg = cfg or config_mod.load()
     cfg["_repo_root"] = str(REPO_ROOT)
@@ -394,10 +439,9 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 pet.set_card_dwell(int(value))
             elif fid == "hold":
                 pet.set_message_hold(int(value))
-            elif fid == "sleepStart":
-                pet.set_sleep_window(str(value), pet.sleep_end)
-            elif fid == "sleepEnd":
-                pet.set_sleep_window(pet.sleep_start, str(value))
+            elif fid == "sleep":
+                start, end, enabled = _parse_sleep(value, pet)
+                pet.set_sleep_window(start, end, enabled)
             elif fid == "density":
                 await pet.set_density(int(value))
             elif fid == "skin":

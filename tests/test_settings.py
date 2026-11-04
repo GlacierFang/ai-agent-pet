@@ -42,7 +42,7 @@ def test_features_shape(client):
     body = client.get("/admin/api/features").json()
     assert set(body.keys()) == {"items"}
     ids = [f["id"] for f in body["items"]]
-    assert ids == ["features", "dwell", "hold", "sleepStart", "sleepEnd",
+    assert ids == ["features", "dwell", "hold", "sleep",
                    "density", "skin", "session"]
 
 
@@ -111,15 +111,49 @@ def test_set_hold_takes_effect(client):
     assert pet.director.message_hold_ms == 5000
 
 
+def test_sleep_is_one_item(client):
+    """睡觉时段是**一项** —— 起止在一个卡里选，不拆成两张。"""
+    items = {f["id"]: f for f in client.get("/admin/api/features").json()["items"]}
+    f = items["sleep"]
+    assert f["type"] == "timerange"
+    assert f["from"] and f["to"]
+    assert f["value"] == "%s-%s" % (f["from"], f["to"])
+
+
 def test_set_sleep_window_takes_effect(client):
     r = client.post("/admin/api/features",
-                    json={"id": "sleepStart", "value": "23:00"})
-    assert r.status_code == 200
-    r = client.post("/admin/api/features", json={"id": "sleepEnd", "value": "08:00"})
+                    json={"id": "sleep", "value": "23:00-08:00"})
     assert r.status_code == 200
     pet = client.app.state.pet
     assert pet.sleep_start == "23:00"
     assert pet.sleep_end == "08:00"
+    assert pet.sleep_enabled is True
+
+
+def test_set_sleep_window_from_struct(client):
+    """前端给结构体也认。"""
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": {"from": "21:00", "to": "06:30"}})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.sleep_start == "21:00"
+    assert pet.sleep_end == "06:30"
+
+
+def test_sleep_can_be_turned_off(client):
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": {"from": "22:00", "to": "07:00",
+                                                  "enabled": False}})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.sleep_enabled is False
+    assert pet.is_night() is False
+
+
+def test_sleep_rejects_bad_time(client):
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": "25:00-07:00"})
+    assert r.status_code == 400
 
 
 def test_set_density_takes_effect(client):
