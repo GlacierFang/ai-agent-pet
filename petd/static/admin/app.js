@@ -1380,7 +1380,7 @@ function renderTimeRange(f) {
     paint();
   });
 
-  [['features:sleepOn', true], ['features:sleepOff', false]].forEach(function (pair) {
+  [['settings:sleepOn', true], ['settings:sleepOff', false]].forEach(function (pair) {
     var b = document.createElement('button');
     b.type = 'button';
     b.textContent = t(pair[0]);
