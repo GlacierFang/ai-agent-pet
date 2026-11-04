@@ -38,7 +38,7 @@
       "sessions",
       "weather"
     ],
-    "cardDwellSec": 15,
+    "cardDwellSec": 10,
     "messageHoldSec": 3,
     "sleepStart": "23:30",
     "sleepEnd": "07:00",

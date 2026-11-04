@@ -48,7 +48,7 @@ def _session_option(pet):
 
 def _city_option(pet):
     return {"id": "weatherCity", "name": "城市",
-            "desc": "留空就按网络位置自动判断",
+            "desc": "填城市名，比如「杭州」。留空就用默认城市",
             "value": str(pet.cfg.get("ui", {}).get("weatherCity") or ""),
             "type": "text"}
 

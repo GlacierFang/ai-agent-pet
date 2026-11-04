@@ -111,7 +111,7 @@ class MyFeature(Feature):
   "skin": "default",         # 当前形象
   "focused": "session-key",  # 用户关注的会话
   "device": {...},           # 设备状态
-  "weatherCity": "",         # 天气用的城市（空 = 按来源 IP 定位）
+  "weatherCity": "",         # 天气用的城市（空 = 用默认城市）
 }
 ```
 
@@ -140,7 +140,7 @@ def poll(self, ctx=None):
 petd 起一个后台守护线程定期调 `poll()`（默认 15 分钟一次）。
 **渲染循环不碰网络** —— `context()` 只读你自己缓存的结果。
 
-`weather` 是现成的例子：`poll()` 去 wttr.in 取数存缓存，`context()` 只读缓存。
+`weather` 是现成的例子：`poll()` 去 Open-Meteo 取数存缓存，`context()` 只读缓存。
 
 ## 注册
 

@@ -271,7 +271,7 @@ class PetApp:
         self.log("info", "形象 -> " + name)
 
     def set_weather_city(self, city):
-        """天气城市。空 = 按网络位置自动判断。"""
+        """天气城市。空 = 用默认城市。"""
         city = str(city or "").strip()
         self.cfg.setdefault("ui", {})["weatherCity"] = city
         self._persist_config()
@@ -280,7 +280,7 @@ class PetApp:
             reset = getattr(f, "reset", None)
             if callable(reset):
                 reset()
-        self.log("info", "天气城市 -> " + (city or "自动"))
+        self.log("info", "天气城市 -> " + (city or "默认"))
         self._wake_poll()
 
     def set_session(self, key):
