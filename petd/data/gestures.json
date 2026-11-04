@@ -1,4 +1,5 @@
 {
+  "_comment": "旋钮手势映射 —— 随版本走的默认值，不是用户数据。改完重启 petd 生效。",
   "version": 2,
   "longPressMs": 600,
   "stepsPerAction": 4,

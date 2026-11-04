@@ -416,7 +416,8 @@ details.fold[open] > summary { border-bottom: 1px solid var(--line); }
 details.fold .note,
 details.fold .kv,
 details.fold .guide-list,
-details.fold .addr-box { margin-left: 12px; margin-right: 12px; }
+details.fold .addr-box,
+details.fold .gesture-list { margin-left: 12px; margin-right: 12px; }
 
 /* 上手四步 */
 .guide-list {
@@ -454,6 +455,20 @@ details.fold .addr-box { margin-left: 12px; margin-right: 12px; }
   font-size: 11px;
   color: #6b7484;
 }
+
+/* 旋钮手势：手势 → 作用 */
+.gesture-list { margin-top: 8px; }
+.gesture-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dashed #232a36;
+  font-size: 13px;
+}
+.gesture-row .g-name { color: var(--text); }
+.gesture-row .g-action { color: var(--accent); text-align: right; }
+.gesture-row .g-action.unset { color: var(--muted); }
 
 /* 页脚 */
 footer {

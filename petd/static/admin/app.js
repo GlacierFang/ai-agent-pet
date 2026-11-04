@@ -1,7 +1,7 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
 
-   五个区块：我的宠物 / 宠物库 / 宠物设定 / 安装与诊断 / 开始使用。
+   五个区块：我的宠物 / 宠物库 / 宠物设定 / 连接与诊断 / 开始使用。
    默认落在「我的宠物」—— 这是内容页，不是系统监控页。
 
    文案只有一个来源：T 字典。
@@ -67,7 +67,7 @@ var T = {
     pet: '我的宠物',
     skins: '宠物库',
     settings: '宠物设定',
-    diag: '安装与诊断',
+    diag: '连接与诊断',
     setup: '开始使用'
   },
 
@@ -186,9 +186,7 @@ var T = {
     gwUrl: '网关地址',
     gwToken: '网关令牌',
     serverPort: '监听端口',
-    renderQuality: '渲染质量',
-    frameFps: '帧率',
-    configNote: '端口改动需重启 petd 才生效；令牌留空表示不改动。',
+    configNote: '网关地址、令牌、端口改动需重启 petd 才生效；令牌留空表示不改动。',
     tokenSet: '***（已设置，留空不变）',
     tokenUnset: '（未设置）',
     logTitle: '诊断日志',
@@ -198,8 +196,22 @@ var T = {
     logMeta: 'seq {seq} · {n} 行',
     telemetryTitle: '原始遥测（{n} 项，给排查问题用）',
     telemetryNote: '这些是服务端内部字段名，排障时照着它对日志。',
-    gesturesTitle: '旋钮手势（开发者向）',
-    gesturesNoteHtml: '旋钮手势：编辑 <code>petd/data/gestures.json</code>，重启 petd 后生效。',
+    gesturesTitle: '旋钮手势',
+    gesturesNoteHtml: '设备上的旋钮能做的事。改 <code>petd/data/gestures.json</code>，重启 petd 后生效。',
+    gestureUnset: '未分配',
+    gestureNames: {
+      rot: '旋转',
+      rot_press: '按住并旋转',
+      press_long: '长按',
+      press_short: '短按'
+    },
+    gestureActions: {
+      'card.next': '翻到下一张卡',
+      'density.cycle': '切换信息密度',
+      'state.refresh': '刷新状态',
+      'session.next': '切换会话',
+      'skin.next': '换一只宠物'
+    },
     kvSep: ' · '
   },
 
@@ -1498,6 +1510,32 @@ var KV = [
   ['frames.lastTs', function (s) { return s.frames && s.frames.lastTs ? fmtClock(s.frames.lastTs) : null; }]
 ];
 
+/* 旋钮手势：手势 → 作用。映射表来自服务端当前配置，不猜。 */
+function renderGestures(g) {
+  var box = el('gesture-list');
+  if (!box) return;
+  box.textContent = '';
+  if (!g || !g.items) return;
+  g.items.forEach(function (it) {
+    var row = document.createElement('div');
+    row.className = 'gesture-row';
+    var name = document.createElement('span');
+    name.className = 'g-name';
+    name.textContent = t('diag:gestureNames:' + it.key);
+    var act = document.createElement('span');
+    act.className = 'g-action';
+    if (it.action) {
+      act.textContent = t('diag:gestureActions:' + it.action);
+    } else {
+      act.className += ' unset';
+      act.textContent = t('diag:gestureUnset');
+    }
+    row.appendChild(name);
+    row.appendChild(act);
+    box.appendChild(row);
+  });
+}
+
 function renderStatus(s) {
   var gw = s.gateway || {};
   var dev = s.device || {};
@@ -1542,6 +1580,8 @@ function renderStatus(s) {
     row.appendChild(v);
     box.appendChild(row);
   });
+
+  renderGestures(s.gestures);
 
   /* 遥测区的标题带项数 —— 折叠起来的时候也知道自己藏了多少东西。 */
   var ttl = el('telemetry-title');
@@ -1651,10 +1691,6 @@ function loadConfig() {
       el('cfg-gateway-token').value = '';
       el('cfg-gateway-token').placeholder = gw.token ? t('diag:tokenSet') : t('diag:tokenUnset');
       el('cfg-server-port').value = (cfg.server && cfg.server.port) || '';
-      el('cfg-render-quality').value =
-        (cfg.render && cfg.render.quality !== undefined) ? cfg.render.quality : '';
-      el('cfg-frame-active-fps').value =
-        (cfg.frame && cfg.frame.activeFps !== undefined) ? cfg.frame.activeFps : '';
       return cfg;
     })
     .catch(function () { /* 忽略 */ });
@@ -1672,10 +1708,6 @@ function saveConfig(ev) {
 
   var port = parseInt(el('cfg-server-port').value, 10);
   if (!isNaN(port)) body.server = { port: port };
-  var quality = parseInt(el('cfg-render-quality').value, 10);
-  if (!isNaN(quality)) body.render = { quality: quality };
-  var fps = parseInt(el('cfg-frame-active-fps').value, 10);
-  if (!isNaN(fps)) body.frame = { activeFps: fps };
 
   meta.textContent = t('common:saving');
   fetch(API + '/config', {

@@ -544,6 +544,19 @@ class PetApp:
             self._gateway.stop()
 
     # ---------- 后台页数据 ----------
+    def _gesture_view(self):
+        """旋钮手势的当前映射 —— 页面要显示用户现在配的是什么。
+
+        只读。改它得动 petd/data/gestures.json 并重启 petd。
+        """
+        acts = self.gestures.get("actions", {}) or {}
+        return {
+            "longPressMs": int(self.gestures.get("longPressMs", 600)),
+            "stepsPerAction": int(self.gestures.get("stepsPerAction", 4)),
+            "items": [{"key": k, "action": acts.get(k, "") or ""}
+                      for k in ("rot", "rot_press", "press_long", "press_short")],
+        }
+
     def snapshot(self):
         return {
             "gateway": {"connected": bool(self._gateway and self._gateway.connected),
@@ -562,6 +575,7 @@ class PetApp:
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},
+            "gestures": self._gesture_view(),
         }
 
     # ---------- 宠物设定 ----------
