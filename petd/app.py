@@ -20,6 +20,7 @@ from . import screen as screen_mod
 from . import settings as settings_mod
 from . import skins as skins_mod
 from . import state as state_mod
+from . import toys as toys_mod
 from .device import DeviceManager
 from .state import DEFAULT_RULES, StateEngine, epoch_s
 
@@ -76,6 +77,10 @@ class PetApp:
         # 屏上仲裁：宠物脸 ↔ feature 卡片
         self.director = screen_mod.ScreenDirector(self.rules)
         self.chatter = chatter_mod.Chatter()
+        # 屏上的玩具 —— 骰子（一次性覆盖层）和功德计数器。
+        # 它们不是宠物状态，不进六态语义表；状态机一个字节都没动。
+        self.dice = toys_mod.Dice()
+        self.merit = toys_mod.Merit(cfg.get("ui", {}).get("merit", 0))
         self.mdns = None          # server 生命周期里塞进来的 MdnsAdvertiser
         # 实际在听的端口。命令行 --port 会盖过配置，但不该被写回配置文件 ——
         # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
@@ -114,7 +119,22 @@ class PetApp:
         if changed:
             self.log("info", "状态 -> " + state)
             await self.push_state(state)
+            if state in ("working", "waiting", "error"):
+                # 有活来了 —— 骰子让路
+                self.dice.dismiss()
+            elif state == "done":
+                # 干完一次活 —— 功德 +1。
+                # 任何一次「变成 done」都算，包括 idle -> done：
+                # 轮询可能没赶上干活那一帧，但活确实干完了。
+                self._add_merit()
         return state
+
+    def _add_merit(self):
+        """功德 +1，并落盘 —— 数值得活过重启。"""
+        self.merit.add()
+        self.cfg.setdefault("ui", {})["merit"] = self.merit.value
+        self._persist_config()
+        self.log("info", "功德 +1 -> %d" % self.merit.value)
 
     async def push_state(self, state):
         s = self.devices.session
@@ -200,6 +220,8 @@ class PetApp:
             await self.select_next_session(int(magnitude or 1))
         elif action == "skin.next":
             await self.cycle_skin()
+        elif action == "dice.roll":
+            self.roll_dice()
 
     # ---------- 能改的设置 ----------
     # 后台设定和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
@@ -286,6 +308,28 @@ class PetApp:
         self.cfg.setdefault("ui", {})["session"] = key
         self._persist_config()
         self.log("info", "关注会话 -> " + (key or "自动"))
+
+    def roll_dice(self):
+        """摇骰子 —— 按一下开，再按一下收。
+
+        只在宠物闲着的时候弹：
+          · 睡着不弹 —— 吵醒它要改状态机，那是最贵的一条路
+          · 忙着不弹 —— 有活先干活，骰子让路
+        """
+        if self.dice.active:
+            self.dice.dismiss()
+            self.log("info", "收起骰子")
+            return
+        state = self.engine.state
+        if state in ("working", "waiting", "error"):
+            self.log("info", "有活，先干活")
+            return
+        if self.is_night():
+            # 睡着的判断看时段，不看引擎状态 —— 引擎里没有 sleeping 这一态
+            self.log("info", "睡着了，不摇骰子")
+            return
+        self.dice.press()
+        self.log("info", "摇骰子")
 
     async def cycle_skin(self):
         """切到下一个形象 —— 旋钮和后台走同一条路。"""
@@ -423,20 +467,42 @@ class PetApp:
         root = self.cfg.get("_repo_root", ".")
         state = self.engine.state
         now = time.time()
+
+        # 骰子占屏 —— 一次性覆盖层。这时没有宠物脸。
+        dice_on, dice_face, dice_rolling = self.dice.update(now)
+        if dice_on:
+            jpeg = render_mod.render_dice(self.cfg, value=dice_face,
+                                          rolling=dice_rolling)
+            self.last_jpeg = jpeg
+            self.last_jpeg_ts = time.time()
+            return jpeg
+
+        # 飘字层 —— 功德 +1 之类，盖在宠物脸上飘过去
+        overlay = None
+        bubble = self.merit.bubble(now)
+        if bubble:
+            remain = float(bubble["until"]) - now
+            # 最后 0.8 秒淡出
+            alpha = 1.0 if remain > 0.8 else max(0.0, remain / 0.8)
+            overlay = render_mod.bubble_overlay(self.cfg, bubble["text"],
+                                                bubble["phrase"], alpha)
+
         view = self.director.update(now, state, self._feature_ctx(),
                                     self._features(), night=self.is_night(now))
         if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
             cstate = str(card.get("state") or state)
             skin_img = skins_mod.load_image(root, self.skin, cstate)
-            jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img)
+            jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img,
+                                          overlay=overlay)
         else:
             face = str(view.get("face") or state)
             sub = self._subtitle()
             name = self._session_name()
             skin_img = skins_mod.load_image(root, self.skin, face)
             jpeg = render_mod.render_frame(self.cfg, face, sub, name,
-                                           density=self.density, skin_image=skin_img)
+                                           density=self.density, skin_image=skin_img,
+                                           overlay=overlay, merit=self.merit.value)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
@@ -509,7 +575,9 @@ class PetApp:
     async def _frame_loop(self):
         while not self._stop:
             state = self.engine.state
-            fps = (self.cfg.get("frame", {}).get("activeFps", 10) if state in ACTIVE_STATES
+            # 骰子在滚的时候必须高帧率 —— 闲置档 1fps 只能看到一两帧，等于没滚
+            fps = (self.cfg.get("frame", {}).get("activeFps", 10)
+                   if state in ACTIVE_STATES or self.dice.active
                    else self.cfg.get("frame", {}).get("idleFps", 1))
             interval = 1.0 / max(0.2, float(fps))
             t0 = time.time()
@@ -571,7 +639,10 @@ class PetApp:
                     "counts": self.engine.counts,
                     "layer": self.director.layer,
                     "feature": self.director.snapshot().get("title") or "",
-                    "night": self.is_night()},
+                    "night": self.is_night(),
+                    # 玩具折在这里，不新开顶层段 —— status 的顶层结构是契约
+                    "merit": self.merit.value,
+                    "dice": bool(self.dice.active)},
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},

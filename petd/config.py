@@ -50,6 +50,8 @@ def defaults():
             "sleepEnd": DEFAULT_SLEEP_END,
             "sleepEnabled": True,    # 夜里要不要睡
             "weatherCity": "",
+            # 功德计数 —— agent 干完一次活 +1。落在这里是为了活过重启。
+            "merit": 0,
         },
         # mDNS 广播：设备靠它把 petd.local 解析成 IP。起不来不影响 petd 本身。
         "mdns": {"enabled": True, "hostname": "petd.local"},

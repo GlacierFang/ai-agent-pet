@@ -136,7 +136,7 @@ def draw_standard_card(img, draw, box, card, pet=None):
         img.paste(pet, (x, y + h - pet.size[1]), pet)
 
 
-def render_card(cfg, card, skin_image=None):
+def render_card(cfg, card, skin_image=None, overlay=None):
     """内容层：一张 feature 整屏卡片。
 
     内容层和消息层互斥 —— 屏上永远只有一样东西。
@@ -217,13 +217,15 @@ def render_card(cfg, card, skin_image=None):
     big.paste(pet, (0, area_top), pet)
 
     img = big.resize((width, height), Image.LANCZOS)
+    if overlay is not None:
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
     return buf.getvalue()
 
 
 def render_frame(cfg, state, subtitle="", session_name="", density=1,
-                 skin_image=None):
+                 skin_image=None, overlay=None, merit=0):
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
     quality = int(cfg.get("render", {}).get("quality", 85))
@@ -279,7 +281,115 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
     _center(d, width * scale // 2, height * scale - int(16 * scale),
             "petd", int(9 * scale), (110, 118, 140))
 
+    # 功德计数 —— 常驻左下角。飘字只是一瞬间，
+    # 想看累计值的时候得有个地方能看。
+    if merit:
+        _text(d, (int(6 * scale), height * scale - int(16 * scale)),
+              "功德 %d" % int(merit), int(9 * scale), (150, 158, 180))
+
+    img = big.resize((width, height), Image.LANCZOS)
+    if overlay is not None:
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
+    return buf.getvalue()
+
+# ---------- 骰子与飘字（一次性覆盖层） ----------
+
+# 配色沿用宠物皮肤那三色：主橙 / 浅肤 / 灰。
+# 不新增色 —— 屏上所有颜色应该看起来像同一个世界。
+DICE_FILL = (245, 86, 47)
+DICE_FACE = (251, 156, 108)
+DICE_EDGE = (172, 172, 174)
+DICE_DOT = (26, 20, 26)
+
+# 每个点数对应圆点在骰子面上的相对位置（0..1）
+DICE_DOTS = {
+    1: ((0.5, 0.5),),
+    2: ((0.26, 0.26), (0.74, 0.74)),
+    3: ((0.24, 0.24), (0.5, 0.5), (0.76, 0.76)),
+    4: ((0.27, 0.27), (0.73, 0.27), (0.27, 0.73), (0.73, 0.73)),
+    5: ((0.26, 0.26), (0.74, 0.26), (0.5, 0.5), (0.26, 0.74), (0.74, 0.74)),
+    6: ((0.26, 0.22), (0.74, 0.22), (0.26, 0.5),
+        (0.74, 0.5), (0.26, 0.78), (0.74, 0.78)),
+}
+
+
+def render_dice(cfg, value=1, rolling=False, title="赛博骰子"):
+    """整屏骰子。宠物脸不画 —— 骰子占屏时没有脸。
+
+    value 在 1..6；rolling 时画面上的点数每帧都在换，出结果后定住。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+    quality = int(cfg.get("render", {}).get("quality", 85))
+    subsampling = int(cfg.get("render", {}).get("subsampling", 2))
+
+    scale = 2
+    big = Image.new("RGB", (width * scale, height * scale), (20, 22, 32))
+    _gradient(big, (30, 24, 34), (14, 14, 22))
+    d = ImageDraw.Draw(big)
+
+    _center(d, width * scale // 2, int(16 * scale), title,
+            int(15 * scale), (196, 200, 214))
+
+    # 骰子本体 —— 正方形，居中
+    side = int(min(width, height) * 0.52) * scale
+    x0 = (width * scale - side) // 2
+    y0 = (height * scale - side) // 2 + int(8 * scale)
+    x1, y1 = x0 + side, y0 + side
+    radius = int(side * 0.18)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=DICE_FILL,
+                        outline=DICE_EDGE, width=max(2, int(2 * scale)))
+
+    # 圆点 —— 像素风：画成方块，不画成圆
+    dot = max(3, int(side * 0.075))
+    for fx, fy in DICE_DOTS.get(int(value), DICE_DOTS[1]):
+        cx = x0 + int(fx * side)
+        cy = y0 + int(fy * side)
+        d.rectangle([cx - dot // 2, cy - dot // 2, cx + dot // 2, cy + dot // 2],
+                    fill=DICE_DOT)
+
+    # 状态字 —— 滚的时候说在滚，停了就报点数
+    label = "..." if rolling else str(int(value))
+    _center(d, width * scale // 2, y1 + int(14 * scale), label,
+            int(16 * scale), DICE_FACE)
+
     img = big.resize((width, height), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
     return buf.getvalue()
+
+
+def bubble_overlay(cfg, text, phrase="", alpha=1.0):
+    """飘字层 —— 功德 +1 之类，盖在宠物脸上飘过去。
+
+    这层不改变宠物在干什么 —— 它只是飘过去一行字。
+    返回 RGBA 图，由调用方贴到整帧上（自己编码 JPEG 会掉一次画质）。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+
+    scale = 2
+    big = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+    d = ImageDraw.Draw(big)
+
+    a = max(0.0, min(1.0, float(alpha)))
+    main = tuple(int(c * a + 255 * (1 - a)) for c in (245, 86, 47))
+    sub = tuple(int(c * a + 255 * (1 - a)) for c in (220, 226, 240))
+
+    # 飘字压在宠物脸上 —— 不垫底色的话，橙色字叠在橙色宠物身上看不清。
+    # 垫一条半透明深色带，字才读得出来。
+    y = int(height * scale * 0.07)
+    band_h = int(46 * scale) if phrase else int(34 * scale)
+    band = Image.new("RGBA", (width * scale, band_h), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(band)
+    bd.rectangle([0, 0, width * scale, band_h],
+                 fill=(12, 12, 20, int(185 * max(a, 0.25))))
+    big.paste(band, (0, y - int(4 * scale)), band)
+
+    _center(d, width * scale // 2, y, text, int(22 * scale), main)
+    if phrase:
+        _center(d, width * scale // 2, y + int(28 * scale), phrase,
+                int(13 * scale), sub)
+    return big.resize((width, height), Image.LANCZOS)

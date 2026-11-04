@@ -16,12 +16,12 @@ DEFAULT_GESTURES = {
     # 旋转 = 翻到下一张 feature 卡
     # 按住+旋转 = 信息密度
     # 长按 = 刷新状态
-    # 短按 = 暂不分配
+    # 短按 = 摇骰子
     "actions": {
         "rot": "card.next",
         "rot_press": "density.cycle",
         "press_long": "state.refresh",
-        "press_short": "",
+        "press_short": "dice.roll",
     },
 }
 

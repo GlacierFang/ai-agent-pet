@@ -105,6 +105,8 @@ var T = {
     devOnline: '设备 在线',
     devOffline: '设备 离线',
     sessionsN: '会话 {n} 个',
+    meritN: '功德 {n}',
+    diceOn: '骰子开着',
     previewTitle: '设备画面',
     previewNote: '与设备屏幕显示的是同一帧画面。',
     previewRefresh: '立即刷新',
@@ -209,6 +211,7 @@ var T = {
       'card.next': '翻到下一张卡',
       'density.cycle': '切换信息密度',
       'state.refresh': '刷新状态',
+      'dice.roll': '摇骰子',
       'session.next': '切换会话',
       'skin.next': '换一只宠物'
     },
@@ -494,6 +497,12 @@ function renderPet(s) {
   addBadge(badges, gw.connected ? 'ok' : 'bad', gw.connected ? t('pet:connOk') : t('pet:connBad'));
   addBadge(badges, dev.online ? 'ok' : 'dim', dev.online ? t('pet:devOnline') : t('pet:devOffline'));
   addBadge(badges, STATE_KIND[st] || 'dim', fill(t('pet:sessionsN'), { n: pet.sessions || 0 }));
+  if (pet.merit) {
+    addBadge(badges, 'dim', fill(t('pet:meritN'), { n: pet.merit }));
+  }
+  if (pet.dice) {
+    addBadge(badges, 'ok', t('pet:diceOn'));
+  }
 }
 
 function addBadge(box, kind, text) {
