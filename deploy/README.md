@@ -41,6 +41,7 @@ journalctl --user -u petd -f
   换实例前先 `systemctl --user stop petd`。
 - 要跑在开机自启，需要 `loginctl enable-linger $USER`。
 - 端口、渲染质量等改 `petd/data/config.json`，改完 `systemctl --user restart petd`。
+  这份文件不进仓库 —— 首次启动 petd 会自动生成一份默认的。
 - **pip 装不上？** 环境里设了全局 `HTTP_PROXY` 时 PyPI 会 403。
   这时用 `python3 -m venv --system-site-packages .venv` 复用系统已装的依赖。
 - `deploy/petd.service` 里的 `%h` 是家目录。仓库不在家目录下时，

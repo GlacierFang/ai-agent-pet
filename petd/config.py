@@ -1,6 +1,6 @@
 """配置：本地 JSON，无账号体系。
 
-gateway token 不进仓库 —— 优先读环境变量 PETD_GATEWAY_TOKEN，
+gateway token 不写进配置文件 —— 优先读环境变量 PETD_GATEWAY_TOKEN，
 其次读 petd/data/secrets.json（该文件已在 .gitignore 里）。
 
 后台口令走另一条路：petd/data/admin.json，只存 scrypt 哈希。
@@ -92,9 +92,9 @@ def save(cfg, path=None):
     p = pathlib.Path(path) if path else DATA_DIR / "config.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     out = json.loads(json.dumps(cfg))
-    # gateway token 不进 config.json —— 这个文件是进 git 的。
+    # gateway token 不进 config.json —— 凭据只放 env 或 secrets.json。
     # 内存里的 token 可能来自 PETD_GATEWAY_TOKEN 或 secrets.json，
-    # 整份写回去就等于把凭据提交进仓库。
+    # 整份写回去就等于把凭据落到一个用户会随手复制走的地方。
     # 但如果用户本来就在这个文件里写了 token，保留 —— 那是他自己的选择。
     old = {}
     if p.exists():
@@ -110,6 +110,19 @@ def save(cfg, path=None):
     return p
 
 
+def ensure_file(path=None):
+    """配置文件不存在就写一份默认的出来。
+
+    配置文件不进仓库 —— 那是每台机器自己的东西（端口、宠物、睡觉时段）。
+    但它得在磁盘上存在：文档让人手改这个文件，得先有文件可改。
+    """
+    p = pathlib.Path(path) if path else DATA_DIR / "config.json"
+    if p.exists():
+        return p
+    save(defaults(), p)
+    return p
+
+
 def public_view(cfg):
     """给后台页看的配置：抹掉 token。"""
     out = json.loads(json.dumps(cfg))
@@ -121,7 +134,7 @@ def admin_password():
     """后台口令（明文）—— 只给自动部署用。
 
     优先环境变量，其次 petd/data/secrets.json。
-    刻意不放进 config.json：那个文件进 git，密码不能进仓库。
+    刻意不放进 config.json：凭据只放 env 或 secrets.json。
     """
     env = os.environ.get("PETD_ADMIN_PASSWORD", "")
     if env:

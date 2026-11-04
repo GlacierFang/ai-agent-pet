@@ -1,6 +1,6 @@
 """配置落盘的单测。
 
-重点：gateway token 永远不进 config.json —— 那个文件是进 git 的。
+重点：gateway token 永远不进 config.json —— 凭据只放 env 或 secrets.json。
 """
 
 import json
@@ -36,6 +36,25 @@ def test_token_user_wrote_by_hand_is_kept(tmp_path):
     config.save(cfg, p)
     back = json.loads(p.read_text(encoding="utf-8"))
     assert back["gateway"]["token"] == "hand-written"
+
+
+def test_ensure_file_writes_defaults_when_missing(tmp_path):
+    """配置不进仓库 —— 首次启动得自己写一份出来，用户才有地方改。"""
+    p = tmp_path / "config.json"
+    assert not p.exists()
+    config.ensure_file(p)
+    back = json.loads(p.read_text(encoding="utf-8"))
+    assert back["server"]["port"] == 18860
+    assert back["ui"]["features"]
+
+
+def test_ensure_file_keeps_existing_file(tmp_path):
+    """已经有配置就不许覆盖 —— 用户的设置比默认值重要。"""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"ui": {"weatherCity": "杭州"}}), encoding="utf-8")
+    config.ensure_file(p)
+    back = json.loads(p.read_text(encoding="utf-8"))
+    assert back["ui"]["weatherCity"] == "杭州"
 
 
 def test_public_view_masks_token():

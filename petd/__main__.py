@@ -22,6 +22,8 @@ def main(argv=None):
         level=getattr(logging, args.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-5s %(name)s %(message)s")
 
+    # 配置不进仓库 —— 首次启动得自己写一份出来，否则用户没地方改。
+    config_mod.ensure_file(args.config)
     cfg = config_mod.load(args.config)
     host = args.host or cfg["server"]["host"]
     port = args.port or cfg["server"]["port"]

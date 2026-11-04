@@ -11,6 +11,8 @@ venv/
 .pytest_cache/
 petd/data/secrets.json
 petd/data/state.json
+# 本机配置：不进仓库（首次启动自动生成一份）
+petd/data/config.json
 # 用户自己的资产：不进仓库
 petd/data/skins/
 petd/data/setup_state.json
