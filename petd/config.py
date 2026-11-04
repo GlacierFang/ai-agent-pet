@@ -18,6 +18,11 @@ PKG_DIR = pathlib.Path(__file__).resolve().parent
 DATA_DIR = PKG_DIR / "data"
 REPO_DIR = PKG_DIR.parent
 
+# 睡觉时段的默认窗口（可跨午夜）。只此一处 —— app.py / settings.py 都从这里取，
+# 各自写一份的话总有一天两边不一致。
+DEFAULT_SLEEP_START = "22:00"
+DEFAULT_SLEEP_END = "07:00"
+
 
 def defaults():
     return {
@@ -41,8 +46,8 @@ def defaults():
             "features": ["sessions", "notify", "recent_done", "clock", "device"],
             "cardDwellSec": 8,      # 每张卡停留秒数
             "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
-            "sleepStart": "22:00",  # 睡觉时段（可跨午夜）
-            "sleepEnd": "07:00",
+            "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）
+            "sleepEnd": DEFAULT_SLEEP_END,
             "sleepEnabled": True,    # 夜里要不要睡
             "weatherCity": "",
         },

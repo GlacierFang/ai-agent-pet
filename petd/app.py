@@ -53,8 +53,10 @@ class PetApp:
         self.features_enabled = set(cfg.get("ui", {}).get("features") or [])
         self.card_dwell_sec = int(cfg.get("ui", {}).get("cardDwellSec", 8))
         self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
-        self.sleep_start = str(cfg.get("ui", {}).get("sleepStart", "22:00"))
-        self.sleep_end = str(cfg.get("ui", {}).get("sleepEnd", "07:00"))
+        self.sleep_start = str(cfg.get("ui", {}).get(
+            "sleepStart", config_mod.DEFAULT_SLEEP_START))
+        self.sleep_end = str(cfg.get("ui", {}).get(
+            "sleepEnd", config_mod.DEFAULT_SLEEP_END))
         self.sleep_enabled = bool(cfg.get("ui", {}).get("sleepEnabled", True))
         # 后台选定的关注会话（空 = 自动跟最活跃的）
         self.engine.selected_key = cfg.get("ui", {}).get("session") or None
@@ -234,8 +236,8 @@ class PetApp:
 
     def set_sleep_window(self, start, end, enabled=None):
         """设置睡觉时段。起止两个钟点 —— 跨午夜也认。"""
-        self.sleep_start = str(start or "22:00")
-        self.sleep_end = str(end or "07:00")
+        self.sleep_start = str(start or config_mod.DEFAULT_SLEEP_START)
+        self.sleep_end = str(end or config_mod.DEFAULT_SLEEP_END)
         if enabled is not None:
             self.sleep_enabled = bool(enabled)
         ui = self.cfg.setdefault("ui", {})
@@ -311,13 +313,21 @@ class PetApp:
     # ---------- 睡觉 ----------
     @staticmethod
     def _parse_hhmm(text):
+        """一天里的分钟数。
+
+        "24:00" 认（= 1440）—— 只有区间终点用得上：睡到午夜。
+        """
         parts = str(text or "").split(":")
         try:
             h = int(parts[0])
             m = int(parts[1]) if len(parts) > 1 else 0
         except (TypeError, ValueError):
             return None
-        if not (0 <= h <= 23 and 0 <= m <= 59):
+        if not (0 <= m <= 59):
+            return None
+        if h == 24 and m == 0:
+            return 1440
+        if not (0 <= h <= 23):
             return None
         return h * 60 + m
 

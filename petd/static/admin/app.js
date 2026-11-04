@@ -163,7 +163,15 @@ var T = {
     title: '功能清单',
     noteHtml: '这里列的每一项都能立刻生效 —— 挑一个你想要的，宠物就照着来。',
     empty: '清单是空的',
-    failed: '改不了：{e}'
+    failed: '改不了：{e}',
+    sleepRange: '{a} → {b}',
+    sleepHour: '{h} 小时',
+    sleepMin: '{m} 分',
+    sleepCross: '跨午夜',
+    sleepHint: '在轴上点一下定起点，再点一下定结束（落点对齐到 30 分钟）',
+    sleepHintPending: '再点一下定结束',
+    sleepOn: '夜里睡觉',
+    sleepOff: '夜里不睡'
   },
 
 
@@ -981,53 +989,187 @@ function renderFeatures() {
   });
 }
 
-/* 睡觉时段：起止两个时间选择器 + 一个「夜里不睡」开关。
-   一张卡里选完 —— 不拆成两张卡，起止本来就是一件事。 */
+/* 睡觉时段：一条 24 小时轴，在轴上划出一段连续的区间。
+
+   跨午夜在图上就是首尾两段 —— 画一条穿过中间的连线会骗人。 */
+function tlToLabel(min) {
+  min = Math.max(0, Math.min(1440, Math.round(min)));
+  var h = Math.floor(min / 60);
+  var m = min % 60;
+  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+}
+
+function tlToMinutes(text) {
+  var p = String(text || '').split(':');
+  var h = parseInt(p[0], 10);
+  var m = p.length > 1 ? parseInt(p[1], 10) : 0;
+  if (isNaN(h)) h = 0;
+  if (isNaN(m)) m = 0;
+  if (h === 24 && m === 0) return 1440;
+  return Math.max(0, Math.min(1439, h * 60 + m));
+}
+
+/* 一段连续区间。b < a = 跨午夜 → 首尾两段。 */
+function tlSegments(a, b) {
+  if (a === b) return [];
+  if (b > a) return [[a, b]];
+  return [[a, 1440], [0, b]];
+}
+
+function tlDuration(min) {
+  var h = Math.floor(min / 60);
+  var m = min % 60;
+  var s = fill(t('features:sleepHour'), { h: h });
+  if (!m) return s;
+  return s + ' ' + fill(t('features:sleepMin'), { m: m });
+}
+
 function renderTimeRange(f) {
   var wrap = document.createElement('div');
   wrap.className = 'timerange';
 
   var on = f.enabled !== false;
+  var startMin = tlToMinutes(f.from);
+  var endMin = tlToMinutes(f.to);
+  var pending = null;    /* 只点了第一下时的起点 */
+  var hoverMin = null;   /* 悬停位置 */
 
-  var row = document.createElement('div');
-  row.className = 'timerange-row';
+  var bar = document.createElement('div');
+  bar.className = 'tl-bar';
 
-  var from = document.createElement('input');
-  from.type = 'time';
-  from.value = f.from || '22:00';
-  from.step = '3600';
-  from.disabled = !on;
-
-  var sep = document.createElement('span');
-  sep.className = 'timerange-sep';
-  sep.textContent = '→';
-
-  var to = document.createElement('input');
-  to.type = 'time';
-  to.value = f.to || '07:00';
-  to.step = '3600';
-  to.disabled = !on;
-
-  var commit = function () {
-    setFeature(f.id, { from: from.value, to: to.value, enabled: on });
-  };
-  from.addEventListener('change', commit);
-  to.addEventListener('change', commit);
-
-  row.appendChild(from);
-  row.appendChild(sep);
-  row.appendChild(to);
-  wrap.appendChild(row);
-
-  var toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = on ? '' : 'ghost';
-  toggle.textContent = on ? '✓ 夜里睡觉' : '夜里不睡';
-  toggle.addEventListener('click', function () {
-    setFeature(f.id, { from: from.value, to: to.value, enabled: !on });
+  [0, 6, 12, 18, 24].forEach(function (h) {
+    var tick = document.createElement('div');
+    tick.className = 'tl-tick' + (h === 0 ? ' first' : (h === 24 ? ' last' : ''));
+    tick.style.left = (h / 24 * 100) + '%';
+    var lab = document.createElement('span');
+    lab.textContent = h === 24 ? '24' : (h < 10 ? '0' + h : String(h));
+    tick.appendChild(lab);
+    bar.appendChild(tick);
   });
-  wrap.appendChild(toggle);
 
+  var layer = document.createElement('div');
+  layer.className = 'tl-layer';
+  bar.appendChild(layer);
+
+  var readout = document.createElement('div');
+  readout.className = 'tl-readout';
+
+  var hint = document.createElement('div');
+  hint.className = 'tl-hint';
+
+  var toggle = document.createElement('div');
+  toggle.className = 'feature-opts tl-toggle';
+
+  function drawSegs(list, cls) {
+    list.forEach(function (seg) {
+      var d = document.createElement('div');
+      d.className = 'tl-seg ' + cls;
+      d.style.left = (seg[0] / 1440 * 100) + '%';
+      d.style.width = ((seg[1] - seg[0]) / 1440 * 100) + '%';
+      layer.appendChild(d);
+    });
+  }
+
+  function paint() {
+    layer.textContent = '';
+    if (pending === null) {
+      drawSegs(tlSegments(startMin, endMin), 'saved');
+    } else {
+      /* 旧区间留着（灰），正在划的那段用亮色 */
+      drawSegs(tlSegments(startMin, endMin), 'old');
+      drawSegs(tlSegments(pending, hoverMin === null ? pending : hoverMin), 'live');
+    }
+
+    var a = pending === null ? startMin : pending;
+    var b = pending === null ? endMin : (hoverMin === null ? pending : hoverMin);
+    var known = pending === null || hoverMin !== null;
+
+    var aLabel = tlToLabel(a);
+    var bLabel = (pending !== null && hoverMin === null) ? '?' : tlToLabel(b);
+    var line = fill(t('features:sleepRange'), { a: aLabel, b: bLabel });
+
+    if (known && a !== b) {
+      var dur = ((b - a) + 1440) % 1440;
+      line += ' · ' + tlDuration(dur);
+      if (b < a) line += ' · ' + t('features:sleepCross');
+    }
+    readout.textContent = line;
+
+    hint.textContent = pending === null
+      ? t('features:sleepHint')
+      : t('features:sleepHintPending');
+  }
+
+  function minuteAt(ev) {
+    var rect = bar.getBoundingClientRect();
+    if (!rect.width) return 0;
+    var ratio = (ev.clientX - rect.left) / rect.width;
+    if (ratio < 0) ratio = 0;
+    if (ratio > 1) ratio = 1;
+    /* 1440 分钟 / 30 分钟一格 = 48 格 */
+    return Math.min(1440, Math.round(ratio * 48) * 30);
+  }
+
+  function submit() {
+    setFeature(f.id, {
+      from: tlToLabel(startMin),
+      to: tlToLabel(endMin),
+      enabled: on
+    });
+  }
+
+  bar.addEventListener('pointerdown', function (ev) {
+    ev.preventDefault();
+    var m = minuteAt(ev);
+    if (pending === null) {
+      /* 起点最多 23:59 —— 24:00 只当终点用（睡到午夜），
+         否则会配出「24:00 到 07:00」这种永远在睡的窗口。 */
+      pending = Math.min(1439, m);
+      hoverMin = null;
+      paint();
+      return;
+    }
+    var from = pending;
+    pending = null;
+    hoverMin = null;
+    if (m === from) { paint(); return; }   /* 点回同一点 = 取消 */
+    startMin = from;
+    endMin = m;
+    paint();
+    submit();
+  });
+
+  bar.addEventListener('pointermove', function (ev) {
+    if (pending === null) return;
+    hoverMin = minuteAt(ev);
+    paint();
+  });
+
+  bar.addEventListener('pointerleave', function () {
+    if (pending === null) return;
+    hoverMin = null;
+    paint();
+  });
+
+  [['features:sleepOn', true], ['features:sleepOff', false]].forEach(function (pair) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = t(pair[0]);
+    if (pair[1] === on) b.className = 'picked';
+    b.addEventListener('click', function () {
+      if (pair[1] === on) return;
+      on = pair[1];
+      submit();
+    });
+    toggle.appendChild(b);
+  });
+
+  wrap.appendChild(bar);
+  wrap.appendChild(readout);
+  wrap.appendChild(hint);
+  wrap.appendChild(toggle);
+  if (!on) wrap.className += ' off';
+  paint();
   return wrap;
 }
 

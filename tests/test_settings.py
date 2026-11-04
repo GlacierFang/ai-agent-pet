@@ -156,6 +156,41 @@ def test_sleep_rejects_bad_time(client):
     assert r.status_code == 400
 
 
+def test_sleep_accepts_midnight_as_end(client):
+    """睡到午夜 —— 终点可以是 24:00。"""
+    import time as _t
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": "22:00-24:00"})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.sleep_end == "24:00"
+    assert pet.is_night(_t.mktime((2026, 11, 4, 23, 30, 0, 0, 0, -1))) is True
+    assert pet.is_night(_t.mktime((2026, 11, 4, 12, 0, 0, 0, 0, -1))) is False
+
+
+def test_sleep_cross_midnight_is_night(client):
+    """跨午夜 —— 两头算夜里，中间不算。"""
+    import time as _t
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": "22:00-07:00"})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.is_night(_t.mktime((2026, 11, 4, 23, 30, 0, 0, 0, -1))) is True
+    assert pet.is_night(_t.mktime((2026, 11, 4, 2, 0, 0, 0, 0, -1))) is True
+    assert pet.is_night(_t.mktime((2026, 11, 4, 12, 0, 0, 0, 0, -1))) is False
+    assert pet.is_night(_t.mktime((2026, 11, 4, 7, 0, 0, 0, 0, -1))) is False
+
+
+def test_sleep_start_equals_end_means_never(client):
+    """起止相同 —— 不睡。"""
+    import time as _t
+    r = client.post("/admin/api/features",
+                    json={"id": "sleep", "value": "22:00-22:00"})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.is_night(_t.mktime((2026, 11, 4, 22, 30, 0, 0, 0, -1))) is False
+
+
 def test_set_density_takes_effect(client):
     r = client.post("/admin/api/features", json={"id": "density", "value": 2})
     assert r.status_code == 200

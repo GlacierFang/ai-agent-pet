@@ -8,6 +8,7 @@
 字段全仓没有任何地方读它，勾掉了什么也不会发生。那种清单是骗人的，不如没有。
 """
 
+from . import config as config_mod
 from . import features as feature_mod
 from . import skins as skins_mod
 
@@ -25,9 +26,6 @@ DWELL_CHOICES = (5, 8, 12, 20, 30)
 # 工作结束后宠物脸留多久（秒）
 HOLD_CHOICES = (0, 3, 5, 10)
 
-# 睡觉时段 —— 整点就够，分钟级精度没有意义
-HOUR_CHOICES = tuple(range(24))
-
 # 睡觉时段是**一项**，不是一个值 —— 起止两个钟点在一张卡里选。
 # value 是一个组合串："22:00-07:00"，或 "off"（不睡）。
 SLEEP_OFF = "off"
@@ -41,21 +39,11 @@ def _item(fid, name, desc, value, options, multi=False):
     return out
 
 
-def _hour_options(current):
-    opts = []
-    for h in HOUR_CHOICES:
-        label = "%02d:00" % h
-        opts.append({"value": label, "label": label, "desc": ""})
-    if current and current not in [o["value"] for o in opts]:
-        opts.append({"value": current, "label": current, "desc": ""})
-    return opts
-
-
 def _sleep_item(pet):
     """睡觉时段 —— 起止两个钟点在一张卡里选。
 
-    这一项的值是组合串（"22:00-07:00"），不是单值 —— 页面上给两个
-    时间选择器，别拆成两张卡。
+    这一项的值是组合串（"22:00-07:00"），不是单值 —— 页面上给一条
+    24 小时轴，在轴上划一段，别拆成两张卡。
     """
     start = pet.sleep_start
     end = pet.sleep_end

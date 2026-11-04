@@ -469,21 +469,50 @@ footer p { margin: 4px 0; }
   box-shadow: inset 0 0 0 2px rgba(120, 190, 255, 0.85);
 }
 
-/* 时间范围选择器（睡觉时段）—— 起止两个输入在同一行 */
-.timerange { display: grid; gap: 8px; }
-.timerange-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.timerange-row input[type="time"] {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 8px;
+/* 睡觉时段 —— 一条 24 小时轴，在轴上划一段连续区间 */
+.timerange { display: grid; gap: 9px; }
+.tl-bar {
+  position: relative;
+  height: 38px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
-  color: var(--fg);
+  cursor: crosshair;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
 }
-.timerange-row input[type="time"]:disabled { opacity: 0.45; }
-.timerange-sep { color: var(--muted); font-size: 13px; }
+.tl-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.tl-tick span {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+}
+.tl-tick.last span { left: auto; right: 4px; }
+.tl-layer { position: absolute; inset: 0; }
+.tl-seg { position: absolute; top: 0; bottom: 0; }
+.tl-seg.saved {
+  background: rgba(88, 166, 255, .22);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+}
+.tl-seg.old { background: rgba(139, 149, 167, .16); }
+.tl-seg.live {
+  background: rgba(88, 166, 255, .32);
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+}
+.tl-readout { font-size: 13px; }
+.tl-hint { color: var(--muted); font-size: 12px; }
+.tl-toggle { gap: 6px; }
+.timerange.off .tl-bar { opacity: .4; }
+.timerange.off .tl-readout { color: var(--muted); }

@@ -188,7 +188,12 @@ def _parse_sleep(value, pet):
             m = int(parts[1]) if len(parts) > 1 else 0
         except (TypeError, ValueError):
             return False
-        return 0 <= h <= 23 and 0 <= m <= 59
+        if not (0 <= m <= 59):
+            return False
+        # "24:00" = 1440，只当区间终点用（睡到午夜）
+        if h == 24 and m == 0:
+            return True
+        return 0 <= h <= 23
 
     if isinstance(value, dict):
         start = str(value.get("from") or cur_start)
