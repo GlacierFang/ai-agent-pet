@@ -637,6 +637,26 @@ class PetApp:
             "port": self.listen_port,
         }
 
+    def _manual_view(self):
+        """使用说明页要显示的东西。
+
+        全部来自当前真在用的配置 —— 手势映射、密度档位、内容卡清单。
+        写死一份的话，用户改了配置之后说明页就成了骗人的。
+        """
+        acts = self.gestures.get("actions", {}) or {}
+        return {
+            "gestures": {
+                "items": [{"key": k, "action": acts.get(k, "") or ""}
+                          for k in ("rot", "rot_press", "press_long", "press_short")],
+            },
+            "density": [{"label": settings_mod.DENSITY_LABELS.get(d, str(d)),
+                          "desc": settings_mod.DENSITY_DESCS.get(d, "")}
+                         for d in (0, 1, 2)],
+            # catalog 给的是 name/title/tip —— 说明页要的是 label/desc 两列
+            "features": [{"label": f["title"], "desc": f["tip"]}
+                         for f in feature_mod.catalog()],
+        }
+
     def setup_payload(self):
         """后台「第一次用」的引导数据。
 
@@ -680,6 +700,7 @@ class PetApp:
         ]
         return {
             "steps": steps,
+            "manual": self._manual_view(),
             "mdns": self._mdns_view(),
             "provisioning": self._provisioning_view(),
         }

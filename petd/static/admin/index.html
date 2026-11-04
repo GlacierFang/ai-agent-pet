@@ -36,7 +36,7 @@
 
   <!-- 没登录也要能看到「怎么开始」—— 最需要这份指引的人正是还没配好的人 -->
   <section class="gate-setup">
-    <h2 data-i18n="setup:title">开始使用</h2>
+    <h2 data-i18n="setup:title">把设备装上</h2>
     <ol class="guide-list" id="gate-guide"></ol>
     <div class="addr-box">
       <h3 data-i18n="setup:addrTitle">设备怎么找到这台电脑</h3>
@@ -53,7 +53,7 @@
     <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">宠物库</button>
     <button type="button" class="tab" data-tab="settings" data-i18n="tabs:settings">宠物设定</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">连接与诊断</button>
-    <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">开始使用</button>
+    <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">使用说明</button>
   </nav>
 
   <!-- ============ 我的宠物 ============ -->
@@ -178,23 +178,42 @@
     </details>
   </section>
 
-  <!-- ============ 开始使用 ============ -->
+  <!-- ============ 使用说明 ============ -->
   <section class="panel hidden" data-panel="setup">
-    <section class="card setup-card" id="setup-card">
-      <div class="card-head">
-        <h2 data-i18n="setup:title">开始使用</h2>
-        <span class="badge warn" id="setup-summary">…</span>
+
+    <!-- 一、宠物怎么用 -->
+    <section class="card">
+      <h2 data-i18n="manual:useTitle">一、宠物怎么用</h2>
+      <p class="note" data-i18n="manual:useNote">屏上唯一的交互是旋钮 —— 设备上就一个旋钮。</p>
+      <div class="gesture-list" id="manual-gestures"></div>
+      <p class="note" data-i18n="manual:densityNote">信息密度分三档，按住并旋转可以切换：</p>
+      <div class="density-list" id="manual-density"></div>
+    </section>
+
+    <!-- 二、屏上会看到什么 -->
+    <section class="card">
+      <h2 data-i18n="manual:screenTitle">二、屏上会看到什么</h2>
+      <ul class="manual-list" id="manual-screen"></ul>
+      <p class="note" data-i18n="manual:featuresNote">内容卡轮播，勾哪几张在「宠物设定」里定：</p>
+      <div class="density-list" id="manual-features"></div>
+    </section>
+
+    <!-- 三、设备怎么装上 -->
+    <section class="card">
+      <h2 data-i18n="manual:installTitle">三、设备怎么装上</h2>
+      <p class="note" data-i18n="manual:installNote">四步，按顺序做。</p>
+      <ol class="manual-steps" id="manual-steps"></ol>
+      <div class="addr-box">
+        <h3 data-i18n="setup:addrTitle">设备怎么找到这台电脑</h3>
+        <p class="note" data-i18n="setup:addrHint">在设备上填下面任意一个地址：</p>
+        <div id="setup-addr"></div>
       </div>
-      <ol class="steps" id="setup-steps"></ol>
-      <details class="fold">
-        <summary data-i18n="setup:guideTitle">第一次用？按这四步来</summary>
-        <ol class="guide-list" id="setup-guide"></ol>
-        <div class="addr-box">
-          <h3 data-i18n="setup:addrTitle">设备怎么找到这台电脑</h3>
-          <p class="note" data-i18n="setup:addrHint">在设备上填下面任意一个地址：</p>
-          <div id="setup-addr"></div>
-        </div>
-      </details>
+    </section>
+
+    <!-- 四、后台能改什么 -->
+    <section class="card">
+      <h2 data-i18n="manual:whereTitle">四、后台能改什么</h2>
+      <ul class="manual-list" id="manual-where"></ul>
     </section>
   </section>
 

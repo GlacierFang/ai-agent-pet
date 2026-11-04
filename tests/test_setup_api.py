@@ -42,7 +42,7 @@ def test_setup_requires_auth_when_password_set(monkeypatch):
 
 def test_setup_shape(client):
     body = client.get("/admin/api/setup").json()
-    assert set(body.keys()) == {"steps", "mdns", "provisioning"}
+    assert set(body.keys()) == {"steps", "manual", "mdns", "provisioning"}
 
 
 def test_steps_have_fixed_ids_and_labels(client):
@@ -111,6 +111,39 @@ def test_mdns_can_be_disabled_by_config(monkeypatch):
     assert mdns["enabled"] is False
 
 
+def test_manual_block_shape(client):
+    """使用说明页的数据 —— 全部来自当前在用的配置，不是写死的文案。"""
+    manual = client.get("/admin/api/setup").json()["manual"]
+    assert set(manual.keys()) == {"gestures", "density", "features"}
+
+
+def test_manual_gestures_reflect_current_config(client):
+    """手势映射读的是服务端那份 —— 用户改了 gestures.json，说明页就得跟着变。"""
+    pet = client.app.state.pet
+    pet.gestures["actions"]["press_short"] = "skin.next"
+    manual = client.get("/admin/api/setup").json()["manual"]
+    items = {i["key"]: i["action"] for i in manual["gestures"]["items"]}
+    assert items["press_short"] == "skin.next"
+    # 没配的项给空串，页面显示「未分配」，不猜
+    assert items["rot"] == "card.next"
+
+
+def test_manual_density_has_three_levels(client):
+    manual = client.get("/admin/api/setup").json()["manual"]
+    labels = [d["label"] for d in manual["density"]]
+    assert labels == ["简洁", "标准", "详细"]
+    assert all(d["desc"] for d in manual["density"])
+
+
+def test_manual_features_lists_all_content_cards(client):
+    manual = client.get("/admin/api/setup").json()["manual"]
+    labels = [f["label"] for f in manual["features"]]
+    assert "会话" in labels
+    assert "天气" in labels
+    assert "主机" in labels
+    assert all(f["desc"] for f in manual["features"])
+
+
 def test_device_seen_is_persisted(client):
     """设备连过一次，这一项就该记着 —— 重启后也不能退回未开始。"""
     pet = client.app.state.pet
@@ -153,4 +186,12 @@ def test_pet_step_done_with_sessions(client):
 def test_status_api_shape_unchanged(client):
     """不能动现有接口的结构。"""
     body = client.get("/admin/api/status").json()
-    assert set(body.keys()) == {"gateway", "device", "pet", "frames"}
+    assert set(body.keys()) == {"gateway", "device", "pet", "frames", "gestures"}
+
+
+def test_status_gestures_shape(client):
+    """status 里的手势段 —— 页面显示的就是服务端真在用的那份映射。"""
+    g = client.get("/admin/api/status").json()["gestures"]
+    assert set(g.keys()) == {"longPressMs", "stepsPerAction", "items"}
+    assert [i["key"] for i in g["items"]] == ["rot", "rot_press", "press_long", "press_short"]
+    assert g["items"][0]["action"] == "card.next"

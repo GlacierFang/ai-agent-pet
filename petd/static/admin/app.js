@@ -1,7 +1,7 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
 
-   五个区块：我的宠物 / 宠物库 / 宠物设定 / 连接与诊断 / 开始使用。
+   五个区块：我的宠物 / 宠物库 / 宠物设定 / 连接与诊断 / 使用说明。
    默认落在「我的宠物」—— 这是内容页，不是系统监控页。
 
    文案只有一个来源：T 字典。
@@ -68,7 +68,7 @@ var T = {
     skins: '宠物库',
     settings: '宠物设定',
     diag: '连接与诊断',
-    setup: '开始使用'
+    setup: '使用说明'
   },
 
   /* 宠物六态的名字 —— 新建宠物时那六个格子说的是「这张图是什么心情」。
@@ -246,18 +246,13 @@ var T = {
   },
 
   setup: {
-    title: '开始使用',
-    allDone: '都好了 ✓',
-    remaining: '还差 {n} 步',
-    stepNo: '第 {n} 步',
-    nextLabel: '下一步：',
+    title: '把设备装上',
     unavailable: '暂时读不到设备状态',
-    guideTitle: '第一次用？按这四步来',
     guide: [
       '把固件刷进设备：下载固件文件，用 esptool 写进 ESP32-S3 开发板（<code>esptool.py write_flash 0x0 firmware.bin</code>）。',
       '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。',
       '在电脑上把 petd 跑起来（<code>python -m petd</code>），它会监听设备并接收画面。',
-      '打开这个后台页面，「开始使用」里能看到每一步的进度，「我的宠物」里能看到设备屏幕上的画面。'
+      '设备连上后打开后台页面，「我的宠物」里能看到设备屏幕上的画面。'
     ],
     addrTitle: '设备怎么找到这台电脑',
     addrHint: '在设备上填下面任意一个地址：',
@@ -265,23 +260,41 @@ var T = {
     addrIp: '{v}',
     addrNone: '暂时没拿到地址',
     addrMdnsOff: '本机名字发现没开',
-    addrUnknown: '还没有拿到设备地址 —— petd 起来后会自动显示。',
-    /* 服务端没给 label 时的兜底文案 */
-    steps: {
-      admin: '后台已就绪',
-      device: '设备已连接',
-      frames: '屏幕已出画面',
-      pet: '宠物已上线'
-    },
-    /* 每一步没完成时，下一步该做什么 —— 说人话。 */
-    next: {
-      admin: '先在电脑上把 petd 跑起来',
-      device: '在设备上用手机连热点 {ssid}，打开 {url} 填一下家里的 WiFi',
-      deviceNoUrl: '在设备上用手机连热点 {ssid}，在里面填一下家里的 WiFi',
-      deviceNoAp: '设备刷好固件后会自己连上来',
-      frames: '设备连上后画面会自动出现',
-      pet: '打开你的 AI 助手，让它说句话，宠物就醒了'
-    }
+    addrUnknown: '还没有拿到设备地址 —— petd 起来后会自动显示。'
+  },
+
+  /* 使用说明 —— 这页只讲「怎么用」，不讲系统状态 */
+  manual: {
+    title: '使用说明',
+    useTitle: '一、宠物怎么用',
+    useNote: '屏上唯一的交互是旋钮 —— 设备上就一个旋钮。',
+    densityNote: '信息密度分三档，按住并旋转可以切换：',
+    screenTitle: '二、屏上会看到什么',
+    featuresNote: '内容卡轮播，勾哪几张在「宠物设定」里定：',
+    installTitle: '三、设备怎么装上',
+    installNote: '四步，按顺序做。',
+    whereTitle: '四、后台能改什么',
+    screenList: [
+      '屏上永远只有一样东西 —— 宠物脸，或者一张内容卡。两层互斥，不叠在一起。',
+      '宠物表情有六种：闲置、干活、等你确认、刚完成、出错、睡着了。',
+      '干活或等你确认时，屏幕变成宠物脸，内容卡让位。',
+      '睡觉时段里屏是暗的；但 OpenClaw 接到活，它会立刻醒。',
+      '内容卡按你在「宠物设定」里勾选的顺序轮播，每张停一会儿换下一张。'
+    ],
+    whereList: [
+      '<b>宠物库</b> —— 换一只宠物，或者画一只自己的。',
+      '<b>宠物设定</b> —— 屏上显示什么、每张卡停多久、什么时候睡觉。',
+      '<b>连接与诊断</b> —— 出问题了看那儿。'
+    ],
+    installSteps: [
+      { title: '刷固件', body: '下载固件文件，用 esptool 写进 ESP32-S3 开发板：<code>esptool.py write_flash 0x0 firmware.bin</code>。<b>烧录时只接 PC，不接充电头</b>。' },
+      { title: '配网', body: '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。' },
+      { title: '连上这台电脑', body: '在设备上填下面这个地址 —— 它是 petd 所在电脑的名字或 IP。' },
+      { title: '看它动起来', body: '打开你的 AI 助手，让它说句话，宠物就醒了。' }
+    ],
+    doneBadge: '已完成',
+    todoBadge: '还没做',
+    gesturesUnavailable: '暂时读不到旋钮配置'
   }
 };
 
@@ -541,12 +554,12 @@ function loadSessions() {
     .catch(function () { /* 服务端没起来时静默重试 */ });
 }
 
-/* ---------------- 开始使用（操作指引） ---------------- */
+/* ---------------- 口令页的操作指引 ---------------- */
 
 /* 静态的四步上手说明 —— 刷固件那步没法自动检测，只能写死。
    内容来自我们自己的字典（不含用户输入），所以可以直接 innerHTML。 */
 function renderGuide(boxId) {
-  var ol = el(boxId || 'setup-guide');
+  var ol = el(boxId || 'gate-guide');
   if (!ol) return;
   ol.textContent = '';
   (t('setup:guide') || []).forEach(function (html) {
@@ -557,23 +570,6 @@ function renderGuide(boxId) {
 }
 
 /* 每一步没完成时，人该做什么。 */
-function nextAction(step, d) {
-  var id = step.id;
-  var p = d.provisioning || {};
-  if (id === 'device') {
-    var ssid = p.apSsidPattern || 'petd-setup-XXXX';
-    if (p.supported) {
-      var tpl = p.apUrl ? t('setup:next:device') : t('setup:next:deviceNoUrl');
-      return fill(tpl, { ssid: ssid, url: p.apUrl || '' });
-    }
-    return fill(t('setup:next:deviceNoAp'), { ssid: ssid });
-  }
-  if (id === 'frames') return t('setup:next:frames');
-  if (id === 'pet') return t('setup:next:pet');
-  if (id === 'admin') return t('setup:next:admin');
-  return step.hint || '';
-}
-
 /* 设备地址 —— 用户要靠这个让设备找到服务端。 */
 function renderSetupAddr(boxId, data) {
   var box = el(boxId || 'setup-addr');
@@ -607,92 +603,126 @@ function renderSetupAddr(boxId, data) {
 }
 
 /* 把 /setup 的结果画成四步清单。 */
-function renderSetup() {
-  var card = el('setup-card');
-  var badge = el('setup-summary');
-  var box = el('setup-steps');
-  if (!card || !badge || !box) return;
+/* ---------------- 使用说明 ---------------- */
+
+/* 旋钮手势表 —— 读服务端当前那份配置。
+   写死一份的话，用户改了 gestures.json 之后说明书写的就是旧映射 —— 骗人。 */
+function renderManualGestures(g) {
+  var box = el('manual-gestures');
+  if (!box) return;
   box.textContent = '';
-
-  var d = S.setup;
-  var steps = (d && d.steps) || [];
-
-  /* 服务端还没这个接口 —— 别给用户一个半截清单，
-     折叠区里的静态四步照样能看。 */
-  if (!d || !steps.length) {
-    card.classList.remove('setup-done');
-    badge.className = 'badge warn';
-    badge.textContent = t('setup:unavailable');
-    renderSetupAddr();
+  if (!g || !g.items || !g.items.length) {
+    var none = document.createElement('div');
+    none.className = 'muted';
+    none.textContent = t('manual:gesturesUnavailable');
+    box.appendChild(none);
     return;
   }
-
-  var pending = 0;
-  steps.forEach(function (st, i) {
-    var done = !!st.done;
-    if (!done) pending++;
-
-    var row = document.createElement('li');
-    row.className = 'step ' + (done ? 'done' : 'todo');
-
-    var mark = document.createElement('span');
-    mark.className = 'step-mark';
-    mark.textContent = done ? '✓' : '○';
-    row.appendChild(mark);
-
-    var body = document.createElement('div');
-    body.className = 'step-body';
-
-    var title = document.createElement('div');
-    title.className = 'step-title';
-    var nm = document.createElement('span');
-    /* 服务端没给 label 就用字典里的兜底 —— 但别把字典 key 露出去 */
-    nm.textContent = st.label || tv('setup:steps:' + st.id, '');
-    title.appendChild(nm);
-    var no = document.createElement('span');
-    no.className = 'step-no';
-    no.textContent = fill(t('setup:stepNo'), { n: i + 1 });
-    title.appendChild(no);
-    body.appendChild(title);
-
-    if (st.detail) {
-      var det = document.createElement('div');
-      det.className = 'step-sub';
-      det.textContent = st.detail;
-      body.appendChild(det);
+  g.items.forEach(function (it) {
+    var row = document.createElement('div');
+    row.className = 'gesture-row';
+    var name = document.createElement('span');
+    name.className = 'g-name';
+    name.textContent = t('diag:gestureNames:' + it.key);
+    var act = document.createElement('span');
+    act.className = 'g-action';
+    if (it.action) {
+      act.textContent = t('diag:gestureActions:' + it.action);
+    } else {
+      act.className += ' unset';
+      act.textContent = t('diag:gestureUnset');
     }
-
-    var act = nextAction(st, d);
-    if (!done) {
-      if (act) {
-        var next = document.createElement('div');
-        next.className = 'step-next';
-        next.textContent = t('setup:nextLabel') + act;
-        body.appendChild(next);
-      }
-      /* 服务端给的 hint 是补充说明，别跟上面的行动指引重复。 */
-      if (st.hint && st.hint !== act) {
-        var hint = document.createElement('div');
-        hint.className = 'step-sub';
-        hint.textContent = st.hint;
-        body.appendChild(hint);
-      }
-    }
-
-    row.appendChild(body);
+    row.appendChild(name);
+    row.appendChild(act);
     box.appendChild(row);
   });
+}
 
-  var allDone = pending === 0;
-  card.classList.toggle('setup-done', allDone);
-  badge.className = 'badge ' + (allDone ? 'ok' : 'warn');
-  badge.textContent = allDone ? t('setup:allDone') : fill(t('setup:remaining'), { n: pending });
+/* 两列小表：密度档位、内容卡清单 */
+function renderManualRows(boxId, list) {
+  var box = el(boxId);
+  if (!box) return;
+  box.textContent = '';
+  (list || []).forEach(function (it) {
+    var row = document.createElement('div');
+    row.className = 'density-row';
+    var n = document.createElement('span');
+    n.className = 'd-label';
+    n.textContent = it.label || '';
+    var s = document.createElement('span');
+    s.className = 'd-desc';
+    s.textContent = it.desc || '';
+    row.appendChild(n);
+    row.appendChild(s);
+    box.appendChild(row);
+  });
+}
 
-  renderSetupAddr('setup-addr', S.setup);
+function renderManualList(boxId, items) {
+  var box = el(boxId);
+  if (!box) return;
+  box.textContent = '';
+  if (!Array.isArray(items)) return;
+  items.forEach(function (html) {
+    var li = document.createElement('li');
+    li.innerHTML = html;
+    box.appendChild(li);
+  });
+}
+
+/* 装设备的四步 —— 每步写清楚怎么做，右边一个徽标说做到没。
+   徽标是附注不是主体：这页讲的是「怎么做」，不是「系统走到哪了」。 */
+function renderManualSteps(steps, status) {
+  var box = el('manual-steps');
+  if (!box) return;
+  box.textContent = '';
+  if (!Array.isArray(steps)) return;
+  var doneMap = {};
+  ((status && status.steps) || []).forEach(function (s) { doneMap[s.id] = !!s.done; });
+  /* 设备连上了，说明固件刷过、网配过、电脑也连上了 —— 前三步一起成立。
+     服务端只报「设备连上没」这一个事实，不细分到每一步。 */
+  var badgeFor = ['device', 'device', 'device', 'pet'];
+  steps.forEach(function (st, i) {
+    var li = document.createElement('li');
+    li.className = 'manual-step';
+    var body = document.createElement('div');
+    body.className = 'manual-step-body';
+    var title = document.createElement('div');
+    title.className = 'manual-step-title';
+    var nm = document.createElement('span');
+    nm.textContent = st.title || '';
+    title.appendChild(nm);
+    var key = badgeFor[i];
+    if (key) {
+      var b = document.createElement('span');
+      b.className = 'step-badge ' + (doneMap[key] ? 'ok' : 'todo');
+      b.textContent = doneMap[key] ? t('manual:doneBadge') : t('manual:todoBadge');
+      title.appendChild(b);
+    }
+    body.appendChild(title);
+    var p = document.createElement('div');
+    p.className = 'manual-step-text';
+    p.innerHTML = st.body || '';
+    body.appendChild(p);
+    li.appendChild(body);
+    box.appendChild(li);
+  });
+}
+
+function renderManual() {
+  var d = S.setup;
+  var m = (d && d.manual) || {};
+  renderManualGestures(m.gestures);
+  renderManualRows('manual-density', m.density);
+  renderManualRows('manual-features', m.features);
+  renderManualList('manual-screen', t('manual:screenList'));
+  renderManualList('manual-where', t('manual:whereList'));
+  renderManualSteps(t('manual:installSteps'), d);
+  renderSetupAddr('setup-addr', d);
 
   /* 服务端要是给了版本号，以它为准。 */
   var fv = el('footer-version');
-  if (d.version && fv) {
+  if (d && d.version && fv) {
     fv.textContent = fill(t('app:versionLine'), { v: d.version });
   }
 }
@@ -722,11 +752,11 @@ function loadSetup() {
     })
     .then(function (blob) {
       S.setup = blob || null;
-      renderSetup();
+      renderManual();
     })
     .catch(function () {
-      /* 接口还不存在（服务端没更新）—— 保留静态上手步骤，别显示坏清单 */
-      if (!S.setup) renderSetup();
+      /* 接口还不存在（服务端没更新）—— 静态文案照常显示，别显示半截表格 */
+      if (!S.setup) renderManual();
     });
 }
 
@@ -1936,7 +1966,6 @@ function startDashboard() {
 
 function init() {
   applyI18n();
-  renderGuide();
   var ttl = el('telemetry-title');
   if (ttl) ttl.textContent = fill(t('diag:telemetryTitle'), { n: KV.length });
   el('footer-version').textContent = fill(t('app:versionLine'), { v: t('app:version') });
