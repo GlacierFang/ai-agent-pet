@@ -128,6 +128,24 @@ var T = {
     layerContent: '内容层'
   },
 
+  /* 屏上的玩具 —— 不是宠物状态，是屏上的一次性覆盖层 */
+  toys: {
+    title: '屏上的玩具',
+    note: '骰子和功德箱不是宠物状态 —— 它们是屏上的一次性覆盖层，不改宠物在干什么。',
+    meritName: '功德箱',
+    meritDesc: 'agent 每次真把活干完 +1，飘一句程序员玄学。数字存在本机，重启不清零。',
+    diceName: '赛博骰子',
+    diceDesc: '设备上短按一下旋钮就摇一次。整屏变骰子，滚 1.5 秒出结果。',
+    rollBtn: '摇一次骰子',
+    rolling: '骰子滚着…',
+    result: '这次摇了 {n}',
+    closed: '骰子收起来了',
+    busy: '有活，先干活 —— 骰子让路',
+    night: '睡着了，不吵醒它',
+    canRoll: '现在按旋钮会弹骰子',
+    cannotRoll: '现在按旋钮不弹（{why}）'
+  },
+
   skins: {
     title: '宠物库',
     noteHtml: '可以自己维护更多宠物 —— 新建、上传六张状态图、设为当前。',
@@ -497,12 +515,79 @@ function renderPet(s) {
   addBadge(badges, gw.connected ? 'ok' : 'bad', gw.connected ? t('pet:connOk') : t('pet:connBad'));
   addBadge(badges, dev.online ? 'ok' : 'dim', dev.online ? t('pet:devOnline') : t('pet:devOffline'));
   addBadge(badges, STATE_KIND[st] || 'dim', fill(t('pet:sessionsN'), { n: pet.sessions || 0 }));
-  if (pet.merit) {
-    addBadge(badges, 'dim', fill(t('pet:meritN'), { n: pet.merit }));
+
+  /* 玩具也挂两个徽章 —— 但数字为 0 时不挂「功德 0」那种废话徽章。 */
+  var toys = pet.toys || {};
+  if (toys.merit) {
+    addBadge(badges, 'dim', fill(t('pet:meritN'), { n: toys.merit }));
   }
-  if (pet.dice) {
+  if (toys.dice && toys.dice.active) {
     addBadge(badges, 'ok', t('pet:diceOn'));
   }
+
+  renderToys(pet);
+}
+
+/* 屏上的玩具 —— 功德数、骰子状态、还有「现在按旋钮会不会弹」。 */
+function renderToys(pet) {
+  var box = el('toy-merit');
+  if (!box) return;
+  var toys = pet.toys || {};
+  box.textContent = String(toys.merit || 0);
+
+  var dice = toys.dice || {};
+  var dEl = el('toy-dice');
+  if (dEl) {
+    if (!dice.active) dEl.textContent = t('common:dash');
+    else if (dice.rolling) dEl.textContent = t('toys:rolling');
+    else dEl.textContent = String(dice.value);
+  }
+
+  var meta = el('toy-meta');
+  if (meta) {
+    if (toys.canRoll) meta.textContent = t('toys:canRoll');
+    else {
+      var why = toys.night ? t('toys:night') : t('toys:busy');
+      meta.textContent = fill(t('toys:cannotRoll'), { why: why });
+    }
+  }
+
+  var btn = el('btn-toy-dice');
+  if (btn) btn.disabled = !toys.canRoll;
+}
+
+/* 摇一次骰子 —— 等价于设备上短按一下旋钮。没有板子也能看效果。 */
+function rollDice() {
+  var meta = el('toy-meta');
+  var btn = el('btn-toy-dice');
+  if (btn) btn.disabled = true;
+  fetch(API + '/toys/dice', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) {
+        if (meta) meta.textContent = b.error || t('common:netError');
+        return;
+      }
+      if (meta) {
+        if (b.result === 'opened') meta.textContent = t('toys:rolling');
+        else if (b.result === 'closed') meta.textContent = t('toys:closed');
+        else if (b.result === 'busy') meta.textContent = t('toys:busy');
+        else if (b.result === 'night') meta.textContent = t('toys:night');
+      }
+      if (b.toys) {
+        var box = el('toy-merit');
+        if (box) box.textContent = String(b.toys.merit || 0);
+        var dEl = el('toy-dice');
+        if (dEl) {
+          dEl.textContent = (b.toys.dice && b.toys.dice.rolling)
+            ? t('toys:rolling')
+            : (b.toys.dice && b.toys.dice.active ? String(b.toys.dice.value) : t('common:dash'));
+        }
+      }
+      /* 骰子占屏了 —— 预览立刻刷一帧，别等下一秒 */
+      refreshPreview();
+    })
+    .catch(function () { if (meta) meta.textContent = t('common:netError'); });
 }
 
 function addBadge(box, kind, text) {
@@ -1936,6 +2021,7 @@ function startDashboard() {
   });
 
   el('btn-preview').addEventListener('click', refreshPreview);
+  el('btn-toy-dice').addEventListener('click', rollDice);
   el('preview-auto').addEventListener('change', tickPreview);
 
   el('btn-log-clear').addEventListener('click', function () {

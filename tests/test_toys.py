@@ -191,3 +191,58 @@ def test_bubble_overlay_fades_out():
     faded = render_mod.bubble_overlay(cfg, "功德 +1", "稳了", alpha=0.0)
     # alpha=0 时整层应该全透明
     assert faded.getbbox() is None or solid.getbbox() is not None
+
+
+# ---------- 后台接口 ----------
+
+@pytest.fixture
+def client(monkeypatch):
+    """后台接口跟鉴权无关 —— 显式关掉鉴权。"""
+    from starlette.testclient import TestClient
+    monkeypatch.setenv("PETD_ADMIN_AUTH", "off")
+    from petd.server import create_app
+    with TestClient(create_app(config.defaults(), start_gateway=False)) as c:
+        yield c
+
+
+def test_toys_dice_endpoint_rolls(client):
+    """后台那个「摇一次骰子」按钮 —— 没有板子也能看效果。"""
+    body = client.post("/admin/api/toys/dice").json()
+    assert body["ok"] is True
+    assert body["result"] == "opened"
+    assert body["toys"]["dice"]["active"] is True
+    assert body["toys"]["dice"]["rolling"] is True
+    assert 1 <= body["toys"]["dice"]["value"] <= 6
+
+
+def test_toys_dice_endpoint_toggles(client):
+    """按一下开，再按一下收 —— 跟设备上的旋钮一个行为。"""
+    client.post("/admin/api/toys/dice")
+    body = client.post("/admin/api/toys/dice").json()
+    assert body["result"] == "closed"
+    assert body["toys"]["dice"]["active"] is False
+
+
+def test_toys_dice_refuses_when_busy(client):
+    """宠物在忙的时候不弹骰子 —— 有活先干活。"""
+    pet = client.app.state.pet
+    pet.engine.state = "working"
+    body = client.post("/admin/api/toys/dice").json()
+    assert body["result"] == "busy"
+    assert body["toys"]["canRoll"] is False
+
+
+def test_toys_view_shape(client):
+    """后台要显示玩具，字段名是前后端契约。"""
+    pet = client.app.state.pet
+    view = pet.toys_view()
+    assert set(view.keys()) == {"merit", "dice", "busy", "night", "canRoll"}
+    assert set(view["dice"].keys()) == {"active", "rolling", "value"}
+
+
+def test_status_carries_toys(client):
+    """status 的顶层结构是契约 —— 玩具折在 pet 里，不新开顶层段。"""
+    body = client.get("/admin/api/status").json()
+    assert set(body.keys()) == {"gateway", "device", "pet", "frames", "gestures"}
+    assert "toys" in body["pet"]
+    assert body["pet"]["toys"]["merit"] == 0

@@ -388,6 +388,15 @@ def create_app(cfg=None, start_gateway=True, port=None):
     async def api_status(request):
         return JSONResponse(pet.snapshot())
 
+    async def api_toys_dice(request):
+        """摇一次骰子 —— 后台按钮，等价于设备上短按一下旋钮。
+
+        没有板子也能看见效果：按一下，屏上就变骰子。
+        """
+        result = pet.roll_dice()
+        return JSONResponse({"ok": True, "result": result,
+                             "toys": pet.toys_view()})
+
     async def api_setup(request):
         """首次使用指引 —— 字段是前后端契约，别改名字。"""
         return JSONResponse(pet.setup_payload())
@@ -585,6 +594,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/setup/public", api_setup_public),
         Route("/admin/api/preview.jpg", _guard(api_preview)),
         Route("/admin/api/status", _guard(api_status)),
+        Route("/admin/api/toys/dice", _guard(api_toys_dice), methods=["POST"]),
         Route("/admin/api/setup", _guard(api_setup)),
         Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),

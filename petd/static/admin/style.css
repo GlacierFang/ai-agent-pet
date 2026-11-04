@@ -746,6 +746,38 @@ button:disabled { opacity: .4; cursor: default; }
 .set-head { display: grid; gap: 2px; }
 .set-name { font-weight: 600; }
 .set-desc { color: var(--muted); font-size: 12px; }
+
+/* 屏上的玩具 —— 两块小卡，值和说明分开放 */
+.toys-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
+.toy {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 14px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.toy-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.toy-name { font-weight: 600; }
+.toy-value {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+}
+.toy-desc { color: var(--muted); font-size: 12px; margin: 0; }
+.toy .row { margin-top: 2px; }
 .feat-head { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .feat-name { font-weight: 600; }
 .feat-tip { color: var(--muted); font-size: 12px; }

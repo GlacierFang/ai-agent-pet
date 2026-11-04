@@ -312,6 +312,7 @@ class PetApp:
     def roll_dice(self):
         """摇骰子 —— 按一下开，再按一下收。
 
+        返回这次的结果：opened / closed / busy / night。
         只在宠物闲着的时候弹：
           · 睡着不弹 —— 吵醒它要改状态机，那是最贵的一条路
           · 忙着不弹 —— 有活先干活，骰子让路
@@ -319,17 +320,39 @@ class PetApp:
         if self.dice.active:
             self.dice.dismiss()
             self.log("info", "收起骰子")
-            return
+            return "closed"
         state = self.engine.state
         if state in ("working", "waiting", "error"):
             self.log("info", "有活，先干活")
-            return
+            return "busy"
         if self.is_night():
             # 睡着的判断看时段，不看引擎状态 —— 引擎里没有 sleeping 这一态
             self.log("info", "睡着了，不摇骰子")
-            return
+            return "night"
         self.dice.press()
         self.log("info", "摇骰子")
+        return "opened"
+
+    def toys_view(self):
+        """屏上玩具的现状 —— 后台要显示它，也得说清现在摇不摇得动。
+
+        玩具不是宠物状态，所以它不在六态语义表里 —— 这一段是它自己的账。
+        """
+        state = self.engine.state
+        busy = state in ("working", "waiting", "error")
+        night = self.is_night()
+        return {
+            "merit": int(self.merit.value),
+            "dice": {
+                "active": bool(self.dice.active),
+                "rolling": bool(self.dice.rolling),
+                "value": int(self.dice.value),
+            },
+            "busy": busy,
+            "night": night,
+            # 现在按旋钮会不会弹骰子
+            "canRoll": not busy and not night,
+        }
 
     async def cycle_skin(self):
         """切到下一个形象 —— 旋钮和后台走同一条路。"""
@@ -641,8 +664,7 @@ class PetApp:
                     "feature": self.director.snapshot().get("title") or "",
                     "night": self.is_night(),
                     # 玩具折在这里，不新开顶层段 —— status 的顶层结构是契约
-                    "merit": self.merit.value,
-                    "dice": bool(self.dice.active)},
+                    "toys": self.toys_view()},
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},

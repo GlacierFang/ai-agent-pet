@@ -92,6 +92,31 @@
     </div>
 
     <section class="card">
+      <h2 data-i18n="toys:title">屏上的玩具</h2>
+      <p class="note" data-i18n="toys:note">骰子和功德箱不是宠物状态 —— 它们是屏上的一次性覆盖层，不改宠物在干什么。</p>
+      <div class="toys-grid">
+        <div class="toy">
+          <div class="toy-head">
+            <span class="toy-name" data-i18n="toys:meritName">功德箱</span>
+            <span class="toy-value" id="toy-merit">0</span>
+          </div>
+          <p class="toy-desc" data-i18n="toys:meritDesc">agent 每次真把活干完 +1，飘一句程序员玄学。数字存在本机，重启不清零。</p>
+        </div>
+        <div class="toy">
+          <div class="toy-head">
+            <span class="toy-name" data-i18n="toys:diceName">赛博骰子</span>
+            <span class="toy-value" id="toy-dice">—</span>
+          </div>
+          <p class="toy-desc" data-i18n="toys:diceDesc">设备上短按一下旋钮就摇一次。整屏变骰子，滚 1.5 秒出结果。</p>
+          <div class="row">
+            <button type="button" id="btn-toy-dice" data-i18n="toys:rollBtn">摇一次骰子</button>
+            <span class="muted" id="toy-meta"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2 data-i18n="pet:skinTitle">宠物</h2>
       <div class="pet-now">
         <div class="pet-now-cover"><img id="skin-current-img" class="hidden" alt="当前宠物"></div>
