@@ -14,7 +14,8 @@ RECENT_WINDOW_MIN = 30
 
 class RecentDone(Feature):
     name = "recent_done"
-    title = "最近完成的事"
+    title = "最近完成"
+    tip = "刚做完的事"
     priority = 10
 
     def context(self, ctx):

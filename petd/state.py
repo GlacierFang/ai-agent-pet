@@ -96,9 +96,8 @@ class StateEngine:
     稳态窗只作用于「退回 idle」：进入 working/waiting/error 立即生效。
     """
 
-    def __init__(self, rules=None, sleep_after_min=10):
+    def __init__(self, rules=None):
         self.rules = rules or DEFAULT_RULES
-        self.sleep_after_min = sleep_after_min
         self.sessions = []
         self.selected_key = None
         self.state = "idle"
@@ -155,7 +154,7 @@ class StateEngine:
         """最急的会话；同级取最近活动的。
 
         宠物反映全部会话 —— 焦点（selected_key）不改变宠物状态，
-        只决定 session 页显示哪一条。
+        只决定会话卡片显示哪一条。
         """
         if not rows:
             return None
@@ -203,12 +202,6 @@ class StateEngine:
                 self._idle_candidate_since = None
         else:
             self._idle_candidate_since = None
-
-        # 长期无活动 → sleeping（只在已经 idle 的基础上判定）
-        if target == "idle":
-            idle_min = self.sleep_after_min
-            if idle_min > 0 and (now - self._last_activity) > idle_min * 60:
-                target = "sleeping"
 
         changed = target != self.state
         if changed:

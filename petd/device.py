@@ -20,7 +20,6 @@ class DeviceSession:
         self.last_seen = time.time()
         self.inflight = 0
         self.pending = {}          # id -> 帧元信息
-        self.page = "face"
         self.density = 1
         self.state = "idle"
         self.frame_count = 0
@@ -78,7 +77,6 @@ class DeviceManager:
             "fw": s.fw,
             "connectedAt": int(s.connected_at),
             "uptime": int(time.time() - s.connected_at),
-            "page": s.page,
             "density": s.density,
             "state": s.state,
             "frames": s.frame_count,

@@ -178,6 +178,16 @@ def _draw_pet(base, cx, cy, r, state, phase):
 CARD_BG_TOP = (24, 28, 44)
 CARD_BG_BOTTOM = (13, 15, 24)
 
+# 列表行右侧文字的颜色，按语义分
+ACCENT_COLORS = {
+    "waiting": (242, 172, 78),
+    "error": (238, 120, 122),
+    "working": (150, 152, 235),
+    "done": (118, 222, 152),
+    "idle": (150, 160, 185),
+    "sleeping": (130, 138, 175),
+}
+
 
 def draw_standard_card(img, draw, box, card, pet=None):
     """自定义 feature 的默认版式：标题 + 正文 + 来源。
@@ -206,6 +216,14 @@ def render_card(cfg, card, phase=0.0, skin_frames=None):
 
     内容层和消息层互斥 —— 屏上永远只有一样东西。
     卡里那只宠物就是用户选的那只（宠物本体复用，feature 不带自己的美术）。
+
+    卡片能带的字段：
+        title  一行标题
+        big    超大字（时间、温度）
+        body   短句，最多三行
+        rows   列表行 [{"left", "right", "accent"}]
+        state  宠物表情
+        source 底部小字
     """
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
@@ -218,24 +236,50 @@ def render_card(cfg, card, phase=0.0, skin_frames=None):
     d = ImageDraw.Draw(big)
 
     title = str(card.get("title") or "")
+    big_text = str(card.get("big") or "")
     body = [str(b) for b in (card.get("body") or [])][:3]
+    rows = [r for r in (card.get("rows") or []) if isinstance(r, dict)][:5]
     source = str(card.get("source") or "")
     pet_state = str(card.get("state") or "idle")
 
-    ty = int(16 * scale)
+    ty = int(14 * scale)
     if title:
         _center(d, width * scale // 2, ty, title, int(19 * scale), (238, 242, 250))
-        ty += int(34 * scale)
+        ty += int(32 * scale)
+    if big_text:
+        # 超大字 —— 时间、温度这类。它占地方，宠物就缩小。
+        _center(d, width * scale // 2, ty, big_text, int(46 * scale), (246, 248, 255))
+        ty += int(56 * scale)
     for line in body:
         _center(d, width * scale // 2, ty, line, int(13 * scale), (186, 196, 216))
-        ty += int(22 * scale)
-    if source:
-        _center(d, width * scale // 2, ty + int(2 * scale), source,
-                int(9 * scale), (118, 126, 146))
         ty += int(20 * scale)
 
+    # 列表行
+    if rows:
+        ty += int(6 * scale)
+        for r in rows:
+            left = str(r.get("left") or "")
+            right = str(r.get("right") or "")
+            accent = str(r.get("accent") or "idle")
+            color = ACCENT_COLORS.get(accent, ACCENT_COLORS["idle"])
+            if left:
+                _text(d, (int(18 * scale), ty), left, int(12 * scale), (196, 204, 222))
+            if right:
+                f, cjk = _font(int(12 * scale))
+                if cjk:
+                    box = d.textbbox((0, 0), right, font=f)
+                    rx = width * scale - int(18 * scale) - (box[2] - box[0])
+                else:
+                    rx = width * scale - int(18 * scale) - 7 * len(right)
+                _text(d, (rx, ty), right, int(12 * scale), color)
+            ty += int(20 * scale)
+
+    if source:
+        _center(d, width * scale // 2, ty + int(4 * scale), source,
+                int(9 * scale), (118, 126, 146))
+
     # 宠物本体 —— 屏上那只就是用户选的那只
-    area_top = ty + int(6 * scale)
+    area_top = ty + int(8 * scale)
     area_bottom = height * scale - int(6 * scale)
     area_h = max(int(40 * scale), area_bottom - area_top)
     pet = Image.new("RGBA", (width * scale, area_h), (0, 0, 0, 0))

@@ -42,12 +42,13 @@ def test_features_shape(client):
     body = client.get("/admin/api/features").json()
     assert set(body.keys()) == {"items"}
     ids = [f["id"] for f in body["items"]]
-    assert ids == ["page", "density", "skin", "session", "sleep"]
+    assert ids == ["features", "dwell", "hold", "sleepStart", "sleepEnd",
+                   "density", "skin", "session"]
 
 
 def test_each_feature_has_options(client):
     for f in client.get("/admin/api/features").json()["items"]:
-        assert set(f.keys()) == {"id", "name", "desc", "value", "options"}
+        assert set(f.keys()) >= {"id", "name", "desc", "value", "options"}
         assert f["name"]
         assert f["options"], "每一项都得有可选项 —— 没得选就不叫清单"
         for o in f["options"]:
@@ -57,30 +58,74 @@ def test_each_feature_has_options(client):
 def test_current_value_is_among_options(client):
     """当前值必须在可选项里 —— 否则页面显示不出「现在是哪个」。"""
     for f in client.get("/admin/api/features").json()["items"]:
+        if f.get("multi"):
+            # 多选项的 value 是数组 —— 每一项都得在可选项里
+            for v in f["value"]:
+                values = [str(o["value"]) for o in f["options"]]
+                assert str(v) in values, f["id"]
+            continue
         values = [str(o["value"]) for o in f["options"]]
         assert str(f["value"]) in values, f["id"]
 
 
-def test_set_page_takes_effect(client):
-    r = client.post("/admin/api/features", json={"id": "page", "value": "session"})
+def test_features_item_is_multi_select(client):
+    """「空闲时显示什么」是多选 —— 选项就是全部 feature。"""
+    items = {f["id"]: f for f in client.get("/admin/api/features").json()["items"]}
+    f = items["features"]
+    assert f["multi"] is True
+    names = [o["value"] for o in f["options"]]
+    assert "sessions" in names
+    assert "clock" in names
+    assert "weather" in names
+
+
+def test_set_features_takes_effect(client):
+    r = client.post("/admin/api/features",
+                    json={"id": "features", "value": ["clock", "sessions"]})
     assert r.status_code == 200
-    assert r.json()["ok"] is True
     pet = client.app.state.pet
-    assert pet.page == "session"
+    assert pet.features_enabled == {"clock", "sessions"}
+
+
+def test_set_features_ignores_unknown(client):
+    """不存在的 feature 直接丢掉 —— 不能让一个坏名字进配置。"""
+    r = client.post("/admin/api/features",
+                    json={"id": "features", "value": ["clock", "nope"]})
+    assert r.status_code == 200
+    assert client.app.state.pet.features_enabled == {"clock"}
+
+
+def test_set_dwell_takes_effect(client):
+    r = client.post("/admin/api/features", json={"id": "dwell", "value": 12})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.card_dwell_sec == 12
+    assert pet.director.content_dwell_ms == 12000
+
+
+def test_set_hold_takes_effect(client):
+    r = client.post("/admin/api/features", json={"id": "hold", "value": 5})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.message_hold_sec == 5
+    assert pet.director.message_hold_ms == 5000
+
+
+def test_set_sleep_window_takes_effect(client):
+    r = client.post("/admin/api/features",
+                    json={"id": "sleepStart", "value": "23:00"})
+    assert r.status_code == 200
+    r = client.post("/admin/api/features", json={"id": "sleepEnd", "value": "08:00"})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.sleep_start == "23:00"
+    assert pet.sleep_end == "08:00"
 
 
 def test_set_density_takes_effect(client):
     r = client.post("/admin/api/features", json={"id": "density", "value": 2})
     assert r.status_code == 200
     assert client.app.state.pet.density == 2
-
-
-def test_set_sleep_minutes_takes_effect(client):
-    r = client.post("/admin/api/features", json={"id": "sleep", "value": 30})
-    assert r.status_code == 200
-    pet = client.app.state.pet
-    assert pet.engine.sleep_after_min == 30
-    assert pet.cfg["state"]["sleepAfterMin"] == 30
 
 
 def test_set_session_takes_effect(client):
@@ -97,11 +142,6 @@ def test_unknown_feature_rejected(client):
     r = client.post("/admin/api/features", json={"id": "nope", "value": "x"})
     assert r.status_code == 400
     assert r.json()["ok"] is False
-
-
-def test_unknown_page_rejected(client):
-    r = client.post("/admin/api/features", json={"id": "page", "value": "nope"})
-    assert r.status_code == 400
 
 
 def test_unknown_skin_rejected(client):

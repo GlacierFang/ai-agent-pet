@@ -34,8 +34,17 @@ def defaults():
         "server": {"host": "0.0.0.0", "port": 18860, "allowPublic": False},
         "render": {"width": 240, "height": 320, "quality": 85, "subsampling": 2},
         "frame": {"idleFps": 1, "activeFps": 10, "maxInFlight": 2},
-        "state": {"sleepAfterMin": 10},
-        "ui": {"skin": "default", "density": 1, "page": "face"},
+        "ui": {
+            "skin": "default",
+            "density": 1,
+            # 空闲时参与轮播的 feature（名字见 petd/features/）
+            "features": ["sessions", "notify", "recent_done", "clock", "device"],
+            "cardDwellSec": 8,      # 每张卡停留秒数
+            "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
+            "sleepStart": "22:00",  # 睡觉时段（可跨午夜）
+            "sleepEnd": "07:00",
+            "weatherCity": "",
+        },
         # mDNS 广播：设备靠它把 petd.local 解析成 IP。起不来不影响 petd 本身。
         "mdns": {"enabled": True, "hostname": "petd.local"},
     }

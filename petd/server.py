@@ -387,16 +387,23 @@ def create_app(cfg=None, start_gateway=True, port=None):
         fid = str(body.get("id") or "").strip()
         value = body.get("value")
         try:
-            if fid == "page":
-                await pet.set_page(str(value))
+            if fid == "features":
+                names = value if isinstance(value, list) else [value]
+                pet.set_features(names)
+            elif fid == "dwell":
+                pet.set_card_dwell(int(value))
+            elif fid == "hold":
+                pet.set_message_hold(int(value))
+            elif fid == "sleepStart":
+                pet.set_sleep_window(str(value), pet.sleep_end)
+            elif fid == "sleepEnd":
+                pet.set_sleep_window(pet.sleep_start, str(value))
             elif fid == "density":
                 await pet.set_density(int(value))
             elif fid == "skin":
                 await pet.set_skin(str(value))
             elif fid == "session":
                 pet.set_session(str(value or ""))
-            elif fid == "sleep":
-                pet.set_sleep_minutes(int(value))
             else:
                 return JSONResponse({"ok": False, "error": "未知项：%s" % fid},
                                     status_code=400)

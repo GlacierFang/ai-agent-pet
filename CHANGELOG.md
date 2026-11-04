@@ -17,19 +17,19 @@
 - **`GET /admin/api/session` 加 `authMode`**：`none`（还没设）/ `set`（设过了）/ `disabled`（显式关掉）
 - **`PETD_ADMIN_AUTH=off`**：完全关掉后台鉴权（开发自跑用）
 
-**屏上分层 + feature 插件**
+**屏上分层 + feature 轮播**
 
-- **屏分两层，整屏切换**：消息层（宠物本体 + 状态）和内容层（feature 卡片）互斥 —— 屏上永远只有一样东西，不是上下分区
-  - `waiting`（等你确认）和 `error`（出错了）立刻抢屏；`working` 不抢（在忙时你不需要它做什么）
-  - 消息结束后留 3 秒才让位，内容层换卡片至少住 8 秒 —— 防闪屏
-  - 没内容可显示就回消息层，屏上永远有那只宠物，不会黑屏
-  - 参数在 `petd/data/state_rules.json` 的 `screen` 段
+- **屏上永远只有一样东西**：宠物脸和 feature 卡片整屏互斥 —— 不是上下分区
+  - OpenClaw 一开始干活（`working` / `waiting` / `error`），宠物脸**整屏接管**，直接打断当前卡片
+  - 活干完，宠物脸留几秒（用户可调，默认 3 秒）才交还给卡片
+  - 卡片轮播，每张住几秒（用户可调，默认 8 秒）；没话说的直接跳过，不会黑屏
+- **睡眠只有一个来源**：用户配的夜间时段（起止时间，可跨午夜）。夜里 OpenClaw 干活宠物就醒着干活，干完睡回去
 - **feature 插件机制**（`petd/features/`）：一个 feature = 一段内容 + 可选版式
-  - 契约：`context()` 给内容、`wants(state)` 说想在哪些状态出现、`priority` 决定谁赢
+  - 契约：`context()` 给内容、`wants(state)` 说想在哪些状态出现
   - **宠物本体复用**：卡片上那只就是用户选的那只，feature 不带自己的美术，换宠物不用改 feature 代码
   - 三条硬边界：不连 gateway、不写设备、不绕状态机
-  - 内置第一个：**最近完成的事**（零配置，从会话历史派生）
-  - 用户自建的放 `petd/data/features/`，不进仓库，重启 petd 生效
+  - 内置六个：**会话** / **通知** / **最近完成** / **时间** / **设备** / **天气**
+  - 要联网的 feature 覆盖 `poll()` —— 后台守护线程取数缓存，渲染循环不碰网络
 - **宠物自己冒一句话**：空闲时偶尔说一句（本地台词，10–30 分钟一次），有事等你确认时它不插嘴
 - **后台显示屏上在哪一层**，素材列表标出**还缺哪些状态**
 
@@ -68,10 +68,11 @@
 
 **后台控制台**
 
-- **功能清单取代能力清单**：原来那份列的是旋钮动作 id，`enabled` 字段全仓没有任何地方读它 —— 勾掉了什么也不会发生。换成「用户能挑的东西」：屏幕页面 / 信息密度 / 宠物形象 / 关注的会话 / 多久算睡着，每一项点一下立刻生效，也写进配置
+- **功能清单取代能力清单**：原来那份列的是旋钮动作 id，`enabled` 字段全仓没有任何地方读它 —— 勾掉了什么也不会发生。换成「用户能挑的东西」：空闲时显示什么 / 每张卡停留 / 工作结束后保留 / 睡觉时段 / 信息密度 / 宠物形象 / 关注的会话，每一项点一下立刻生效，也写进配置
   - 新接口 `GET /admin/api/features`（清单）+ `POST /admin/api/features`（改一项）
+  - 「空闲时显示什么」是**多选** —— 选项从 feature 注册表生成，加一个 feature 自动多一项
   - 界面参考 InkSight 的模式目录：一项一张卡，卡里是可选的值，选中项反白
-  - 旋钮和后台走同一批 setter（`set_page` / `set_density` / `set_skin` / `set_session` / `set_sleep_minutes`）
+  - 旋钮和后台走同一批 setter（`set_features` / `set_card_dwell` / `set_message_hold` / `set_sleep_window` / `set_density` / `set_skin` / `set_session`）
 - **「开始使用」独立成一个区块**，不再混在「我的宠物」里
 - **右上角角标改「退出登录」**：登录后那里给一个能点的按钮，调 `POST /admin/api/logout` 清 cookie 后回口令页（原来显示的是「已启用口令」这种状态描述，用户只会以为能点）
 - **未登录也能看到「开始使用」**：新增公开接口 `GET /admin/api/setup/public`，只给设备地址和配网说明 —— 设备编号 / 会话数 / 帧数一律不给
@@ -79,7 +80,10 @@
 ### Removed
 
 - **假的能力清单**：`petd/capabilities.py` + `petd/data/capabilities.json`。那份清单的 `enabled` 从来没被任何代码读过
-
+- **屏幕上的三块页面**：`PAGES`（face / session / notify）、`set_page()`、`ui.page` 配置项、服务端下发的 `setPage` 协议、固件的 `setPage` 处理 —— 屏上现在只有宠物脸和 feature 卡片，没有「手动切页」这回事
+- **旋钮切页动作**：`page.next` / `page.prev` / `notify.next`（最后一个本来就没实现）
+- **「空闲多久算睡着」**（`sleepAfterMin`）：睡眠只来自用户配的夜间时段 —— 空闲的时候宠物在轮播卡片里，一直醒着
+- **用户自建 feature 通道**：`petd/data/features/`。要加内容就往 `petd/features/` 的注册表里加一行
 ### Fixed
 
 - **gateway token 不会被写进 `petd/data/config.json`**：那个文件是进 git 的，而内存里的 token 可能来自 `PETD_GATEWAY_TOKEN` 环境变量或 `petd/data/secrets.json` —— 整份配置写回磁盘就等于把凭据提交进仓库。现在写盘时若旧文件里本来没有 token，就不写新的进去（用户自己手写进 config.json 的那个会保留）

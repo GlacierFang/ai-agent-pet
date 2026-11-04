@@ -2,6 +2,9 @@
 
 设备只报原始量（ev / dir / steps / ms），**短按长按在这里按阈值判定**。
 语义表在 petd/data/gestures.json，改配置不刷固件。
+
+屏上不再有「页面」——只有宠物脸和 feature 卡片。所以手势表不分页面，
+一张表管所有。
 """
 import json
 import pathlib
@@ -10,19 +13,22 @@ DEFAULT_GESTURES = {
     "version": 1,
     "longPressMs": 600,
     "stepsPerAction": 4,
-    "modes": {
-        "face": {"rot": "session.next", "press_short": "page.next",
-                 "press_long": "state.refresh", "rot_press": "density.cycle"},
-        "session": {"rot": "session.next", "press_short": "page.next",
-                    "press_long": "state.refresh", "rot_press": "density.cycle"},
-        "notify": {"rot": "notify.next", "press_short": "page.next",
-                   "press_long": "state.refresh", "rot_press": "density.cycle"},
+    # 旋转 = 翻到下一张 feature 卡
+    # 按住+旋转 = 信息密度
+    # 长按 = 刷新状态
+    # 短按 = 暂不分配
+    "actions": {
+        "rot": "card.next",
+        "rot_press": "density.cycle",
+        "press_long": "state.refresh",
+        "press_short": "",
     },
 }
 
 
 def load(path=None):
-    p = pathlib.Path(path) if path else pathlib.Path(__file__).resolve().parent / "data" / "gestures.json"
+    default = pathlib.Path(__file__).resolve().parent / "data" / "gestures.json"
+    p = pathlib.Path(path) if path else default
     if not p.exists():
         return DEFAULT_GESTURES
     try:
@@ -33,9 +39,9 @@ def load(path=None):
     out.update(blob)
     for k in ("longPressMs", "stepsPerAction"):
         out[k] = blob.get(k, DEFAULT_GESTURES[k])
-    modes = dict(DEFAULT_GESTURES["modes"])
-    modes.update(blob.get("modes", {}))
-    out["modes"] = modes
+    actions = dict(DEFAULT_GESTURES["actions"])
+    actions.update(blob.get("actions", {}) or {})
+    out["actions"] = actions
     return out
 
 
@@ -56,7 +62,7 @@ def classify(event, gestures):
     return None, 0
 
 
-def action_for(page, gesture_key, gestures):
-    modes = gestures.get("modes", {})
-    mode = modes.get(page) or modes.get("face", {})
-    return mode.get(gesture_key)
+def action_for(gesture_key, gestures):
+    """手势 → 动作 id。没配就是没有动作 —— 不猜。"""
+    actions = gestures.get("actions", {}) or {}
+    return actions.get(gesture_key) or ""

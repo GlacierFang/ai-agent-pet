@@ -43,7 +43,6 @@
 #define PETD_T_WELCOME       "welcome"
 #define PETD_T_FRAME         "frame"
 #define PETD_T_FRAME_ACK     "frameAck"
-#define PETD_T_SET_PAGE      "setPage"
 #define PETD_T_SET_DENSITY   "setDensity"
 #define PETD_T_REFRESH       "refresh"
 #define PETD_T_STATE         "state"

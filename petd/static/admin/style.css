@@ -464,3 +464,7 @@ footer {
   font-size: 12px;
 }
 footer p { margin: 4px 0; }
+/* 多选项的勾选态 —— 勾中的按钮描一圈边，灰底的表示没选 */
+.feature-opts button.picked {
+  box-shadow: inset 0 0 0 2px rgba(120, 190, 255, 0.85);
+}

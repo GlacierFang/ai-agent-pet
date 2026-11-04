@@ -96,9 +96,6 @@ static void handle_text(const char *text)
         if (cJSON_IsNumber(id)) {
             s_cur_frame_id = id->valueint;
         }
-    } else if (!strcmp(t, PETD_T_SET_PAGE)) {
-        cJSON *p = cJSON_GetObjectItem(root, "page");
-        ESP_LOGI(TAG, "setPage %s", cJSON_IsString(p) ? p->valuestring : "?");
     } else if (!strcmp(t, PETD_T_SET_DENSITY)) {
         cJSON *d = cJSON_GetObjectItem(root, "level");
         ESP_LOGI(TAG, "setDensity %d", cJSON_IsNumber(d) ? d->valueint : -1);

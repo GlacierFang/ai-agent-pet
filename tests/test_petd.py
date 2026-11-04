@@ -96,18 +96,19 @@ def test_idle_after_grace_window():
     assert st == "idle" and changed
 
 
-def test_sleeping_does_not_oscillate():
-    """sleeping 不是活跃态，不该被稳态窗卡住来回抖。"""
-    eng = state.StateEngine(sleep_after_min=1)
-    eng.state = "sleeping"
-    eng._last_activity = 0
+def test_engine_never_produces_sleeping():
+    """睡觉只来自夜间时段 —— 引擎不再判 sleeping。
+
+    空闲的时候宠物在轮播卡片里，一直醒着。
+    """
+    eng = state.StateEngine()
     for _ in range(5):
         changed, st, picked = eng.update([_row("a")])
-        assert st == "sleeping", "sleeping 不应抖回 idle"
+        assert st == "idle", "空闲不该进 sleeping"
 
 
 def test_selected_session_does_not_drive_state():
-    """宠物反应全部会话 —— 焦点不改宠物状态，只改 session 页看哪条。
+    """宠物反应全部会话 —— 焦点不改宠物状态，只改会话卡片看哪条。
 
     11-03 对齐：宠物代表「最急的那个」，不是「你正在看的那个」。
     """
@@ -215,11 +216,18 @@ def test_unknown_event_ignored():
     assert gestures.classify({"ev": "whatever"}, g)[0] is None
 
 
-def test_action_lookup_per_page():
+def test_action_lookup():
+    """屏上不再有页面 —— 一张手势表管所有。"""
     g = gestures.load()
-    assert gestures.action_for("face", "press_short", g) == "page.next"
-    assert gestures.action_for("session", "rot", g) == "session.next"
-    assert gestures.action_for("notify", "rot", g) == "notify.next"
+    assert gestures.action_for("rot", g) == "card.next"
+    assert gestures.action_for("rot_press", g) == "density.cycle"
+    assert gestures.action_for("press_long", g) == "state.refresh"
+
+
+def test_short_press_has_no_action():
+    """短按暂时不分配动作 —— 空字符串就是「不响应」。"""
+    g = gestures.load()
+    assert gestures.action_for("press_short", g) == ""
 
 
 # ---------- 渲染 ----------

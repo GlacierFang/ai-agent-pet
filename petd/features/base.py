@@ -1,13 +1,16 @@
 """feature 契约。
 
 一个 feature 是「往屏上加内容」的方式。它只提供内容 —— 什么时候上屏、
-上多久、跟谁抢屏，由 petd 决定。
+上多久、跟谁抢屏，由 petd 决定（见 petd/screen.py）。
 
 三条硬边界（防屎山）：
 
 1. 不直接连 gateway —— 数据从 ctx 里拿
 2. 不直接写设备 —— 只能请求 petd 推帧
 3. 不绕过状态机 —— 不能自己定义设备该显示什么
+
+要取外部数据（天气这类），覆盖 poll() —— 它在后台线程里跑，结果自己缓存。
+context() 只读缓存，绝不阻塞渲染。
 """
 import logging
 
@@ -17,11 +20,12 @@ log = logging.getLogger("petd.features")
 class Feature:
     """屏上内容的一个来源。
 
-    子类至少要实现 context()。想要自己的版式再实现 render()。
+    子类至少要实现 context()。
     """
 
     name = "feature"
-    title = ""
+    title = ""        # 后台勾选项上显示的名字
+    tip = ""          # 一句话说明
     priority = 10
 
     def wants(self, state):
@@ -35,22 +39,19 @@ class Feature:
         返回的字典：
 
             title   大标题（一行）
-            body    正文，字符串或列表（最多三行）
+            big     超大字 —— 时间、温度这类
+            body    短句，最多三行
+            rows    列表行 [{"left": ..., "right": ..., "accent": ...}]
             state   用宠物哪一态的表情
                     （idle / working / waiting / done / error / sleeping）
             source  底部小字 —— 这条内容从哪来
         """
         return None
 
-    def render(self, ctx, img, draw, box):
-        """在画布上画。默认走标准卡片版式。
+    def poll(self, ctx=None):
+        """后台取数钩子。可选 —— 不覆盖就什么都不做。
 
-        img / draw 是 Pillow 的画布与画笔，box 是 (x, y, w, h)，
-        坐标是超采样后的（屏幕尺寸的两倍）。
-
-        想自己画就覆盖这个方法。但**宠物本体别自己画** —— 用
-        ctx["pet"]，那就是用户选的那只。
+        在后台线程里调用，不阻塞渲染循环。取到的数据自己存，
+        context() 里读缓存。
         """
-        from .. import render as render_mod
-        render_mod.draw_standard_card(img, draw, box, ctx.get("card") or {},
-                                      pet=ctx.get("pet"))
+        return None

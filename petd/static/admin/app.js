@@ -166,6 +166,7 @@ var T = {
     failed: '改不了：{e}'
   },
 
+
   diag: {
     title: '连接与渲染',
     gwOk: '网关 已连接',
@@ -944,11 +945,28 @@ function renderFeatures() {
       var b = document.createElement('button');
       b.type = 'button';
       /* 当前选中项不画灰底 —— 一眼看出现在是哪个 */
-      var on = String(o.value) === String(f.value);
-      b.className = on ? '' : 'ghost';
-      b.textContent = o.label;
+      if (f.multi) {
+        /* 多选：勾中的排前面，勾选状态用高亮边标出来 */
+        var picked = (f.value || []).map(function (x) { return String(x); });
+        var on = picked.indexOf(String(o.value)) >= 0;
+        b.className = on ? 'picked' : 'ghost';
+        b.textContent = (on ? '✓ ' : '') + o.label;
+      } else {
+        var on1 = String(o.value) === String(f.value);
+        b.className = on1 ? '' : 'ghost';
+        b.textContent = o.label;
+      }
       if (o.desc) b.title = o.desc;
-      b.addEventListener('click', function () { setFeature(f.id, o.value); });
+      b.addEventListener('click', function () {
+        if (f.multi) {
+          var cur = (f.value || []).map(function (x) { return String(x); });
+          var at = cur.indexOf(String(o.value));
+          if (at >= 0) { cur.splice(at, 1); } else { cur.push(String(o.value)); }
+          setFeature(f.id, cur);
+        } else {
+          setFeature(f.id, o.value);
+        }
+      });
       opts.appendChild(b);
     });
     card.appendChild(opts);

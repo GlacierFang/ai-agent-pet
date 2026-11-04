@@ -1,10 +1,13 @@
 """petd 主控：状态 → 渲染 → 推帧。
 
 渲染循环按状态限帧：idle 1fps，working/waiting/error 10fps。
+
+屏上仲裁在 petd/screen.py，这里只负责给它数据。
 """
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections import deque
 
@@ -23,8 +26,6 @@ from .state import DEFAULT_RULES, StateEngine, epoch_s
 log = logging.getLogger("petd.app")
 
 ACTIVE_STATES = ("working", "waiting", "error", "done")
-# 屏幕上的三块页面 —— 定义在 features.py，后台的功能清单和这里共用一份。
-PAGES = settings_mod.PAGES
 
 # 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
 # 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
@@ -35,17 +36,25 @@ STATE_SUBTITLE = {
     "done": "已完成", "error": "出错了", "sleeping": "zZ",
 }
 
+# 天气这类要联网的 feature 在后台取数，间隔这么久一次
+POLL_INTERVAL_SEC = 900
+
 
 class PetApp:
     def __init__(self, cfg):
         self.cfg = cfg
         self.rules = self._load_rules()
-        self.engine = StateEngine(self.rules, cfg.get("state", {}).get("sleepAfterMin", 10))
+        self.engine = StateEngine(self.rules)
         self.devices = DeviceManager()
         self.gestures = gestures_mod.load()
-        self.page = cfg.get("ui", {}).get("page", "face")
         self.density = int(cfg.get("ui", {}).get("density", 1))
         self.skin = cfg.get("ui", {}).get("skin", "default")
+        # 空闲时参与轮播的 feature
+        self.features_enabled = set(cfg.get("ui", {}).get("features") or [])
+        self.card_dwell_sec = int(cfg.get("ui", {}).get("cardDwellSec", 8))
+        self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
+        self.sleep_start = str(cfg.get("ui", {}).get("sleepStart", "22:00"))
+        self.sleep_end = str(cfg.get("ui", {}).get("sleepEnd", "07:00"))
         # 后台选定的关注会话（空 = 自动跟最活跃的）
         self.engine.selected_key = cfg.get("ui", {}).get("session") or None
         self.frame_seq = 0
@@ -55,17 +64,20 @@ class PetApp:
         self._log_seq = 0
         self._stop = False
         self._task = None
+        self._poll_thread = None
+        # 后台取数线程的唤醒 / 退出信号
+        self._poll_event = threading.Event()
         self._gateway = None
         self._phase = 0.0
         self._picked = None
-        # 屏上分层：消息层（宠物本体）↔ 内容层（feature 卡片）
+        # 屏上仲裁：宠物脸 ↔ feature 卡片
         self.director = screen_mod.ScreenDirector(self.rules)
         self.chatter = chatter_mod.Chatter()
-        self._feature_cache = None
         self.mdns = None          # server 生命周期里塞进来的 MdnsAdvertiser
         # 实际在听的端口。命令行 --port 会盖过配置，但不该被写回配置文件 ——
         # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
         self.listen_port = int((cfg.get("server", {}) or {}).get("port", 18860))
+        self._sync_director()
 
     @staticmethod
     def _load_rules():
@@ -80,6 +92,11 @@ class PetApp:
             except Exception:
                 pass
         return DEFAULT_RULES
+
+    def _sync_director(self):
+        """设置改了，仲裁参数跟着改。"""
+        self.director.message_hold_ms = self.message_hold_sec * 1000
+        self.director.content_dwell_ms = self.card_dwell_sec * 1000
 
     def log(self, level, msg):
         self._log_seq += 1
@@ -118,7 +135,6 @@ class PetApp:
                        "jpegQuality": self.cfg.get("render", {}).get("quality", 85),
                        "subsampling": self.cfg.get("render", {}).get("subsampling", 2),
                        "colorFormat": "rgb565"},
-            "pages": list(PAGES),
             "density": {"levels": [0, 1, 2], "current": self.density},
             "gestures": {"longPressMs": self.gestures.get("longPressMs", 600),
                          "stepsPerAction": self.gestures.get("stepsPerAction", 4)},
@@ -161,19 +177,17 @@ class PetApp:
         gesture_key, magnitude = gestures_mod.classify(msg, self.gestures)
         if gesture_key is None:
             return
-        action = gestures_mod.action_for(self.page, gesture_key, self.gestures)
+        action = gestures_mod.action_for(gesture_key, self.gestures)
         if not action:
             return
         self.log("info", "旋钮 %s -> %s (%s)" % (gesture_key, action, magnitude))
         await self.run_action(action, magnitude)
 
     async def run_action(self, action, magnitude=1):
-        if action == "page.next":
-            idx = PAGES.index(self.page) if self.page in PAGES else -1
-            await self.set_page(PAGES[(idx + 1) % len(PAGES)])
-        elif action == "page.prev":
-            idx = PAGES.index(self.page) if self.page in PAGES else 0
-            await self.set_page(PAGES[(idx - 1) % len(PAGES)])
+        if action == "card.next":
+            # 手动翻到下一张卡 —— 宠物在忙（消息层）时不翻
+            if self.director.next_card():
+                self.log("info", "切到下一张卡")
         elif action == "density.cycle":
             await self.set_density((self.density + 1) % 3)
         elif action == "state.refresh":
@@ -187,14 +201,43 @@ class PetApp:
     # ---------- 能改的设置 ----------
     # 后台功能清单和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
 
-    async def set_page(self, page):
-        if page not in PAGES:
-            raise ValueError("未知页面：%s" % page)
-        self.page = page
-        self.cfg.setdefault("ui", {})["page"] = page
+    def set_features(self, names):
+        """勾选参与轮播的 feature。"""
+        known = {f.name for f in feature_mod.all_features()}
+        picked = set()
+        for n in names or []:
+            n = str(n).strip()
+            if n in known:
+                picked.add(n)
+        self.features_enabled = picked
+        self.cfg.setdefault("ui", {})["features"] = sorted(picked)
         self._persist_config()
-        await self.devices.send_json({"type": "setPage", "page": page})
-        self.log("info", "页面 -> " + page)
+        self.log("info", "空闲显示 -> " + ("、".join(sorted(picked)) or "无"))
+        self._wake_poll()
+
+    def set_card_dwell(self, seconds):
+        seconds = max(1, int(seconds))
+        self.card_dwell_sec = seconds
+        self.cfg.setdefault("ui", {})["cardDwellSec"] = seconds
+        self._persist_config()
+        self._sync_director()
+        self.log("info", "每张卡停留 -> %d 秒" % seconds)
+
+    def set_message_hold(self, seconds):
+        seconds = max(0, int(seconds))
+        self.message_hold_sec = seconds
+        self.cfg.setdefault("ui", {})["messageHoldSec"] = seconds
+        self._persist_config()
+        self._sync_director()
+        self.log("info", "工作结束后保留 -> %d 秒" % seconds)
+
+    def set_sleep_window(self, start, end):
+        self.sleep_start = str(start or "off")
+        self.sleep_end = str(end or "07:00")
+        self.cfg.setdefault("ui", {})["sleepStart"] = self.sleep_start
+        self.cfg.setdefault("ui", {})["sleepEnd"] = self.sleep_end
+        self._persist_config()
+        self.log("info", "睡觉时段 -> %s ~ %s" % (self.sleep_start, self.sleep_end))
 
     async def set_density(self, level):
         level = max(0, min(2, int(level)))
@@ -226,13 +269,6 @@ class PetApp:
         self._persist_config()
         self.log("info", "关注会话 -> " + (key or "自动"))
 
-    def set_sleep_minutes(self, minutes):
-        minutes = max(0, int(minutes))
-        self.engine.sleep_after_min = minutes
-        self.cfg.setdefault("state", {})["sleepAfterMin"] = minutes
-        self._persist_config()
-        self.log("info", "多久算睡着 -> %d 分钟" % minutes)
-
     async def cycle_skin(self):
         """切到下一个形象 —— 旋钮和后台走同一条路。"""
         root = self.cfg.get("_repo_root", ".")
@@ -263,6 +299,38 @@ class PetApp:
     async def refresh(self):
         if self._gateway is not None:
             await self._gateway.refresh_sessions()
+
+    # ---------- 睡觉 ----------
+    @staticmethod
+    def _parse_hhmm(text):
+        parts = str(text or "").split(":")
+        try:
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+        except (TypeError, ValueError):
+            return None
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            return None
+        return h * 60 + m
+
+    def is_night(self, when=None):
+        """现在是不是睡觉时段。
+
+        睡觉只有一个来源 —— 用户配的时段。没有「空闲多久算睡着」那回事：
+        空闲的时候宠物在轮播卡片里，一直醒着。
+        """
+        start = self._parse_hhmm(self.sleep_start)
+        end = self._parse_hhmm(self.sleep_end)
+        if start is None or end is None:
+            return False
+        if start == end:
+            return False
+        t = time.localtime(when if when is not None else time.time())
+        now = t.tm_hour * 60 + t.tm_min
+        if start < end:
+            return start <= now < end
+        # 跨午夜 —— 22:00 ~ 07:00
+        return now >= start or now < end
 
     # ---------- 渲染 ----------
     def _subtitle(self):
@@ -326,8 +394,9 @@ class PetApp:
     def render_now(self):
         root = self.cfg.get("_repo_root", ".")
         state = self.engine.state
-        view = self.director.update(time.time(), state,
-                                    self._feature_ctx(), self._features(root))
+        now = time.time()
+        view = self.director.update(now, state, self._feature_ctx(),
+                                    self._features(), night=self.is_night(now))
         if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
             cstate = str(card.get("state") or state)
@@ -335,21 +404,23 @@ class PetApp:
             jpeg = render_mod.render_card(self.cfg, card, phase=self._phase,
                                           skin_frames=frames)
         else:
+            face = str(view.get("face") or state)
             sub = self._subtitle()
             name = self._session_name()
-            frames = skins_mod.load_frames(root, self.skin, state)
-            jpeg = render_mod.render_frame(self.cfg, state, sub, name,
+            frames = skins_mod.load_frames(root, self.skin, face)
+            jpeg = render_mod.render_frame(self.cfg, face, sub, name,
                                            density=self.density, phase=self._phase,
                                            skin_frames=frames)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
 
-    def _features(self, root="."):
-        """feature 列表。用户自建的 feature 改完要重启 petd 才生效。"""
-        if self._feature_cache is None:
-            self._feature_cache = feature_mod.all_features(root)
-        return self._feature_cache
+    def _features(self):
+        """参与轮播的 feature —— 按注册顺序。"""
+        if not self.features_enabled:
+            return []
+        allf = feature_mod.all_features()
+        return [f for f in allf if f.name in self.features_enabled]
 
     def _feature_ctx(self):
         """给 feature 的上下文。纯数据 —— feature 不许自己连 gateway。"""
@@ -358,6 +429,9 @@ class PetApp:
             "state": self.engine.state,
             "sessions": self._feature_sessions(),
             "skin": self.skin,
+            "focused": self.engine.selected_key,
+            "device": self.devices.status(),
+            "weatherCity": str(self.cfg.get("ui", {}).get("weatherCity") or ""),
         }
 
     def _feature_sessions(self):
@@ -370,8 +444,41 @@ class PetApp:
                 "status": str(row.get("status") or ""),
                 "state": self.engine.session_states.get(row.get("key"), "idle"),
                 "lastActivityAt": epoch_s(row.get("lastActivityAt")),
+                "unread": bool(row.get("unread")),
+                "pending": bool(row.get("permissionModePending")),
             })
         return out
+
+    # ---------- 后台取数 ----------
+    def _wake_poll(self):
+        """设置变了 —— 让后台取数线程尽快重跑一遍。"""
+        ev = getattr(self, "_poll_event", None)
+        if ev is not None:
+            ev.set()
+
+    def _poll_loop(self):
+        """后台线程：feature 要联网的数据在这里取，不阻塞渲染。
+
+        只给「用户勾上了」的 feature 取数 —— 没勾的别去碰网络。
+        """
+        while not self._stop:
+            try:
+                ctx = self._feature_ctx()
+                for f in feature_mod.all_features():
+                    if f.name not in self.features_enabled:
+                        continue
+                    try:
+                        f.poll(ctx)
+                    except Exception:
+                        log.warning("feature %s 取数失败",
+                                    getattr(f, "name", "?"), exc_info=True)
+            except Exception:
+                log.warning("后台取数失败", exc_info=True)
+            # 等到下一次取数，或者被叫醒，或者要退出。
+            # stop() 会 set 这个事件 —— 不然线程会一直睡满一个周期，
+            # 测试收尾时 executor 等它，套件就挂住了。
+            self._poll_event.wait(POLL_INTERVAL_SEC)
+            self._poll_event.clear()
 
     async def _frame_loop(self):
         while not self._stop:
@@ -396,10 +503,16 @@ class PetApp:
     async def start(self, gateway=None):
         self._gateway = gateway
         self._task = asyncio.create_task(self._frame_loop())
+        # 守护线程 —— 进程退出时不等它。
+        # 不能用 run_in_executor：线程池的 worker 不是守护线程，
+        # 进程收尾会 join 它，而它正睡在下一次取数的间隔里。
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
         self.log("info", "petd 启动")
 
     async def stop(self):
         self._stop = True
+        self._poll_event.set()
         if self._task:
             self._task.cancel()
         if self._gateway:
@@ -413,13 +526,14 @@ class PetApp:
             "device": self.devices.status(),
             "pet": {"state": self.engine.state, "since": int(self.engine.since),
                     "stateCn": state_mod.STATE_CN.get(self.engine.state, self.engine.state),
-                    "page": self.page, "density": self.density, "skin": self.skin,
+                    "density": self.density, "skin": self.skin,
                     "sessions": len(self.engine.sessions),
                     "selected": self.engine.selected_key,
                     "attribution": self.engine.attribution,
                     "counts": self.engine.counts,
                     "layer": self.director.layer,
-                    "feature": self.director.snapshot().get("title") or ""},
+                    "feature": self.director.snapshot().get("title") or "",
+                    "night": self.is_night()},
             "frames": {"seq": self.frame_seq,
                        "lastBytes": len(self.last_jpeg) if self.last_jpeg else 0,
                        "lastTs": int(self.last_jpeg_ts)},
@@ -551,4 +665,3 @@ class PetApp:
             "mdns": self._mdns_view(),
             "provisioning": self._provisioning_view(),
         }
-

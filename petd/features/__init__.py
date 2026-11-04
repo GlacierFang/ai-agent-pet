@@ -1,45 +1,30 @@
 """feature 注册表。
 
-内置的 feature 在这里显式注册。用户自己的可以放进
-petd/data/features/*.py —— 不进仓库，跟用户素材一个待遇。
+屏上「内容层」的来源。注册表只管「有哪些内容来源」，不管「什么时候上屏」
+—— 那是屏上仲裁的事，见 petd/screen.py。
 
-注册表只管「有哪些内容来源」，不管「什么时候上屏」—— 那是屏上分层的
-事，见 petd/screen.py。
+顺序就是轮播顺序：列表里排在前面的先上屏。不做用户自建，也不做排序 ——
+要加内容就往 BUILTIN 里加一行。
 """
-import importlib.util
-import logging
-import pathlib
-
 from .base import Feature
-from . import recent_done
+from . import clock, device, notify, recent_done, sessions, weather
 
-log = logging.getLogger("petd.features")
-
-BUILTIN = [recent_done.RecentDone()]
-
-
-def load_user_features(root="."):
-    """用户目录里的 feature 模块。每个模块里放一个 FEATURE 实例。"""
-    d = pathlib.Path(root) / "petd" / "data" / "features"
-    out = []
-    if not d.is_dir():
-        return out
-    for p in sorted(d.glob("*.py")):
-        try:
-            spec = importlib.util.spec_from_file_location("petd_feature_" + p.stem, p)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        except Exception:
-            log.warning("feature 模块加载失败: %s", p.name, exc_info=True)
-            continue
-        feat = getattr(mod, "FEATURE", None)
-        if isinstance(feat, Feature):
-            out.append(feat)
-        else:
-            log.warning("feature 模块 %s 里没有 FEATURE 实例", p.name)
-    return out
+# 注册顺序 = 轮播顺序
+BUILTIN = [
+    sessions.Sessions(),
+    notify.Notify(),
+    recent_done.RecentDone(),
+    clock.Clock(),
+    device.DeviceStatus(),
+    weather.Weather(),
+]
 
 
-def all_features(root="."):
-    """所有 feature —— 内置 + 用户自建。"""
-    return BUILTIN + load_user_features(root)
+def all_features():
+    """所有 feature。"""
+    return list(BUILTIN)
+
+
+def catalog():
+    """给后台「空闲时显示什么」用的清单 —— 加一个 feature 这里自动多一项。"""
+    return [{"name": f.name, "title": f.title, "tip": f.tip} for f in BUILTIN]

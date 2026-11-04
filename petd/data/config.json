@@ -8,16 +8,13 @@
     "scopes": [
       "operator.read"
     ],
-    "subscribeLimit": 30
+    "subscribeLimit": 30,
+    "useProxy": false
   },
   "server": {
     "host": "0.0.0.0",
     "port": 18860,
     "allowPublic": false
-  },
-  "mdns": {
-    "enabled": true,
-    "hostname": "petd.local"
   },
   "render": {
     "width": 240,
@@ -30,12 +27,24 @@
     "activeFps": 10,
     "maxInFlight": 2
   },
-  "state": {
-    "sleepAfterMin": 10
-  },
   "ui": {
     "skin": "default",
     "density": 1,
-    "page": "face"
+    "features": [
+      "sessions",
+      "notify",
+      "recent_done",
+      "clock",
+      "device"
+    ],
+    "cardDwellSec": 8,
+    "messageHoldSec": 3,
+    "sleepStart": "22:00",
+    "sleepEnd": "07:00",
+    "weatherCity": ""
+  },
+  "mdns": {
+    "enabled": true,
+    "hostname": "petd.local"
   }
 }

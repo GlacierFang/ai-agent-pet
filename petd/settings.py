@@ -1,32 +1,15 @@
 """功能清单 —— 用户能挑的东西。
 
-这一份列的每一项都对应 petd 里一个**真的能改**的运行时状态：屏幕页面、
-信息密度、宠物形象、关注的会话、睡眠阈值。改完立刻生效，也写进配置
-（重启还在）。
-
-和 docs/feature开发.md 里那套 feature 插件不是一回事：那一套是屏上
-「内容层」的来源（petd/features/），这一份是列出 petd 现有的、能改的设置。
+这一份列的每一项都对应 petd 里一个**真的能改**的运行时状态：空闲时屏上
+放什么、每张卡住多久、工作结束后留多久、睡觉时段、信息密度、宠物形象、
+关注的会话。改完立刻生效，也写进配置（重启还在）。
 
 以前这里放过一份 capabilities.json —— 列的是旋钮动作 id，而那个 enabled
 字段全仓没有任何地方读它，勾掉了什么也不会发生。那种清单是骗人的，不如没有。
 """
 
+from . import features as feature_mod
 from . import skins as skins_mod
-
-# 屏幕上的三块页面。app.py 也用这份列表 —— 单一来源，别各写一份。
-PAGES = ("face", "session", "notify")
-
-PAGE_LABELS = {
-    "face": "表情页",
-    "session": "会话页",
-    "notify": "通知页",
-}
-
-PAGE_DESCS = {
-    "face": "宠物脸 + 状态 + 一句话",
-    "session": "正在跑的会话",
-    "notify": "等你处理的提醒",
-}
 
 DENSITY_LABELS = {0: "简洁", 1: "标准", 2: "详细"}
 
@@ -36,13 +19,32 @@ DENSITY_DESCS = {
     2: "再加会话名",
 }
 
-# 睡眠阈值给几个常用的 —— 让用户选秒数没意义。
-SLEEP_CHOICES = (0, 5, 10, 30, 60)
+# 每张卡住多久（秒）
+DWELL_CHOICES = (5, 8, 12, 20, 30)
+
+# 工作结束后宠物脸留多久（秒）
+HOLD_CHOICES = (0, 3, 5, 10)
+
+# 睡觉时段 —— 整点就够，分钟级精度没有意义
+HOUR_CHOICES = tuple(range(24))
 
 
-def _item(fid, name, desc, value, options):
-    return {"id": fid, "name": name, "desc": desc,
-            "value": value, "options": options}
+def _item(fid, name, desc, value, options, multi=False):
+    out = {"id": fid, "name": name, "desc": desc,
+           "value": value, "options": options}
+    if multi:
+        out["multi"] = True
+    return out
+
+
+def _hour_options(current):
+    opts = []
+    for h in HOUR_CHOICES:
+        label = "%02d:00" % h
+        opts.append({"value": label, "label": label, "desc": ""})
+    if current and current not in [o["value"] for o in opts]:
+        opts.append({"value": current, "label": current, "desc": ""})
+    return opts
 
 
 def build(pet):
@@ -54,14 +56,47 @@ def build(pet):
       desc     一句话说明
       value    当前值
       options  可选值 [{value, label, desc}]
+      multi    可选 —— True 表示这一项可以多选（value 是数组）
     """
     root = pet.cfg.get("_repo_root", ".")
     items = []
 
+    # 空闲时屏上放什么 —— 选项就是全部 feature，加一个自动多一项
+    cat = feature_mod.catalog()
     items.append(_item(
-        "page", "屏幕页面", "设备屏幕现在显示哪一块", pet.page,
-        [{"value": p, "label": PAGE_LABELS.get(p, p),
-          "desc": PAGE_DESCS.get(p, "")} for p in PAGES]))
+        "features", "空闲时显示什么",
+        "宠物没事干的时候，屏上轮播这些内容",
+        sorted(pet.features_enabled),
+        [{"value": c["name"], "label": c["title"], "desc": c["tip"]}
+         for c in cat],
+        multi=True))
+
+    dwell = int(pet.card_dwell_sec)
+    dwell_opts = [{"value": s, "label": "%d 秒" % s, "desc": ""}
+                  for s in DWELL_CHOICES]
+    if dwell not in DWELL_CHOICES:
+        dwell_opts.append({"value": dwell, "label": "%d 秒" % dwell, "desc": ""})
+    items.append(_item(
+        "dwell", "每张卡停留", "一张内容卡在屏上待多久", dwell, dwell_opts))
+
+    hold = int(pet.message_hold_sec)
+    hold_opts = [{"value": s, "label": "%d 秒" % s, "desc": ""}
+                 for s in HOLD_CHOICES]
+    if hold not in HOLD_CHOICES:
+        hold_opts.append({"value": hold, "label": "%d 秒" % hold, "desc": ""})
+    items.append(_item(
+        "hold", "工作结束后保留", "活干完，宠物脸在屏上多留多久", hold, hold_opts))
+
+    start = pet.sleep_start
+    start_opts = [{"value": "off", "label": "不睡", "desc": "夜里也不睡"}]
+    start_opts += _hour_options(start if start != "off" else "")
+    items.append(_item(
+        "sleepStart", "睡觉时段 从", "这个钟点开始显示睡脸", start, start_opts))
+
+    end = pet.sleep_end
+    items.append(_item(
+        "sleepEnd", "睡觉时段 到", "这个钟点醒来（可以跨午夜）", end,
+        _hour_options(end)))
 
     items.append(_item(
         "density", "信息密度", "屏幕上放多少东西", pet.density,
@@ -89,14 +124,5 @@ def build(pet):
     items.append(_item(
         "session", "关注的会话", "宠物优先显示哪个会话（不影响状态判断）",
         pet.engine.selected_key or "", opts))
-
-    mins = int(pet.engine.sleep_after_min)
-    sleep_opts = [{"value": m, "label": ("不睡" if m == 0 else "%d 分钟" % m), "desc": ""}
-                  for m in SLEEP_CHOICES]
-    # 用户在配置文件里写了个不在常用值里的数 —— 也得能选回去
-    if mins not in SLEEP_CHOICES:
-        sleep_opts.append({"value": mins, "label": "%d 分钟" % mins, "desc": ""})
-    items.append(_item(
-        "sleep", "多久算睡着", "长时间没动静就睡觉（0 = 不睡）", mins, sleep_opts))
 
     return items

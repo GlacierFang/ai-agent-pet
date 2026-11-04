@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "priority": [
     "error",
     "waiting",
@@ -10,12 +10,11 @@
   "stability": {
     "idleAfterMs": 3000,
     "idleGraceMs": 30000,
-    "eventDebounceMs": 200
+    "eventDebounceMs": 200,
+    "doneDecayMs": 180000
   },
   "screen": {
-    "messageStates": ["waiting", "error"],
-    "messageHoldMs": 3000,
-    "contentDwellMs": 8000
+    "busyStates": ["working", "waiting", "error"]
   },
   "exclude": {
     "isBackground": true
@@ -58,7 +57,9 @@
     "idle": {
       "none": [
         {
-          "status": "running",
+          "status": "running"
+        },
+        {
           "hasActiveRun": true
         }
       ]

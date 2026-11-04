@@ -262,7 +262,7 @@ async def run(args):
                         elif t == "state":
                             print("[mock] <- state %s (%s)"
                                   % (obj.get("state"), obj.get("text")))
-                        elif t in ("setPage", "setDensity", "refresh"):
+                        elif t in ("setDensity", "refresh"):
                             print("[mock] <- %s %s" % (t, json.dumps(obj, ensure_ascii=False)))
                         elif t == "error":
                             print("[mock] <- error %s" % msg)

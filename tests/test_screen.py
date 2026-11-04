@@ -1,7 +1,7 @@
-"""屏上分层与 feature 插件的测试。
+"""屏上仲裁与 feature 插件的测试。
 
-屏分两层，整屏切换：消息层（宠物本体）和内容层（feature 卡片）互斥。
-这些测试钉住三件事：抢屏规则、内容层选谁、卡片怎么渲染。
+屏上永远只有一样东西 —— 宠物脸和 feature 卡片整屏互斥。
+这些测试钉住几件事：谁抢屏、轮播怎么转、feature 怎么出内容。
 """
 
 import pathlib
@@ -18,29 +18,35 @@ from petd import screen as screen_mod  # noqa: E402
 from petd.chatter import Chatter  # noqa: E402
 
 
+# 「没话说」和「不传 card」要分开 —— 用哨兵值，不然 card=None 会被当成默认卡片
+SILENT = object()
+
+
 class FakeFeature:
     """假的 feature —— 只按名字和优先级回答。"""
 
     def __init__(self, name="fake", priority=10, card=None, states=("idle",)):
         self.name = name
         self.title = name
+        self.tip = ""
         self.priority = priority
-        self._card = card if card is not None else {"title": name, "body": ["b"]}
+        self._card = {"title": name, "body": ["b"]} if card is None else card
         self._states = states
 
     def wants(self, state):
         return state in self._states
 
     def context(self, ctx):
-        return self._card
+        return None if self._card is SILENT else self._card
 
 
-# ---------- 层仲裁 ----------
+# ---------- 抢屏 ----------
 def test_waiting_takes_the_screen():
     d = screen_mod.ScreenDirector()
     view = d.update(1000.0, "waiting", {}, [FakeFeature()])
     assert view["layer"] == screen_mod.MESSAGE_LAYER
     assert view["card"] is None
+    assert view["face"] == "waiting"
 
 
 def test_error_takes_the_screen():
@@ -49,11 +55,24 @@ def test_error_takes_the_screen():
     assert view["layer"] == screen_mod.MESSAGE_LAYER
 
 
-def test_working_does_not_take_the_screen():
-    """在忙不需要你动手 —— 内容层照样上。"""
+def test_working_takes_the_screen():
+    """OpenClaw 在干活 —— 宠物整屏接管，feature 让位。"""
     d = screen_mod.ScreenDirector()
     view = d.update(1000.0, "working", {}, [FakeFeature(states=("working",))])
-    assert view["layer"] == screen_mod.CONTENT_LAYER
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+    assert view["card"] is None
+    assert view["face"] == "working"
+
+
+def test_working_interrupts_a_showing_card():
+    """正在放的卡片被干活直接打断 —— 不等它住满。"""
+    d = screen_mod.ScreenDirector()
+    feats = [FakeFeature(states=("idle", "working"))]
+    d.update(1000.0, "idle", {}, feats)
+    assert d.layer == screen_mod.CONTENT_LAYER
+    view = d.update(1001.0, "working", {}, feats)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+    assert view["card"] is None
 
 
 def test_idle_without_feature_falls_back_to_pet():
@@ -61,37 +80,104 @@ def test_idle_without_feature_falls_back_to_pet():
     d = screen_mod.ScreenDirector()
     view = d.update(1000.0, "idle", {}, [])
     assert view["layer"] == screen_mod.MESSAGE_LAYER
+    assert view["face"] == "idle"
 
 
+# ---------- 工作结束后的保留 ----------
 def test_message_holds_before_yielding():
-    """消息刚结束要留一会儿 —— 否则状态一抖就闪屏。"""
-    d = screen_mod.ScreenDirector({"screen": {"messageHoldMs": 3000}})
+    """活干完 —— 宠物脸先留一会儿，再让位给卡片。"""
+    d = screen_mod.ScreenDirector(hold_ms=3000)
     feats = [FakeFeature()]
-    d.update(1000.0, "waiting", {}, feats)
+    d.update(1000.0, "working", {}, feats)
     view = d.update(1001.0, "idle", {}, feats)
     assert view["layer"] == screen_mod.MESSAGE_LAYER
     view = d.update(1005.0, "idle", {}, feats)
     assert view["layer"] == screen_mod.CONTENT_LAYER
 
 
+def test_hold_zero_yields_immediately():
+    """保留 0 秒 —— 活干完立刻让位。"""
+    d = screen_mod.ScreenDirector(hold_ms=0)
+    feats = [FakeFeature()]
+    d.update(1000.0, "working", {}, feats)
+    view = d.update(1001.0, "idle", {}, feats)
+    assert view["layer"] == screen_mod.CONTENT_LAYER
+
+
+def test_done_shows_done_face():
+    """刚干完 —— 屏上是「已完成」的表情。"""
+    d = screen_mod.ScreenDirector(hold_ms=3000)
+    d.update(1000.0, "working", {}, [FakeFeature()])
+    view = d.update(1001.0, "done", {}, [FakeFeature()])
+    assert view["face"] == "done"
+
+
+# ---------- 夜间睡觉 ----------
+def test_night_shows_sleeping_face():
+    """夜里没事干 —— 睡脸。"""
+    d = screen_mod.ScreenDirector()
+    view = d.update(1000.0, "idle", {}, [FakeFeature()], night=True)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+    assert view["face"] == "sleeping"
+
+
+def test_night_but_working_still_works():
+    """夜里 OpenClaw 干活 —— 宠物醒着干活，不睡。"""
+    d = screen_mod.ScreenDirector()
+    view = d.update(1000.0, "working", {}, [FakeFeature()], night=True)
+    assert view["face"] == "working"
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+
+
+# ---------- 轮播 ----------
 def test_content_dwells_before_switching():
     """换卡片至少住一会儿 —— 卡片来回闪比不换还糟。"""
-    d = screen_mod.ScreenDirector({"screen": {"contentDwellMs": 8000}})
-    a = FakeFeature("a", priority=10)
-    b = FakeFeature("b", priority=20)
+    d = screen_mod.ScreenDirector(dwell_ms=8000)
+    a = FakeFeature("a")
+    b = FakeFeature("b")
     d.update(1000.0, "idle", {}, [a, b])
-    assert d.feature.name == "b"
-    # b 优先级高，但 dwell 没到之前不换 —— 优先级只在选择时用一次
-    view = d.update(1002.0, "idle", {}, [a, b])
-    assert view["feature"].name == "b"
+    first = d.feature.name
+    d.update(1002.0, "idle", {}, [a, b])
+    assert d.feature.name == first
 
 
-def test_higher_priority_feature_wins():
+def test_carousel_rotates_after_dwell():
+    """住够了就换下一张 —— 轮播，不是永远停在同一张。"""
+    d = screen_mod.ScreenDirector(dwell_ms=1000)
+    a = FakeFeature("a")
+    b = FakeFeature("b")
+    d.update(1000.0, "idle", {}, [a, b])
+    first = d.feature.name
+    d.update(1002.0, "idle", {}, [a, b])
+    assert d.feature.name != first
+
+
+def test_manual_next_card():
+    """手动翻卡 —— 立刻换，不等 dwell。"""
+    d = screen_mod.ScreenDirector(dwell_ms=8000)
+    a = FakeFeature("a")
+    b = FakeFeature("b")
+    d.update(1000.0, "idle", {}, [a, b])
+    first = d.feature.name
+    assert d.next_card() is True
+    d.update(1001.0, "idle", {}, [a, b])
+    assert d.feature.name != first
+
+
+def test_manual_next_card_ignored_when_busy():
+    """宠物在忙 —— 没空翻卡。"""
     d = screen_mod.ScreenDirector()
-    low = FakeFeature("low", priority=1)
-    high = FakeFeature("high", priority=99)
-    d.update(1000.0, "idle", {}, [low, high])
-    assert d.feature.name == "high"
+    d.update(1000.0, "working", {}, [FakeFeature()])
+    assert d.next_card() is False
+
+
+def test_carousel_skips_silent_feature():
+    """没话说的 feature 直接跳过 —— 屏上不能是空的。"""
+    d = screen_mod.ScreenDirector(dwell_ms=0)
+    silent = FakeFeature("silent", card=SILENT)
+    loud = FakeFeature("loud")
+    d.update(1000.0, "idle", {}, [silent, loud])
+    assert d.feature.name == "loud"
 
 
 def test_feature_that_does_not_want_the_state_is_skipped():
@@ -122,15 +208,25 @@ def test_broken_feature_does_not_break_the_screen():
 
 
 # ---------- feature 契约 ----------
-def test_registry_contains_recent_done():
-    names = [f.name for f in feature_mod.all_features(ROOT)]
-    assert "recent_done" in names
+def test_registry_contains_all_builtin():
+    names = [f.name for f in feature_mod.all_features()]
+    for expected in ("sessions", "notify", "recent_done", "clock",
+                     "device", "weather"):
+        assert expected in names
+
+
+def test_catalog_lists_every_feature():
+    """后台「空闲时显示什么」的选项 —— 加一个 feature 这里自动多一项。"""
+    cat = feature_mod.catalog()
+    assert len(cat) == len(feature_mod.all_features())
+    for c in cat:
+        assert c["name"] and c["title"]
 
 
 def test_recent_done_shows_finished_work():
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[0]
+    f = feature_mod.BUILTIN[2]
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "跑测试", "state": "done", "lastActivityAt": now - 60},
     ]}
@@ -143,7 +239,7 @@ def test_recent_done_shows_finished_work():
 def test_recent_done_stays_quiet_when_nothing_finished():
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[0]
+    f = feature_mod.BUILTIN[2]
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "跑测试", "state": "working", "lastActivityAt": now},
     ]}
@@ -154,12 +250,57 @@ def test_recent_done_ignores_old_completions():
     """半小时前做完的事 —— 不该还占着屏。"""
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[0]
+    f = feature_mod.BUILTIN[2]
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "老事", "state": "done",
          "lastActivityAt": now - 3600},
     ]}
     assert f.context(ctx) is None
+
+
+def test_sessions_feature_lists_sessions():
+    import time
+    now = time.time()
+    f = feature_mod.BUILTIN[0]
+    ctx = {"now": now, "sessions": [
+        {"key": "a", "name": "跑测试", "state": "working", "lastActivityAt": now},
+    ]}
+    card = f.context(ctx)
+    assert card is not None
+    assert card["rows"][0]["left"] == "跑测试"
+
+
+def test_notify_feature_quiet_without_unread():
+    f = feature_mod.BUILTIN[1]
+    ctx = {"now": 1000.0, "sessions": [
+        {"key": "a", "name": "跑测试", "state": "working", "unread": False,
+         "pending": False},
+    ]}
+    assert f.context(ctx) is None
+
+
+def test_notify_feature_lists_pending():
+    f = feature_mod.BUILTIN[1]
+    ctx = {"now": 1000.0, "sessions": [
+        {"key": "a", "name": "跑测试", "state": "waiting", "unread": False,
+         "pending": True},
+    ]}
+    card = f.context(ctx)
+    assert card is not None
+    assert card["rows"][0]["right"] == "等你授权"
+
+
+def test_clock_feature_shows_time():
+    import time
+    f = feature_mod.BUILTIN[3]
+    card = f.context({"now": time.time()})
+    assert card is not None
+    assert ":" in card["big"]
+
+
+def test_device_feature_quiet_when_offline():
+    f = feature_mod.BUILTIN[4]
+    assert f.context({"now": 1000.0, "device": {"online": False}}) is None
 
 
 # ---------- 闲话 ----------
@@ -201,4 +342,14 @@ def test_render_card_produces_jpeg():
 def test_render_card_accepts_missing_fields():
     """卡片字段不全 —— 不能崩。"""
     jpeg = render_mod.render_card({"render": {}}, {})
+    assert jpeg[:2] == b"\xff\xd8"
+
+
+def test_render_card_supports_big_and_rows():
+    """大字和列表行 —— 时间和会话卡片要用。"""
+    jpeg = render_mod.render_card(
+        {"render": {"width": 240, "height": 320}},
+        {"title": "天气", "big": "23°",
+         "rows": [{"left": "湿度", "right": "60%", "accent": "idle"}],
+         "state": "idle"})
     assert jpeg[:2] == b"\xff\xd8"

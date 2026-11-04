@@ -1,19 +1,20 @@
-"""屏上分层：消息层 / 内容层。
+"""屏上仲裁：宠物脸 ↔ feature 卡片。
 
-屏上永远只有一样东西 —— 不是上下分区，是整屏切换：
+屏上永远只有一样东西 —— 不是上下分区，是整屏切换。
 
-    消息层   宠物本体 + 状态（+ 一句话）。等你确认、出错了，立刻占屏。
-    内容层   某张 feature 卡片，整屏。
+一条时间线：
 
-没消息、也没内容可显示时，回消息层挂着宠物的脸 —— 屏上永远有它。
+    OpenClaw 在干活（working / waiting / error）
+        → 宠物脸整屏接管，直接打断当前 feature 卡
+    工作结束（done / idle）
+        → 保留 N 秒（用户可调）宠物脸还在
+        → feature 卡片接管，轮播，每张住 M 秒（用户可调）
+        → 所有 feature 都没话说 → 回宠物脸挂着
+    夜间时段
+        → 没事干就睡脸；OpenClaw 干活就醒着干活，干完再睡
 
-切层规则：
-
-  · waiting / error 立刻抢占内容层（你在等它，不能被卡片盖住）
-  · 消息结束后再留 holdMs 才让位（防状态抖动闪屏）
-  · 内容层换卡片至少住 dwellMs（防卡片来回闪）
-
-参数在 petd/data/state_rules.json 的 "screen" 段里。
+睡眠只有一个来源 —— 用户配的时段。没有「空闲多久算睡着」那回事：
+空闲的时候宠物在轮播卡片里，一直醒着。
 """
 import logging
 import time
@@ -23,7 +24,7 @@ log = logging.getLogger("petd.screen")
 MESSAGE_LAYER = "message"
 CONTENT_LAYER = "content"
 
-DEFAULT_MESSAGE_STATES = ("waiting", "error")
+DEFAULT_BUSY_STATES = ("working", "waiting", "error")
 DEFAULT_MESSAGE_HOLD_MS = 3000
 DEFAULT_CONTENT_DWELL_MS = 8000
 
@@ -31,18 +32,23 @@ DEFAULT_CONTENT_DWELL_MS = 8000
 class ScreenDirector:
     """决定这一帧屏上显示什么。"""
 
-    def __init__(self, rules=None):
+    def __init__(self, rules=None, hold_ms=None, dwell_ms=None):
         screen = (rules or {}).get("screen", {}) or {}
-        self.message_states = tuple(screen.get("messageStates")
-                                    or DEFAULT_MESSAGE_STATES)
-        self.message_hold_ms = int(screen.get("messageHoldMs",
-                                              DEFAULT_MESSAGE_HOLD_MS))
-        self.content_dwell_ms = int(screen.get("contentDwellMs",
-                                               DEFAULT_CONTENT_DWELL_MS))
+        self.busy_states = tuple(screen.get("busyStates")
+                                 or DEFAULT_BUSY_STATES)
+        self.message_hold_ms = int(
+            hold_ms if hold_ms is not None
+            else screen.get("messageHoldMs", DEFAULT_MESSAGE_HOLD_MS))
+        self.content_dwell_ms = int(
+            dwell_ms if dwell_ms is not None
+            else screen.get("contentDwellMs", DEFAULT_CONTENT_DWELL_MS))
         self.layer = MESSAGE_LAYER
         self.feature = None
+        self._face = "idle"
         self._layer_since = time.time()
-        self._message_until = 0.0
+        self._hold_until = 0.0
+        self._state = None
+        self._force_next = False
 
     def snapshot(self):
         """给后台看的：现在屏上是哪一层、谁在上。"""
@@ -53,62 +59,110 @@ class ScreenDirector:
         }
 
     # ---------- 对外 ----------
-    def update(self, now, state, ctx, features=None):
-        """决定这一帧显示什么。返回 {layer, feature, card}。"""
-        if state in self.message_states:
-            # 等你的事 —— 立刻抢屏，不能被卡片盖住
+    def next_card(self):
+        """手动切到下一张卡。宠物在忙（消息层）时不切 —— 它没空翻卡。"""
+        if self.layer != CONTENT_LAYER:
+            return False
+        self._force_next = True
+        self._layer_since = 0.0
+        return True
+
+    def update(self, now, state, ctx, features=None, night=False):
+        """决定这一帧显示什么。返回 {layer, feature, card, face}。"""
+        busy = state in self.busy_states
+        prev = self._state
+        self._state = state
+
+        if busy:
+            # OpenClaw 在干活 —— 宠物整屏接管，直接打断当前卡片
             self.layer = MESSAGE_LAYER
             self.feature = None
+            self._face = state
             self._layer_since = now
-            self._message_until = now + self.message_hold_ms / 1000.0
-            return {"layer": MESSAGE_LAYER, "feature": None, "card": None}
+            self._hold_until = 0.0
+            return self._view(state)
 
-        if self.layer == MESSAGE_LAYER and now < self._message_until:
-            # 消息刚结束 —— 留一会儿再让位
-            return {"layer": MESSAGE_LAYER, "feature": None, "card": None}
+        # 刚忙完 —— 给它留一会儿（用户可调的秒数）
+        if prev in self.busy_states:
+            self._hold_until = now + self.message_hold_ms / 1000.0
+
+        if now < self._hold_until:
+            face = "done" if state == "done" else "idle"
+            self.layer = MESSAGE_LAYER
+            self.feature = None
+            self._face = face
+            self._layer_since = now
+            return self._view(face)
+
+        if night:
+            # 夜里没事干 —— 睡觉
+            self.layer = MESSAGE_LAYER
+            self.feature = None
+            self._face = "sleeping"
+            self._layer_since = now
+            return self._view("sleeping")
 
         card, feature = self._pick(now, state, ctx, features)
         if card is None:
             # 没内容 —— 回消息层挂着宠物的脸
             self.layer = MESSAGE_LAYER
             self.feature = None
+            self._face = "idle"
             self._layer_since = now
-            self._message_until = 0.0
-            return {"layer": MESSAGE_LAYER, "feature": None, "card": None}
+            return self._view("idle")
 
         if self.layer != CONTENT_LAYER:
             self.layer = CONTENT_LAYER
             self._layer_since = now
-        elif feature is not self.feature:
-            # 换卡片了 —— 重新起算停留时间
-            self._layer_since = now
         self.feature = feature
-        return {"layer": CONTENT_LAYER, "feature": feature, "card": card}
+        self._face = str(card.get("state") or "idle")
+        return {"layer": CONTENT_LAYER, "feature": feature, "card": card,
+                "face": self._face}
 
     # ---------- 内部 ----------
+    def _view(self, face):
+        return {"layer": self.layer, "feature": self.feature, "card": None,
+                "face": face}
+
     def _pick(self, now, state, ctx, features):
-        """挑一个 feature。返回 (card, feature)；没有就 (None, None)。"""
-        best = None
-        current = None
-        for f in (features or []):
+        """挑一张卡片。返回 (card, feature)；没有就 (None, None)。
+
+        轮播 —— 按注册顺序转，转到没话说的就跳过它。
+        """
+        feats = list(features or [])
+        by_name = {}
+        cards = {}
+        for f in feats:
+            by_name[f.name] = f
             try:
                 if not f.wants(state):
                     continue
                 card = f.context(ctx)
             except Exception:
-                log.warning("feature %s 出错，跳过", getattr(f, "name", "?"),
-                            exc_info=True)
+                log.warning("feature %s 出错，跳过",
+                            getattr(f, "name", "?"), exc_info=True)
                 continue
-            if not card:
+            if card:
+                cards[f.name] = card
+        if not cards:
+            return None, None
+
+        names = [f.name for f in feats]
+        cur = self.feature.name if self.feature is not None else ""
+        dwelled = (now - self._layer_since) >= self.content_dwell_ms / 1000.0
+
+        if cur in cards and not self._force_next and not dwelled:
+            return cards[cur], by_name[cur]
+
+        # 轮转到下一张有话说的
+        start = (names.index(cur) + 1) if cur in names else 0
+        for i in range(len(names)):
+            name = names[(start + i) % len(names)]
+            if name not in cards:
                 continue
-            if f is self.feature:
-                current = (card, f)
-            if best is None or int(getattr(f, "priority", 0)) > int(
-                    getattr(best[1], "priority", 0)):
-                best = (card, f)
-        if current is not None and self.layer == CONTENT_LAYER:
-            # 当前这张还在说话 —— 不到 dwell 不换
-            if now - self._layer_since < self.content_dwell_ms / 1000.0:
-                return current
-            return best or current
-        return best or (None, None)
+            f = by_name[name]
+            if f is not self.feature:
+                self._layer_since = now
+            self._force_next = False
+            return cards[name], f
+        return None, None
