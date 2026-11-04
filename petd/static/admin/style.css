@@ -236,7 +236,7 @@ main {
 .feature-opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .feature-opts button { padding: 4px 10px; font-size: 12px; }
 
-/* 列表（会话 / 形象 / 能力） */
+/* 列表（会话 / 宠物） */
 .list { display: grid; gap: 6px; }
 .row-item {
   display: flex;
@@ -517,3 +517,111 @@ footer p { margin: 4px 0; }
 .tl-toggle { gap: 6px; }
 .timerange.off .tl-bar { opacity: .4; }
 .timerange.off .tl-readout { color: var(--muted); }
+
+
+/* 宠物库 —— 一只宠物一张卡，封面是它的闲置图 */
+.pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
+.pet-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  align-content: start;
+}
+.pet-card.current { border-color: var(--accent); }
+.pet-card:not(.current):not(.pet-add) { cursor: pointer; }
+.pet-card:not(.current):not(.pet-add):hover { border-color: var(--muted); }
+.pet-cover {
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pet-cover img { width: 100%; height: 100%; object-fit: contain; }
+.pet-cover .noimg { color: var(--muted); font-size: 12px; }
+.pet-name { font-weight: 600; word-break: break-all; }
+.pet-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-actions button { padding: 4px 10px; font-size: 12px; }
+.pet-add {
+  border-style: dashed;
+  cursor: pointer;
+  justify-items: center;
+  align-content: center;
+  color: var(--muted);
+}
+.pet-add:hover { border-color: var(--muted); color: var(--text); }
+.pet-add-plus { font-size: 28px; line-height: 1; }
+.pet-add-label { font-size: 13px; }
+
+/* 新建 / 编辑宠物 —— 六个格子，一格一张图 */
+.pet-slots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 6px 0 10px;
+}
+.pet-slot {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.pet-slot input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.pet-slot img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; }
+.pet-slot.has { border-style: solid; }
+.pet-slot-plus { font-size: 24px; color: var(--muted); line-height: 1.4; }
+.pet-slot-label { font-size: 12px; color: var(--muted); }
+
+/* 「我的宠物」那页 —— 当前宠物 */
+.pet-now { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.pet-now-cover {
+  width: 120px;
+  aspect-ratio: 3 / 4;
+  border-radius: 8px;
+  background: #000;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.pet-now-cover img { width: 100%; height: 100%; object-fit: contain; }
+.pet-now-body { flex: 1 1 220px; min-width: 0; }
+
+/* 弹层 */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(5, 8, 13, .72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-box {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}
+button:disabled { opacity: .4; cursor: default; }

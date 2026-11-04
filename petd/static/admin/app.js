@@ -1,7 +1,7 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
 
-   五个区块：我的宠物 / 素材仓库 / 功能清单 / 安装与诊断 / 开始使用。
+   五个区块：我的宠物 / 宠物库 / 功能清单 / 安装与诊断 / 开始使用。
    默认落在「我的宠物」—— 这是内容页，不是系统监控页。
 
    文案只有一个来源：T 字典。
@@ -65,17 +65,17 @@ var T = {
 
   tabs: {
     pet: '我的宠物',
-    skins: '素材仓库',
+    skins: '宠物库',
     features: '功能清单',
     diag: '安装与诊断',
     setup: '开始使用'
   },
 
-  /* 上传素材时选状态用的词 —— 表单语境，说的是「这张图是什么心情」。
-     option 的 value 仍是英文 id，后端协议认那个。 */
+  /* 宠物六态的名字 —— 新建宠物时那六个格子说的是「这张图是什么心情」。
+     协议里的 id 仍是英文，界面只出中文。 */
   state: {
     idle: '闲置',
-    working: '忙碌',
+    working: '干活',
     waiting: '等你确认',
     done: '刚完成',
     error: '出错',
@@ -118,7 +118,8 @@ var T = {
     watching: '你正看',
     skinTitle: '宠物',
     skinCurrent: '当前：',
-    skinNote: '在「素材仓库」里可以新建宠物、传素材、设为当前。',
+    skinNote: '在「宠物库」里可以新建、换图、切换当前宠物。',
+    skinGoto: '去宠物库',
     noSkins: '还没有宠物',
     screenLabel: '屏上：',
     layerMessage: '消息层',
@@ -126,34 +127,29 @@ var T = {
   },
 
   skins: {
-    title: '宠物',
-    /* 只留带 <code> 的版本 —— 页面渲染的就是它 */
-    noteHtml: '仓库自带的宠物随版本走；你自己建的存放在 <code>petd/data/skins/</code>，不进仓库。',
-    empty: '还没有宠物 —— 建一个，或者传素材。',
+    title: '宠物库',
+    noteHtml: '可以自己维护更多宠物 —— 新建、上传六张状态图、设为当前。',
+    sixStatesNote: '一套宠物要六种状态：闲置、干活、等你确认、刚完成、出错、睡着了。六张都齐了才能设为当前。',
+    empty: '还没有宠物 —— 建一个吧。',
     yours: '你的',
     builtin: '自带',
-    noAssets: '没有素材',
+    current: '当前',
+    noImage: '没有图',
     missingStates: '还缺 {n} 个状态',
-    sixStatesNote: '一套宠物要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。',
-    onePerState: '每种状态一张图。',
     setCurrent: '设为当前',
+    edit: '编辑',
     remove: '删除',
-    deleteAsk: '删除宠物 {name}？素材会一起没。',
+    deleteAsk: '删除「{name}」？它的六张图会一起删掉，找不回来。',
     newTitle: '新建宠物',
-    name: '名称',
-    namePlaceholder: 'cat',
-    create: '创建',
-    nameHint: '字母、数字、下划线、连字符',
+    editTitle: '编辑宠物',
+    name: '名字',
+    namePlaceholder: '咖啡猫',
     needName: '先起个名字',
-    created: '建好了',
-    createFail: '创建失败',
-    frameTitle: '上传状态图',
-    state: '状态',
-    image: '图片',
-    upload: '上传',
-    pickImage: '先选个图片',
-    uploadFail: '上传失败',
-    saved: '已保存'
+    slotsNote: '六种状态，每种一张图。',
+    specNote: '240×320 PNG · 透明背景',
+    cancel: '取消',
+    save: '完成',
+    uploadFail: '上传失败'
   },
 
   features: {
@@ -310,6 +306,7 @@ var S = {
   features: [],    // 功能清单（GET /features）
   skins: [],
   skin: '',
+  skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
   tab: 'pet',
   setup: null,        // GET /setup 的结果（操作指引）
   setupPublic: null   // GET /setup/public 的结果（未登录可见的那部分）
@@ -399,20 +396,6 @@ function applyI18n() {
     ph[k].setAttribute('placeholder', t(ph[k].getAttribute('data-i18n-placeholder')));
   }
   document.title = t('app:title');
-}
-
-/* 两个下拉框的选项也从字典来 —— 英文 id 当 value，中文当显示文字。
-   value 是后端协议认的东西，一个字都不能改。 */
-function fillSelect(id, map) {
-  var sel = el(id);
-  if (!sel) return;
-  sel.textContent = '';
-  Object.keys(map).forEach(function (k) {
-    var o = document.createElement('option');
-    o.value = k;
-    o.textContent = map[k];
-    sel.appendChild(o);
-  });
 }
 
 /* ---------------- 标签页 ---------------- */
@@ -730,27 +713,41 @@ function loadSetup() {
     });
 }
 
-/* ---------------- 形象 ---------------- */
+/* ---------------- 宠物库 ---------------- */
 
-function renderSkinPicker() {
-  var box = el('skin-picker');
-  box.textContent = '';
-  el('skin-current').textContent = S.skin || t('common:dash');
-  if (!S.skins.length) {
-    var e = document.createElement('span');
-    e.className = 'muted';
-    e.textContent = t('pet:noSkins');
-    box.appendChild(e);
-    return;
+/* 某只宠物某一态的图 —— 封面用闲置图，新建时六个格子各自看自己那张。 */
+function skinImageUrl(name, state) {
+  return API + '/skins/image?name=' + encodeURIComponent(name) +
+         '&state=' + encodeURIComponent(state);
+}
+
+/* 宠物六态的名字（新建宠物那六个格子的说法）。 */
+function petStateText(st) {
+  var v = tv('state:' + st, null);
+  return (v === null) ? String(st || '') : v;
+}
+
+/* 宠物在界面上的名字 —— 内置的那只有个好看的显示名。 */
+function skinTitle(sk) {
+  return (sk && sk.title) ? sk.title : (sk ? sk.name : '');
+}
+
+function findSkin(name) {
+  for (var i = 0; i < S.skins.length; i++) {
+    if (S.skins[i].name === name) return S.skins[i];
   }
-  S.skins.forEach(function (sk) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = sk.name === S.skin ? '' : 'ghost';
-    b.textContent = sk.name;
-    b.addEventListener('click', function () { activateSkin(sk.name); });
-    box.appendChild(b);
-  });
+  return null;
+}
+
+/* 「我的宠物」那页：当前用的是哪只宠物。 */
+function renderSkinNow() {
+  var cur = findSkin(S.skin);
+  el('skin-current').textContent = cur ? skinTitle(cur) : (S.skin || t('common:dash'));
+  var img = el('skin-current-img');
+  if (!S.skin) { img.removeAttribute('src'); img.classList.add('hidden'); return; }
+  img.onload = function () { img.classList.remove('hidden'); };
+  img.onerror = function () { img.classList.add('hidden'); };
+  img.src = skinImageUrl(S.skin, 'idle');
 }
 
 function loadSkins() {
@@ -759,10 +756,17 @@ function loadSkins() {
     .then(function (blob) {
       S.skins = blob.items || [];
       S.skin = blob.current || '';
-      renderSkinPicker();
-      renderSkinList();
+      renderSkinNow();
+      renderSkinCards();
     })
     .catch(function () { /* 忽略 */ });
+}
+
+function afterSkins(b) {
+  S.skins = b.items || [];
+  S.skin = b.current || '';
+  renderSkinNow();
+  renderSkinCards();
 }
 
 function activateSkin(name) {
@@ -773,16 +777,14 @@ function activateSkin(name) {
   })
     .then(function (r) { return r.json(); })
     .then(function (b) {
-      if (!b.ok) { el('skin-new-meta').textContent = b.error || t('common:netError'); return; }
-      S.skin = b.current;
-      S.skins = b.items || [];
-      renderSkinPicker();
-      renderSkinList();
+      if (!b.ok) { el('skin-list-meta').textContent = b.error || t('common:netError'); return; }
+      afterSkins(b);
     })
-    .catch(function () { el('skin-new-meta').textContent = t('common:netError'); });
+    .catch(function () { el('skin-list-meta').textContent = t('common:netError'); });
 }
 
-function renderSkinList() {
+/* 一只宠物一张卡 —— 封面是闲置图，点一下就设成当前。 */
+function renderSkinCards() {
   var box = el('skin-list');
   box.textContent = '';
   if (!S.skins.length) {
@@ -790,50 +792,103 @@ function renderSkinList() {
     e.className = 'empty';
     e.textContent = t('skins:empty');
     box.appendChild(e);
-    return;
   }
-  S.skins.forEach(function (sk) {
-    var row = document.createElement('div');
-    row.className = 'row-item';
-    var n = document.createElement('span');
-    n.className = 'name grow';
-    n.textContent = sk.name;
-    row.appendChild(n);
-    var src = document.createElement('span');
-    src.className = 'badge dim';
-    src.textContent = sk.source === 'user' ? t('skins:yours') : t('skins:builtin');
-    row.appendChild(src);
-    var st = document.createElement('span');
-    st.className = 'sub';
-    var keys = Object.keys(sk.states || {});
-    st.textContent = keys.length ? keys.join(' ') : t('skins:noAssets');
-    row.appendChild(st);
-    /* 六态不齐的形象不能设为当前 —— 屏上任何一刻都可能是六态中的任意一态。 */
-    var miss = sk.missing || [];
-    if (miss.length) {
-      var mb = document.createElement('span');
-      mb.className = 'badge bad';
-      mb.textContent = fill(t('skins:missingStates'), { n: miss.length }) + '：' + miss.join('、');
-      row.appendChild(mb);
-    }
-    if (sk.name !== S.skin && !miss.length) {
-      var act = document.createElement('button');
-      act.type = 'button';
-      act.className = 'ghost';
-      act.textContent = t('skins:setCurrent');
-      act.addEventListener('click', function () { activateSkin(sk.name); });
-      row.appendChild(act);
-    }
-    if (sk.source === 'user') {
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'ghost';
-      del.textContent = t('skins:remove');
-      del.addEventListener('click', function () { deleteSkin(sk.name); });
-      row.appendChild(del);
-    }
-    box.appendChild(row);
+  S.skins.forEach(function (sk) { box.appendChild(skinCard(sk)); });
+
+  /* 最后一张永远是「新建」 */
+  var add = document.createElement('div');
+  add.className = 'pet-card pet-add';
+  add.setAttribute('role', 'button');
+  add.setAttribute('tabindex', '0');
+  var plus = document.createElement('div');
+  plus.className = 'pet-add-plus';
+  plus.textContent = '＋';
+  add.appendChild(plus);
+  var al = document.createElement('div');
+  al.className = 'pet-add-label';
+  al.textContent = t('skins:newTitle');
+  add.appendChild(al);
+  add.addEventListener('click', function () { openSkinModal(null); });
+  box.appendChild(add);
+}
+
+function skinCard(sk) {
+  var card = document.createElement('div');
+  var isCurrent = sk.name === S.skin;
+  var miss = sk.missing || [];
+  card.className = 'pet-card' + (isCurrent ? ' current' : '');
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  if (!isCurrent && !miss.length) {
+    card.title = t('skins:setCurrent');
+    card.addEventListener('click', function () { activateSkin(sk.name); });
+  }
+
+  var cover = document.createElement('div');
+  cover.className = 'pet-cover';
+  if (sk.states && sk.states.idle) {
+    var img = document.createElement('img');
+    img.src = skinImageUrl(sk.name, 'idle');
+    img.alt = skinTitle(sk);
+    cover.appendChild(img);
+  } else {
+    var ni = document.createElement('span');
+    ni.className = 'noimg';
+    ni.textContent = t('skins:noImage');
+    cover.appendChild(ni);
+  }
+  card.appendChild(cover);
+
+  var nm = document.createElement('div');
+  nm.className = 'pet-name';
+  nm.textContent = skinTitle(sk);
+  card.appendChild(nm);
+
+  var tags = document.createElement('div');
+  tags.className = 'pet-tags';
+  var src = document.createElement('span');
+  src.className = 'badge dim';
+  src.textContent = sk.source === 'user' ? t('skins:yours') : t('skins:builtin');
+  tags.appendChild(src);
+  if (isCurrent) {
+    var cur = document.createElement('span');
+    cur.className = 'badge ok';
+    cur.textContent = t('skins:current');
+    tags.appendChild(cur);
+  }
+  if (miss.length) {
+    var mb = document.createElement('span');
+    mb.className = 'badge bad';
+    mb.textContent = fill(t('skins:missingStates'), { n: miss.length }) + '：' +
+      miss.map(petStateText).join('、');
+    tags.appendChild(mb);
+  }
+  card.appendChild(tags);
+
+  var acts = document.createElement('div');
+  acts.className = 'pet-actions';
+  var ed = document.createElement('button');
+  ed.type = 'button';
+  ed.className = 'ghost';
+  ed.textContent = t('skins:edit');
+  ed.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    openSkinModal(sk);
   });
+  acts.appendChild(ed);
+  if (sk.source === 'user') {
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost';
+    del.textContent = t('skins:remove');
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      deleteSkin(sk.name);
+    });
+    acts.appendChild(del);
+  }
+  card.appendChild(acts);
+  return card;
 }
 
 function deleteSkin(name) {
@@ -845,65 +900,148 @@ function deleteSkin(name) {
   })
     .then(function (r) { return r.json(); })
     .then(function (b) {
-      if (!b.ok) { el('skin-new-meta').textContent = b.error || t('common:netError'); return; }
-      S.skins = b.items || [];
-      S.skin = b.current || '';
-      renderSkinPicker();
-      renderSkinList();
+      if (!b.ok) { el('skin-list-meta').textContent = b.error || t('common:netError'); return; }
+      afterSkins(b);
     })
-    .catch(function () { el('skin-new-meta').textContent = t('common:netError'); });
+    .catch(function () { el('skin-list-meta').textContent = t('common:netError'); });
 }
 
-function onSkinNew(ev) {
-  ev.preventDefault();
-  var name = el('skin-new-name').value.trim();
-  var meta = el('skin-new-meta');
-  if (!name) { meta.textContent = t('skins:needName'); return; }
-  fetch(API + '/skins', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ op: 'create', name: name })
-  })
-    .then(function (r) { return r.json(); })
-    .then(function (b) {
-      if (!b.ok) { meta.textContent = b.error || t('skins:createFail'); return; }
-      meta.textContent = t('skins:created');
-      el('skin-new-name').value = '';
-      S.skins = b.items || [];
-      renderSkinPicker();
-      renderSkinList();
-    })
-    .catch(function () { meta.textContent = t('common:netError'); });
+/* ---------------- 新建 / 编辑宠物 ---------------- */
+
+/* 草稿：名字 + 六个状态各自选好的图（还没传上去）。 */
+function openSkinModal(sk) {
+  S.skinDraft = { mode: sk ? 'edit' : 'new', name: sk ? sk.name : '', files: {} };
+  el('skin-modal-title').textContent = sk ? t('skins:editTitle') : t('skins:newTitle');
+  var nameInput = el('skin-modal-name');
+  nameInput.value = S.skinDraft.name;
+  nameInput.readOnly = !!sk;
+  el('skin-modal-meta').textContent = '';
+  renderSkinSlots(sk);
+  el('skin-modal-save').disabled = !sk && !allSlotsPicked();
+  el('skin-modal').classList.remove('hidden');
+  if (!sk) { nameInput.focus(); }
 }
 
-function onSkinFrame(ev) {
-  ev.preventDefault();
-  var meta = el('skin-frame-meta');
-  var file = el('skin-frame-file').files[0];
-  if (!file) { meta.textContent = t('skins:pickImage'); return; }
+function allSlotsPicked() {
+  var d = S.skinDraft;
+  if (!d) return false;
+  return Object.keys(T.state).every(function (st) { return !!d.files[st]; });
+}
+
+function renderSkinSlots(sk) {
+  var box = el('skin-slots');
+  box.textContent = '';
+  Object.keys(T.state).forEach(function (st) {
+    var lab = document.createElement('label');
+    lab.className = 'pet-slot';
+    var file = document.createElement('input');
+    file.type = 'file';
+    file.accept = 'image/png';
+    file.setAttribute('data-state', st);
+    file.addEventListener('change', onSkinSlotPick);
+    lab.appendChild(file);
+
+    var picked = S.skinDraft && S.skinDraft.files[st];
+    var img = document.createElement('img');
+    img.alt = petStateText(st);
+    if (picked) {
+      img.src = 'data:image/png;base64,' + picked;
+      lab.classList.add('has');
+      lab.appendChild(img);
+    } else if (sk && sk.states && sk.states[st]) {
+      img.src = skinImageUrl(sk.name, st);
+      lab.classList.add('has');
+      lab.appendChild(img);
+    } else {
+      var plus = document.createElement('span');
+      plus.className = 'pet-slot-plus';
+      plus.textContent = '＋';
+      lab.appendChild(plus);
+    }
+    var cap = document.createElement('span');
+    cap.className = 'pet-slot-label';
+    cap.textContent = petStateText(st);
+    lab.appendChild(cap);
+    box.appendChild(lab);
+  });
+}
+
+function onSkinSlotPick(ev) {
+  var input = ev.target;
+  var file = input.files && input.files[0];
+  if (!file || !S.skinDraft) return;
+  var st = input.getAttribute('data-state');
   var reader = new FileReader();
   reader.onload = function () {
-    var data = String(reader.result).split(',')[1] || '';
-    fetch(API + '/skins/frame', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: el('skin-frame-name').value.trim(),
-        /* value 是英文 id —— 后端协议认这个，别改成中文 */
-        state: el('skin-frame-state').value,
-        data: data
-      })
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (b) {
-        if (!b.ok) { meta.textContent = b.error || t('skins:uploadFail'); return; }
-        meta.textContent = t('skins:saved');
-        S.skins = b.items || [];
-        renderSkinList();
-      })
-      .catch(function () { meta.textContent = t('common:netError'); });
+    S.skinDraft.files[st] = String(reader.result).split(',')[1] || '';
+    var sk = S.skinDraft.mode === 'edit' ? findSkin(S.skinDraft.name) : null;
+    renderSkinSlots(sk);
+    el('skin-modal-save').disabled = S.skinDraft.mode === 'new' && !allSlotsPicked();
   };
   reader.readAsDataURL(file);
+}
+
+/* 传上去。allowPartial = true 时不要求六张齐 —— 半途关掉弹层也算一只。 */
+function saveSkinModal(allowPartial) {
+  var d = S.skinDraft;
+  if (!d) return;
+  var meta = el('skin-modal-meta');
+  var name = el('skin-modal-name').value.trim();
+  if (!name) { meta.textContent = t('skins:needName'); return; }
+  var states = Object.keys(d.files);
+  if (!states.length) { closeSkinModal(true); return; }
+  if (d.mode === 'new' && !allowPartial && !allSlotsPicked()) {
+    meta.textContent = t('skins:sixStatesNote');
+    return;
+  }
+  meta.textContent = t('common:saving');
+
+  var p = Promise.resolve();
+  if (d.mode === 'new') {
+    p = p.then(function () {
+      return fetch(API + '/skins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'create', name: name })
+      }).then(function (r) { return r.json(); });
+    }).then(function (b) {
+      if (!b.ok) throw new Error(b.error || t('skins:uploadFail'));
+    });
+  }
+  states.forEach(function (st) {
+    p = p.then(function () {
+      return fetch(API + '/skins/frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, state: st, data: d.files[st] })
+      }).then(function (r) { return r.json(); });
+    }).then(function (b) {
+      if (!b.ok) throw new Error(b.error || t('skins:uploadFail'));
+    });
+  });
+  p.then(function () {
+    closeSkinModal(true);
+    return loadSkins();
+  }).catch(function (err) {
+    meta.textContent = (err && err.message) ? err.message : t('skins:uploadFail');
+  });
+}
+
+function closeSkinModal(saved) {
+  var d = S.skinDraft;
+  if (!saved && d && d.mode === 'new' && Object.keys(d.files).length) {
+    /* 画了一半就关掉 —— 留着这只没画完的，之后能进去补。
+       连名字都没起就没法留 —— 直接关掉。 */
+    if (!el('skin-modal-name').value.trim()) {
+      S.skinDraft = null;
+      el('skin-modal').classList.add('hidden');
+      return;
+    }
+    saveSkinModal(true);
+    return;
+  }
+  S.skinDraft = null;
+  el('skin-modal').classList.add('hidden');
 }
 
 /* ---------------- 功能清单 ---------------- */
@@ -1603,8 +1741,9 @@ function startDashboard() {
   });
 
   el('form-config').addEventListener('submit', saveConfig);
-  el('form-skin-new').addEventListener('submit', onSkinNew);
-  el('form-skin-frame').addEventListener('submit', onSkinFrame);
+  el('btn-skin-goto').addEventListener('click', function () { switchTab('skins'); });
+  el('skin-modal-cancel').addEventListener('click', function () { closeSkinModal(); });
+  el('skin-modal-save').addEventListener('click', function () { saveSkinModal(false); });
 
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -1634,7 +1773,6 @@ function startDashboard() {
 function init() {
   applyI18n();
   renderGuide();
-  fillSelect('skin-frame-state', T.state);
   var ttl = el('telemetry-title');
   if (ttl) ttl.textContent = fill(t('diag:telemetryTitle'), { n: KV.length });
   el('footer-version').textContent = fill(t('app:versionLine'), { v: t('app:version') });

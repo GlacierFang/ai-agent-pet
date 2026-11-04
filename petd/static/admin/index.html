@@ -50,7 +50,7 @@
 
   <nav class="tabs" id="tabs">
     <button type="button" class="tab active" data-tab="pet" data-i18n="tabs:pet">我的宠物</button>
-    <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">素材仓库</button>
+    <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">宠物库</button>
     <button type="button" class="tab" data-tab="features" data-i18n="tabs:features">功能清单</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">安装与诊断</button>
     <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">开始使用</button>
@@ -93,51 +93,26 @@
 
     <section class="card">
       <h2 data-i18n="pet:skinTitle">宠物</h2>
-      <p class="note"><span data-i18n="pet:skinCurrent">当前：</span><strong id="skin-current">—</strong></p>
-      <div class="row" id="skin-picker"></div>
-      <p class="note" data-i18n="pet:skinNote">在「素材仓库」里可以新建宠物、传素材、设为当前。</p>
+      <div class="pet-now">
+        <div class="pet-now-cover"><img id="skin-current-img" class="hidden" alt="当前宠物"></div>
+        <div class="pet-now-body">
+          <p class="hero-line"><span data-i18n="pet:skinCurrent">当前：</span><strong id="skin-current">—</strong></p>
+          <p class="note" data-i18n="pet:skinNote">在「宠物库」里可以新建、换图、切换当前宠物。</p>
+          <button type="button" class="ghost" id="btn-skin-goto" data-i18n="pet:skinGoto">去宠物库</button>
+        </div>
+      </div>
     </section>
   </section>
 
-  <!-- ============ 素材仓库 ============ -->
+  <!-- ============ 宠物库 ============ -->
   <section class="panel hidden" data-panel="skins">
     <section class="card">
-      <h2 data-i18n="skins:title">宠物</h2>
-      <p class="note" data-i18n-html="skins:noteHtml">仓库自带的宠物随版本走；你自己建的存放在 petd/data/skins/，不进仓库。</p>
-      <p class="note" data-i18n="skins:sixStatesNote">一套宠物要六种状态齐了才能设为当前 —— idle / working / waiting / done / error / sleeping，缺哪种会标出来。</p>
-      <div class="list" id="skin-list"></div>
+      <h2 data-i18n="skins:title">宠物库</h2>
+      <p class="note" data-i18n="skins:noteHtml">可以自己维护更多宠物 —— 新建、上传六张状态图、设为当前。</p>
+      <p class="note" data-i18n="skins:sixStatesNote">一套宠物要六种状态：闲置、干活、等你确认、刚完成、出错、睡着了。六张都齐了才能设为当前。</p>
+      <div class="pet-grid" id="skin-list"></div>
+      <div class="row"><span class="muted" id="skin-list-meta"></span></div>
     </section>
-
-    <div class="grid2">
-      <section class="card">
-        <h2 data-i18n="skins:newTitle">新建宠物</h2>
-        <form id="form-skin-new" autocomplete="off">
-          <label><span data-i18n="skins:name">名称</span><input type="text" id="skin-new-name" placeholder="cat" data-i18n-placeholder="skins:namePlaceholder"></label>
-          <div class="row"><button type="submit" data-i18n="skins:create">创建</button>
-            <span class="muted" id="skin-new-meta" data-i18n="skins:nameHint">字母、数字、下划线、连字符</span></div>
-        </form>
-      </section>
-
-      <section class="card">
-        <h2 data-i18n="skins:frameTitle">上传状态图</h2>
-        <form id="form-skin-frame" autocomplete="off">
-          <label><span data-i18n="skins:name">宠物</span><input type="text" id="skin-frame-name" placeholder="cat" data-i18n-placeholder="skins:namePlaceholder"></label>
-          <!-- option 的 value 是后端协议认的英文 id；显示文字写死一份中文，
-               JS 起来后会再用字典刷新一遍（没有 JS 也不至于空白） -->
-          <label><span data-i18n="skins:state">状态</span><select id="skin-frame-state">
-            <option value="idle">闲置</option>
-            <option value="working">忙碌</option>
-            <option value="waiting">等你确认</option>
-            <option value="done">刚完成</option>
-            <option value="error">出错</option>
-            <option value="sleeping">睡着了</option>
-          </select></label>
-          <label><span data-i18n="skins:image">图片</span><input type="file" id="skin-frame-file" accept="image/png"></label>
-          <div class="row"><button type="submit" data-i18n="skins:upload">上传</button>
-            <span class="muted" id="skin-frame-meta"></span></div>
-        </form>
-      </section>
-    </div>
   </section>
 
   <!-- ============ 功能清单 ============ -->
@@ -224,6 +199,23 @@
   </section>
 
 </main>
+
+<!-- 新建 / 编辑宠物 -->
+<div class="modal hidden" id="skin-modal">
+  <div class="modal-box card">
+    <h2 id="skin-modal-title" data-i18n="skins:newTitle">新建宠物</h2>
+    <label><span data-i18n="skins:name">名字</span>
+      <input type="text" id="skin-modal-name" placeholder="咖啡猫" data-i18n-placeholder="skins:namePlaceholder"></label>
+    <p class="note" data-i18n="skins:slotsNote">六种状态，每种一张图。</p>
+    <div class="pet-slots" id="skin-slots"></div>
+    <p class="note" data-i18n="skins:specNote">240×320 PNG · 透明背景</p>
+    <div class="row">
+      <button type="button" class="ghost" id="skin-modal-cancel" data-i18n="skins:cancel">取消</button>
+      <button type="button" id="skin-modal-save" data-i18n="skins:save">完成</button>
+      <span class="muted" id="skin-modal-meta"></span>
+    </div>
+  </div>
+</div>
 
 <footer>
   <p id="footer-version">宠物屏幕 · 活在小屏幕上的AI宠物助理</p>

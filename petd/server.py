@@ -476,10 +476,13 @@ def create_app(cfg=None, start_gateway=True, port=None):
         try:
             if op == "create":
                 skins_mod.create_skin(root, name)
-                pet.log("info", "新建形象 %s" % name)
+                pet.log("info", "新建宠物 %s" % name)
             elif op == "delete":
                 skins_mod.delete_skin(root, name)
-                pet.log("info", "删除形象 %s" % name)
+                # 删掉的正好是当前这只 —— 换回内置的，别让屏上空着
+                if pet.skin == name:
+                    await pet.set_skin("default")
+                pet.log("info", "删除宠物 %s" % name)
             elif op == "activate":
                 await pet.set_skin(name)
             else:
@@ -489,6 +492,25 @@ def create_app(cfg=None, start_gateway=True, port=None):
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         return JSONResponse({"ok": True, "items": skins_mod.list_skin_info(root),
                              "current": pet.skin})
+
+    async def api_skin_image(request):
+        """某只宠物某一态的 PNG —— 宠物卡封面用。
+
+        名字可能带中文，所以走 query 参数而不是路径段 ——
+        浏览器会自动编码，不用前端操心。
+        """
+        root = pet.cfg.get("_repo_root", ".")
+        name = str(request.query_params.get("name") or "")
+        state = str(request.query_params.get("state") or "idle")
+        if not skins_mod.valid_name(name) or state not in skins_mod.STATES:
+            return JSONResponse({"ok": False, "error": "参数不对"},
+                                status_code=400)
+        data = skins_mod.image_bytes(root, name, state)
+        if data is None:
+            return JSONResponse({"ok": False, "error": "没有图"},
+                                status_code=404)
+        return Response(data, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
 
     async def api_skin_frame_post(request):
         try:
@@ -507,7 +529,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
             path = skins_mod.save_image(root, name, state, png)
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
-        pet.log("info", "形象素材已保存 %s" % path.name)
+        pet.log("info", "宠物图已保存 %s" % path.name)
         return JSONResponse({"ok": True, "items": skins_mod.list_skin_info(root),
                              "current": pet.skin})
 
@@ -569,6 +591,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/skins", _guard(api_skins_get), methods=["GET"]),
         Route("/admin/api/skins", _guard(api_skins_post), methods=["POST"]),
         Route("/admin/api/skins/frame", _guard(api_skin_frame_post), methods=["POST"]),
+        Route("/admin/api/skins/image", _guard(api_skin_image), methods=["GET"]),
         Route("/admin/api/events", _guard(api_events)),
         Route("/admin/api/releases", _guard(api_releases)),
         Route("/admin/api/ota", _guard(api_ota), methods=["POST"]),

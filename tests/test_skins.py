@@ -1,8 +1,8 @@
-"""形象素材的测试。
+"""宠物的测试。
 
-素材是「用户自己的资产」：仓库自带一份，用户可以在自己的 petd/data/ 里改。
+宠物是「用户自己的资产」：仓库自带一份，用户可以在自己的 petd/data/ 里改。
 
-一套皮肤 = 六态各一张图。不分帧。
+一套宠物 = 六态各一张图。不分帧。
 """
 
 import pathlib
@@ -61,6 +61,31 @@ def test_invalid_skin_name_rejected(repo):
         skins.create_skin(repo, "../etc")
     with pytest.raises(ValueError):
         skins.create_skin(repo, "a/b")
+    with pytest.raises(ValueError):
+        skins.create_skin(repo, "a:b")
+    with pytest.raises(ValueError):
+        skins.create_skin(repo, "")
+
+
+def test_chinese_skin_name_allowed(repo):
+    """用户起中文名 —— 不该被文件系统逼着只能用字母。"""
+    d = skins.create_skin(repo, "咖啡猫")
+    assert d.is_dir()
+    assert "咖啡猫" in skins.list_skins(repo)
+
+
+def test_builtin_pet_has_display_title(repo):
+    """内置那只在界面上叫「默认宠物」，目录名还是 default。"""
+    (repo / "skins" / "default").mkdir(parents=True)
+    info = skins.skin_info(repo, "default")
+    assert info["title"] == "默认宠物"
+    assert info["name"] == "default"
+
+
+def test_user_pet_title_is_its_own_name(repo):
+    skins.create_skin(repo, "咖啡猫")
+    info = skins.skin_info(repo, "咖啡猫")
+    assert info["title"] == "咖啡猫"
 
 
 def test_reserved_name_rejected(repo):
