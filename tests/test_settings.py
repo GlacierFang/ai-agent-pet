@@ -19,10 +19,12 @@ from petd.server import create_app  # noqa: E402
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
+    """功能清单跟鉴权无关 —— 显式关掉鉴权，省得每个用例都先登录。"""
     from starlette.testclient import TestClient
     cfg = config.defaults()
     cfg["_repo_root"] = str(tmp_path)
     monkeypatch.setattr("petd.config.DATA_DIR", tmp_path)
+    monkeypatch.setenv("PETD_ADMIN_AUTH", "off")
     with TestClient(create_app(cfg, start_gateway=False)) as c:
         yield c
 

@@ -23,8 +23,10 @@ def tmp_setup_state(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    """引导接口跟鉴权无关 —— 显式关掉鉴权。"""
     from starlette.testclient import TestClient
+    monkeypatch.setenv("PETD_ADMIN_AUTH", "off")
     with TestClient(create_app(config.defaults(), start_gateway=False)) as c:
         yield c
 
@@ -99,9 +101,10 @@ def test_provisioning_block_shape(client):
     assert prov["note"] == "密码显示在设备屏幕上"
 
 
-def test_mdns_can_be_disabled_by_config():
+def test_mdns_can_be_disabled_by_config(monkeypatch):
     cfg = config.defaults()
     cfg["mdns"] = {"enabled": False}
+    monkeypatch.setenv("PETD_ADMIN_AUTH", "off")
     from starlette.testclient import TestClient
     with TestClient(create_app(cfg, start_gateway=False)) as c:
         mdns = c.get("/admin/api/setup").json()["mdns"]

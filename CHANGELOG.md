@@ -7,6 +7,16 @@
 
 ### Added
 
+**后台口令**
+
+- **第一次访问控制台时设口令**：petd 起来发现没口令，后台只显示「设一个口令」，其余接口全锁（401），设完直接放行
+  - 新接口 `POST /admin/api/setup/password` —— 只能调一次，设过之后锁死（403），别人改不掉你的口令
+  - 口令**只存 scrypt 哈希**，落在 `petd/data/admin.json`（权限 600，已 gitignore）—— 拿到文件也没法反推口令
+  - 忘了就删掉那个文件重来 —— 本地单用户设备不做「找回口令」
+- **登录试错限流**：连错 5 次锁 30 秒
+- **`GET /admin/api/session` 加 `authMode`**：`none`（还没设）/ `set`（设过了）/ `disabled`（显式关掉）
+- **`PETD_ADMIN_AUTH=off`**：完全关掉后台鉴权（开发自跑用）
+
 **屏上分层 + feature 插件**
 
 - **屏分两层，整屏切换**：消息层（宠物本体 + 状态）和内容层（feature 卡片）互斥 —— 屏上永远只有一样东西，不是上下分区
@@ -22,28 +32,6 @@
   - 用户自建的放 `petd/data/features/`，不进仓库，重启 petd 生效
 - **宠物自己冒一句话**：空闲时偶尔说一句（本地台词，10–30 分钟一次），有事等你确认时它不插嘴
 - **后台显示屏上在哪一层**，素材列表标出**还缺哪些状态**
-
-### Changed
-
-**后台控制台**
-
-- **功能清单取代能力清单**：原来那份列的是旋钮动作 id，`enabled` 字段全仓没有任何地方读它 —— 勾掉了什么也不会发生。换成「用户能挑的东西」：屏幕页面 / 信息密度 / 宠物形象 / 关注的会话 / 多久算睡着，每一项点一下立刻生效，也写进配置
-  - 新接口 `GET /admin/api/features`（清单）+ `POST /admin/api/features`（改一项）
-  - 界面参考 InkSight 的模式目录：一项一张卡，卡里是可选的值，选中项反白
-  - 旋钮和后台走同一批 setter（`set_page` / `set_density` / `set_skin` / `set_session` / `set_sleep_minutes`）
-- **「开始使用」独立成一个区块**，不再混在「我的宠物」里
-- **右上角角标改「退出登录」**：登录后那里给一个能点的按钮，调 `POST /admin/api/logout` 清 cookie 后回口令页（原来显示的是「已启用口令」这种状态描述，用户只会以为能点）
-- **未登录也能看到「开始使用」**：新增公开接口 `GET /admin/api/setup/public`，只给设备地址和配网说明 —— 设备编号 / 会话数 / 帧数一律不给
-
-### Removed
-
-- **假的能力清单**：`petd/capabilities.py` + `petd/data/capabilities.json`。那份清单的 `enabled` 从来没被任何代码读过
-
-### Fixed
-
-- **gateway token 不会被写进 `petd/data/config.json`**：那个文件是进 git 的，而内存里的 token 可能来自 `PETD_GATEWAY_TOKEN` 环境变量或 `petd/data/secrets.json` —— 整份配置写回磁盘就等于把凭据提交进仓库。现在写盘时若旧文件里本来没有 token，就不写新的进去（用户自己手写进 config.json 的那个会保留）
-
-### Added
 
 **服务端 petd**
 
@@ -64,7 +52,7 @@
   - 凭据存 NVS（namespace `petd`），断电不丢；配网页的「服务端地址」留空则用默认 `petd.local`
   - 三个重回配网入口：开机按住 BOOT 键 / 开机 8 秒内长按旋钮 5 秒 / 连续连不上 30 次自动回落
   - Wi-Fi 密码错时屏上明确显示 `NO WIFI`，不默默重连
-- **5×7 ASCII 点阵字库**（`firmware/main/ascii_font.h`）：自绘，只覆盖配网引导屏需要的字符（空格 `- : . / _ 0-9 A-Z）。设备端仍不放中文字库 —— 业务文字由 petd 渲染进 JPEG
+- **5×7 ASCII 点阵字库**（`firmware/main/ascii_font.h`）：自绘，只覆盖配网引导屏需要的字符（空格 `- : . / _ 0-9 A-Z`）。设备端仍不放中文字库 —— 业务文字由 petd 渲染进 JPEG
 - **屏上引导**（`firmware/main/screen_text.c` + `display_blit`/`display_fill_rect`）：热点名、配网密码、`192.168.4.1`、连接状态，配网全程脱网也能显示
 - status 报文增加 `ip` 与 `provisioned` 字段
 
@@ -74,8 +62,27 @@
 - **「开始使用」操作指引**：四步进度自动检测（后台就绪 / 设备已连接 / 屏幕已出画面 / 宠物已上线），配「第一次用？按这四步来」折叠区
 - 诊断遥测默认折叠（26 项原始 key 展开才看）；页脚只留版本号，开发者提示移进「安装与诊断」
 
+### Changed
+
+- **默认绑 `0.0.0.0` 不变**，但后台默认要有口令 —— 之前是「没设口令 = 全敞开」，现在是「没设口令 = 锁着等用户设」
+
+**后台控制台**
+
+- **功能清单取代能力清单**：原来那份列的是旋钮动作 id，`enabled` 字段全仓没有任何地方读它 —— 勾掉了什么也不会发生。换成「用户能挑的东西」：屏幕页面 / 信息密度 / 宠物形象 / 关注的会话 / 多久算睡着，每一项点一下立刻生效，也写进配置
+  - 新接口 `GET /admin/api/features`（清单）+ `POST /admin/api/features`（改一项）
+  - 界面参考 InkSight 的模式目录：一项一张卡，卡里是可选的值，选中项反白
+  - 旋钮和后台走同一批 setter（`set_page` / `set_density` / `set_skin` / `set_session` / `set_sleep_minutes`）
+- **「开始使用」独立成一个区块**，不再混在「我的宠物」里
+- **右上角角标改「退出登录」**：登录后那里给一个能点的按钮，调 `POST /admin/api/logout` 清 cookie 后回口令页（原来显示的是「已启用口令」这种状态描述，用户只会以为能点）
+- **未登录也能看到「开始使用」**：新增公开接口 `GET /admin/api/setup/public`，只给设备地址和配网说明 —— 设备编号 / 会话数 / 帧数一律不给
+
+### Removed
+
+- **假的能力清单**：`petd/capabilities.py` + `petd/data/capabilities.json`。那份清单的 `enabled` 从来没被任何代码读过
+
 ### Fixed
 
+- **gateway token 不会被写进 `petd/data/config.json`**：那个文件是进 git 的，而内存里的 token 可能来自 `PETD_GATEWAY_TOKEN` 环境变量或 `petd/data/secrets.json` —— 整份配置写回磁盘就等于把凭据提交进仓库。现在写盘时若旧文件里本来没有 token，就不写新的进去（用户自己手写进 config.json 的那个会保留）
 - **mDNS 在 systemd 沙箱里广播回环地址**（会让设备永远连不上服务端）
   - systemd 的 `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` 挡掉 netlink，`socket.if_nameindex()` 抛 `OSError(97)`，网卡枚举失败后 fallback 给出 `127.0.0.1`
   - 改用 `SIOCGIFCONF` ioctl 枚举（纯 ioctl，不需要 netlink），并在枚举不到真实地址时返回空列表，而不是拿 `127.0.0.1` 冒充

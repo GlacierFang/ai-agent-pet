@@ -1,8 +1,10 @@
 """后台口令的单测。
 
-口令是**可选**的：没设 PETD_ADMIN_PASSWORD 时行为跟以前一模一样，
-这样 clone 下来 `python3 -m petd` 就能直接跑。
-设了之后就是一把共享锁 —— 没有注册、没有用户表、没有多账号。
+口令的状态有三种（"none" 还没设 / "set" 设过了 / "disabled" 显式关掉）——
+"none" 和 "disabled" 那两条路径在 tests/test_auth_setup.py 里。
+
+这里测的是「设过了」这条路径上的鉴权行为：一把共享锁，
+没有注册、没有用户表、没有多账号。
 """
 import pathlib
 import sys
@@ -18,41 +20,21 @@ from petd.server import create_app  # noqa: E402
 PW = "ceshi-mima-abc123"
 
 
-@pytest.fixture
-def no_pw_client(monkeypatch):
+@pytest.fixture(autouse=True)
+def tmp_data(tmp_path, monkeypatch):
+    """口令文件写到临时目录，别污染仓库里的 petd/data/。"""
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.delenv("PETD_ADMIN_PASSWORD", raising=False)
-    from starlette.testclient import TestClient
-    with TestClient(create_app(config.defaults(), start_gateway=False)) as c:
-        yield c
+    monkeypatch.delenv("PETD_ADMIN_AUTH", raising=False)
+    yield
 
 
-@pytest.fixture
+@pytest.fixture()
 def pw_client(monkeypatch):
     monkeypatch.setenv("PETD_ADMIN_PASSWORD", PW)
     from starlette.testclient import TestClient
     with TestClient(create_app(config.defaults(), start_gateway=False)) as c:
         yield c
-
-
-# ---------- 没设口令：行为不变 ----------
-def test_no_password_session_says_not_required(no_pw_client):
-    r = no_pw_client.get("/admin/api/session")
-    assert r.status_code == 200
-    assert r.json()["authRequired"] is False
-
-
-def test_no_password_status_is_open(no_pw_client):
-    assert no_pw_client.get("/admin/api/status").status_code == 200
-
-
-def test_no_password_config_is_open(no_pw_client):
-    assert no_pw_client.get("/admin/api/config").status_code == 200
-
-
-def test_no_password_login_says_not_required(no_pw_client):
-    r = no_pw_client.post("/admin/api/login", json={"password": "whatever"})
-    assert r.status_code == 200
-    assert r.json()["authRequired"] is False
 
 
 # ---------- 设了口令：必须先登录 ----------
@@ -138,32 +120,39 @@ def test_password_not_in_public_config_view():
     assert "SECRET" not in str(pub)
 
 
-def test_dashboard_body_not_hidden_by_default(no_pw_client):
-    """没设口令时主体必须可见。
+def test_dashboard_body_not_hidden_by_default(pw_client):
+    """页面外壳里主体不能预先藏起来。
 
     回归：加口令那次给 <main> 加了 class=hidden，而解锁它的 hideGate()
-    只在登录成功后调用 —— 没设口令的路径没人调，页面只剩页头页脚。
+    只在登录成功后调用 —— 别的路径没人调，页面只剩页头页脚。
     """
-    html = no_pw_client.get("/admin/").text
+    html = pw_client.get("/admin/").text
     assert '<main id="app">' in html
     assert '<main id="app" class="hidden">' not in html
 
 
-def test_preview_img_has_no_static_src(no_pw_client):
+def test_preview_img_has_no_static_src(pw_client):
     """预览图不能用静态 src。
 
     回归：<img src="api/preview.jpg"> 是静态引用，浏览器一解析 HTML 就发请求，
     那时还没登录、没有 cookie -> 401。真实 URL 由 app.js 在登录后设置。
     """
-    html = no_pw_client.get("/admin/").text
+    html = pw_client.get("/admin/").text
     assert 'src="api/preview.jpg"' not in html
     assert "data:image/gif;base64" in html
 
 
-def test_dashboard_unlocks_body_in_js(no_pw_client):
+def test_dashboard_unlocks_body_in_js(pw_client):
     """app.js 必须自己解锁 #app，不能指望 hideGate()。
 
     没设口令时没人调 hideGate()，解锁只能写在 startDashboard() 里。
     """
-    js = no_pw_client.get("/admin/assets/app.js").text
+    js = pw_client.get("/admin/assets/app.js").text
     assert "el('app').classList.remove('hidden')" in js
+
+
+def test_setup_form_exists_in_page(pw_client):
+    """页面里得有「设口令」那个表单 —— 第一次访问要用。"""
+    html = pw_client.get("/admin/").text
+    assert "form-gate-setup" in html
+    assert "gate-setup-password" in html

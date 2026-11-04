@@ -27,10 +27,15 @@ def main(argv=None):
     port = args.port or cfg["server"]["port"]
 
     if host in ("0.0.0.0", "::"):
-        if config_mod.admin_password():
+        mode = config_mod.admin_auth_mode()
+        if mode == "disabled":
+            print("[petd] 监听 %s —— 后台鉴权已显式关闭（PETD_ADMIN_AUTH=off）。"
+                  % host)
+        elif mode == "set":
             print("[petd] 监听 %s —— 后台已启用口令保护。" % host)
         else:
-            print("[petd] 监听 %s —— 后台未设口令：能连到这个端口的人都能查看状态、修改配置，请勿暴露到公网。" % host)
+            print("[petd] 监听 %s —— 后台还没有口令。"
+                  "打开控制台时会让你设一个，设之前后台是锁着的。" % host)
     else:
         print("[petd] 监听 %s:%d" % (host, port))
     print("[petd] 控制台 http://%s:%d/admin/" % (host, port))

@@ -159,6 +159,10 @@ main {
 .hidden { display: none !important; }
 
 /* 口令页 */
+/* 正在「设口令」时，登录表单让位 */
+.gate.setting #form-gate { display: none; }
+.gate.setting #form-gate-setup { display: block; }
+
 .gate {
   max-width: 520px;
   margin: 70px auto;

@@ -41,8 +41,82 @@ AUTH_COOKIE = "petd_admin"
 AUTH_TTL = 7 * 24 * 3600
 
 
-def _derive_key(password):
-    return hashlib.sha256(password.encode("utf-8")).digest()
+def _derive_key(material):
+    """签名用的材料。传进来的已经是不含明文口令的东西。"""
+    return hashlib.sha256(material.encode("utf-8")).digest()
+
+
+class _Auth:
+    """后台鉴权状态。
+
+    三种状态：
+
+      disabled  显式关掉（PETD_ADMIN_AUTH=off）—— 完全敞开，开发用
+      set       已经设了口令 —— 要登录
+      none      还没设 —— 第一次访问时设一个，设之前后台全锁
+
+    口令的来源有两种：自动部署给的是明文（env / secrets.json），
+    第一次访问设的是哈希（petd/data/admin.json）。两者都只用哈希值
+    派生签名密钥 —— 明文口令不留在内存里太久。
+    """
+
+    # 试错限流：连错这么多次就先歇一会儿
+    MAX_FAILS = 5
+    LOCK_SECONDS = 30
+
+    def __init__(self):
+        self.mode = config_mod.admin_auth_mode()
+        self.key = self._derive()
+        self._fails = 0
+        self._locked_until = 0.0
+
+    def _material(self):
+        digest = config_mod.admin_password_hash()
+        if digest:
+            return "hash:" + digest
+        plain = config_mod.admin_password()
+        return "plain:" + plain if plain else ""
+
+    def _derive(self):
+        material = self._material()
+        return _derive_key(material) if material else None
+
+    def reload(self):
+        """设完口令后重新算 —— 签名密钥变了。"""
+        self.mode = config_mod.admin_auth_mode()
+        self.key = self._derive()
+
+    def needs_setup(self):
+        """还没设口令 —— 后台锁着，等用户来设。"""
+        return self.mode == "none"
+
+    def required(self):
+        """要不要登录。"""
+        return self.mode == "set"
+
+    def open(self):
+        """完全敞开。"""
+        return self.mode == "disabled"
+
+    def authed(self, request):
+        if self.open():
+            return True
+        if self.key is None:
+            return False
+        return _token_ok(self.key, request.cookies.get(AUTH_COOKIE))
+
+    def rate_limited(self):
+        return self._locked_until > time.time()
+
+    def note_failure(self):
+        self._fails += 1
+        if self._fails >= self.MAX_FAILS:
+            self._locked_until = time.time() + self.LOCK_SECONDS
+            self._fails = 0
+
+    def note_success(self):
+        self._fails = 0
+        self._locked_until = 0.0
 
 
 def _sign(key, payload):
@@ -101,19 +175,13 @@ def create_app(cfg=None, start_gateway=True, port=None):
     if port:
         pet.listen_port = int(port)
 
-    # 后台口令：没设就不鉴权（clone 下来直接能跑）。
+    # 后台鉴权。默认是「还没设口令」—— 第一次访问时让用户设一个。
     # 设了就是一把共享锁 —— 不是账号体系，没有注册/多用户。
-    _pw = config_mod.admin_password()
-    _key = _derive_key(_pw) if _pw else None
-
-    def _authed(request):
-        if _key is None:
-            return True
-        return _token_ok(_key, request.cookies.get(AUTH_COOKIE))
+    _auth = _Auth()
 
     def _guard(fn):
         async def wrapper(request):
-            if not _authed(request):
+            if not _auth.authed(request):
                 return JSONResponse({"ok": False, "error": "unauthorized"},
                                     status_code=401)
             return await fn(request)
@@ -191,20 +259,62 @@ def create_app(cfg=None, start_gateway=True, port=None):
             body = await request.json()
         except Exception:
             return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
-        if _key is None:
-            return JSONResponse({"ok": True, "authRequired": False})
+        if _auth.open():
+            return JSONResponse({"ok": True, "authRequired": False,
+                                 "authMode": "disabled"})
+        if _auth.needs_setup():
+            return JSONResponse({"ok": False, "error": "还没设口令"},
+                                status_code=409)
+        if _auth.rate_limited():
+            return JSONResponse({"ok": False, "error": "试太多次了，稍后再试"},
+                                status_code=429)
         given = str((body or {}).get("password") or "")
-        # compare_digest 对非 ASCII 的 str 会抛 TypeError，统一按字节比
-        if not hmac.compare_digest(given.encode("utf-8"), _pw.encode("utf-8")):
+        if not config_mod.verify_admin_password(given):
+            _auth.note_failure()
             return JSONResponse({"ok": False, "error": "口令不对"}, status_code=401)
-        resp = JSONResponse({"ok": True, "authRequired": True})
-        resp.set_cookie(AUTH_COOKIE, _make_token(_key), max_age=AUTH_TTL,
+        _auth.note_success()
+        resp = JSONResponse({"ok": True, "authRequired": True,
+                             "authMode": _auth.mode})
+        resp.set_cookie(AUTH_COOKIE, _make_token(_auth.key), max_age=AUTH_TTL,
+                        httponly=True, samesite="lax")
+        return resp
+
+    async def api_setup_password(request):
+        """第一次访问时设口令。
+
+        只有「还没设」时才能调 —— 已经设了的话，这条路必须锁死，
+        否则任何人都能改掉别人的口令。
+        """
+        if _auth.open():
+            return JSONResponse({"ok": True, "authRequired": False,
+                                 "authMode": "disabled"})
+        if not _auth.needs_setup():
+            return JSONResponse({"ok": False, "error": "口令已经设过了"},
+                                status_code=403)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        password = str((body or {}).get("password") or "")
+        if not password:
+            return JSONResponse({"ok": False, "error": "口令不能为空"},
+                                status_code=400)
+        try:
+            config_mod.set_admin_password(password)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+        _auth.reload()
+        pet.log("info", "后台口令已设置")
+        resp = JSONResponse({"ok": True, "authRequired": True,
+                             "authMode": _auth.mode})
+        resp.set_cookie(AUTH_COOKIE, _make_token(_auth.key), max_age=AUTH_TTL,
                         httponly=True, samesite="lax")
         return resp
 
     async def api_session(request):
-        return JSONResponse({"authRequired": _key is not None,
-                             "authed": _authed(request)})
+        return JSONResponse({"authRequired": _auth.required(),
+                             "authMode": _auth.mode,
+                             "authed": _auth.authed(request)})
 
     async def api_logout(request):
         """登出 —— 清掉 cookie。前端拿到 200 就回到口令页。"""
@@ -391,6 +501,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin", admin_redirect),
         Route("/admin/", admin_index),
         Route("/admin/api/login", api_login, methods=["POST"]),
+        Route("/admin/api/setup/password", api_setup_password, methods=["POST"]),
         Route("/admin/api/logout", api_logout, methods=["POST"]),
         Route("/admin/api/session", api_session),
         Route("/admin/api/setup/public", api_setup_public),

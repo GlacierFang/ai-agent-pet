@@ -24,6 +24,16 @@
     <div class="muted" id="gate-meta"></div>
   </form>
 
+  <!-- 第一次访问：还没设口令 —— 显示「设一个」，不是登录框 -->
+  <form id="form-gate-setup" class="hidden" autocomplete="off">
+    <h1 data-i18n="auth:setupTitle">先设个口令</h1>
+    <p class="note" data-i18n="auth:setupNote">这台机器上的 petd 后台还没有口令。设一个，只有你知道它是什么。</p>
+    <label><span data-i18n="auth:setupPassword">口令</span><input type="password" id="gate-setup-password" autocomplete="new-password"></label>
+    <label><span data-i18n="auth:setupAgain">再输一次</span><input type="password" id="gate-setup-password2" autocomplete="new-password"></label>
+    <button type="submit" data-i18n="auth:setupSubmit">设好了</button>
+    <div class="muted" id="gate-setup-meta"></div>
+  </form>
+
   <!-- 没登录也要能看到「怎么开始」—— 最需要这份指引的人正是还没配好的人 -->
   <section class="gate-setup">
     <h2 data-i18n="setup:title">开始使用</h2>

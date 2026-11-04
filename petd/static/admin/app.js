@@ -51,7 +51,18 @@ var T = {
     netFail: '验证失败：网络错误',
     expired: '会话已过期，请重新输入口令',
     unreachable: '连不上 petd 服务',
-    footerWarn: '未设置访问口令，请勿把本控制台暴露到公网。'
+    footerWarn: '未设置访问口令，请勿把本控制台暴露到公网。',
+    setupTitle: '先设个口令',
+    setupNote: '这台机器上的 petd 后台还没有口令。设一个，只有你知道它是什么。',
+    setupPassword: '口令',
+    setupAgain: '再输一次',
+    setupSubmit: '设好了',
+    setupMismatch: '两次输的不一样',
+    setupTooShort: '口令不能为空',
+    setupDone: '设好了，去看看',
+    setupFailed: '设不了：{e}',
+    setupSaved: '口令已保存在 petd/data/admin.json（只存哈希，不存明文）。忘了就删掉那个文件重来。',
+    locked: '试太多次了，等 30 秒再来'
   },
 
   tabs: {
@@ -1237,6 +1248,7 @@ function doLogout() {
     .then(function () {
       stopDashboard();
       showGate();
+      hideSetupGate();
       renderAuth({ authRequired: true, authed: false });
     });
 }
@@ -1267,10 +1279,64 @@ function showGate(msg) {
   el('gate-password').focus();
 }
 
+/* 还没设口令 —— 显示「设一个」的表单，不是登录框。
+   这一步是用户第一次打开后台时唯一要做的事，做完就能进去。 */
+function showSetupGate(msg) {
+  S.gated = true;
+  el('app').classList.add('hidden');
+  el('gate').classList.remove('hidden');
+  el('gate').classList.add('setting');
+  el('gate-setup-meta').textContent = msg || '';
+  var pw = el('gate-setup-password');
+  if (pw) pw.focus();
+}
+
+function hideSetupGate() {
+  el('gate').classList.remove('setting');
+}
+
 function hideGate() {
   S.gated = false;
   el('gate').classList.add('hidden');
   el('app').classList.remove('hidden');
+}
+
+/* 第一次访问：设口令。设完直接放行 —— 不用再登一次。 */
+function onSetupSubmit(ev) {
+  ev.preventDefault();
+  var meta = el('gate-setup-meta');
+  var pw = el('gate-setup-password');
+  var pw2 = el('gate-setup-password2');
+  var val = pw ? pw.value : '';
+  if (!val) {
+    meta.textContent = t('auth:setupTooShort');
+    return;
+  }
+  if (!pw2 || pw2.value !== val) {
+    meta.textContent = t('auth:setupMismatch');
+    return;
+  }
+  meta.textContent = t('auth:verifying');
+  fetch(API + '/setup/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: val })
+  })
+    .then(function (r) {
+      return r.json().then(function (b) { return { ok: r.ok, body: b }; });
+    })
+    .then(function (res) {
+      if (!res.ok || !res.body || !res.body.ok) {
+        meta.textContent = fill(t('auth:setupFailed'),
+          { e: (res.body && res.body.error) || t('common:unknownError') });
+        return;
+      }
+      hideSetupGate();
+      renderAuth({ authRequired: true, authed: true });
+      startDashboard();
+      loadConfig();
+    })
+    .catch(function () { meta.textContent = t('auth:netFail'); });
 }
 
 function onGateSubmit(ev) {
@@ -1362,6 +1428,8 @@ function init() {
   if (ttl) ttl.textContent = fill(t('diag:telemetryTitle'), { n: KV.length });
   el('footer-version').textContent = fill(t('app:versionLine'), { v: t('app:version') });
   el('form-gate').addEventListener('submit', onGateSubmit);
+  var setupForm = el('form-gate-setup');
+  if (setupForm) setupForm.addEventListener('submit', onSetupSubmit);
   el('btn-logout').addEventListener('click', doLogout);
   renderGuide('gate-guide');
   loadPublicSetup();
@@ -1370,6 +1438,11 @@ function init() {
     .then(function (r) { return r.json(); })
     .then(function (s) {
       renderAuth(s);
+      /* 还没设口令 —— 先让用户设一个 */
+      if (s.authMode === 'none') {
+        showSetupGate();
+        return;
+      }
       if (s.authRequired && !s.authed) {
         showGate();
         return;
