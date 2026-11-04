@@ -155,6 +155,10 @@ var T = {
   settings: {
     title: '宠物设定',
     note: '宠物能做的，和做事的节奏。都在这儿改，改完立刻生效。',
+    featuresTitle: '功能',
+    featuresNote: '勾上这些，宠物没事干的时候轮播显示。',
+    rhythmTitle: '设置',
+    rhythmNote: '宠物做事的节奏。',
     empty: '还没有设定项',
     failed: '改不了：{e}',
     sleepRange: '{a} → {b}',
@@ -163,8 +167,8 @@ var T = {
     sleepCross: '跨午夜',
     sleepHint: '在轴上点一下定起点，再点一下定结束（落点对齐到 30 分钟）',
     sleepHintPending: '再点一下定结束',
-    sleepOn: '夜里睡觉',
-    sleepOff: '夜里不睡'
+    sleepOn: '睡觉',
+    sleepOff: '不睡觉'
   },
 
 
@@ -303,7 +307,7 @@ var S = {
   gated: false,    // 停在口令页时为 true
   started: false,  // dashboard 是否已经启动过
   sessions: [],
-  capabilities: [],  // 宠物会做哪些（GET /settings）
+  features: [],      // 屏上会显示哪些内容（GET /settings）
   settings: [],      // 做事的节奏（GET /settings）
   skins: [],
   skin: '',
@@ -1132,36 +1136,36 @@ function renderControl(o) {
   return rw;
 }
 
-/* 能力卡 —— 勾上就上屏轮播。 */
-function capabilityCard(c) {
+/* 功能卡 —— 勾上就上屏轮播。 */
+function featureCard(c) {
   var card = document.createElement('div');
-  card.className = 'set-card cap';
+  card.className = 'set-card feat';
 
   var head = document.createElement('label');
-  head.className = 'cap-head';
+  head.className = 'feat-head';
   var cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = !!c.enabled;
-  cb.addEventListener('change', function () { toggleCapability(c.name, cb.checked); });
+  cb.addEventListener('change', function () { toggleFeature(c.name, cb.checked); });
   head.appendChild(cb);
   var nm = document.createElement('span');
-  nm.className = 'cap-name';
+  nm.className = 'feat-name';
   nm.textContent = c.title;
   head.appendChild(nm);
   card.appendChild(head);
 
   if (c.tip) {
     var tip = document.createElement('div');
-    tip.className = 'cap-tip';
+    tip.className = 'feat-tip';
     tip.textContent = c.tip;
     card.appendChild(tip);
   }
 
   (c.options || []).forEach(function (o) {
     var row = document.createElement('div');
-    row.className = 'cap-opt';
+    row.className = 'feat-opt';
     var lb = document.createElement('span');
-    lb.className = 'cap-opt-label';
+    lb.className = 'feat-opt-label';
     lb.textContent = o.name;
     row.appendChild(lb);
     row.appendChild(renderControl(o));
@@ -1192,24 +1196,49 @@ function settingCard(s) {
   return card;
 }
 
+/* 一段的小标题 + 一句说明。段是空的就不画标题。 */
+function sectionHead(box, title, note) {
+  var h = document.createElement('div');
+  h.className = 'set-sec';
+  var tt = document.createElement('div');
+  tt.className = 'set-sec-title';
+  tt.textContent = title;
+  h.appendChild(tt);
+  if (note) {
+    var nn = document.createElement('div');
+    nn.className = 'set-sec-note';
+    nn.textContent = note;
+    h.appendChild(nn);
+  }
+  box.appendChild(h);
+}
+
 function renderSettings() {
-  var box = el('settings-grid');
-  box.textContent = '';
-  if (!S.capabilities.length && !S.settings.length) {
+  var fbox = el('features-grid');
+  var sbox = el('settings-grid');
+  fbox.textContent = '';
+  sbox.textContent = '';
+  if (!S.features.length && !S.settings.length) {
     var e = document.createElement('div');
     e.className = 'empty';
     e.textContent = t('settings:empty');
-    box.appendChild(e);
+    sbox.appendChild(e);
     return;
   }
-  S.capabilities.forEach(function (c) { box.appendChild(capabilityCard(c)); });
-  S.settings.forEach(function (s) { box.appendChild(settingCard(s)); });
+  if (S.features.length) {
+    sectionHead(fbox, t('settings:featuresTitle'), t('settings:featuresNote'));
+    S.features.forEach(function (f) { fbox.appendChild(featureCard(f)); });
+  }
+  if (S.settings.length) {
+    sectionHead(sbox, t('settings:rhythmTitle'), t('settings:rhythmNote'));
+    S.settings.forEach(function (s) { sbox.appendChild(settingCard(s)); });
+  }
 }
 
-/* 勾一个能力 —— 提交勾上的那一份完整名单。 */
-function toggleCapability(name, on) {
+/* 勾一个功能 —— 提交勾上的那一份完整名单。 */
+function toggleFeature(name, on) {
   var cur = [];
-  S.capabilities.forEach(function (c) { if (c.enabled) cur.push(c.name); });
+  S.features.forEach(function (c) { if (c.enabled) cur.push(c.name); });
   var at = cur.indexOf(name);
   if (on && at < 0) cur.push(name);
   if (!on && at >= 0) cur.splice(at, 1);
@@ -1407,7 +1436,7 @@ function loadSettings() {
   return fetch(API + '/settings', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (blob) {
-      S.capabilities = blob.capabilities || [];
+      S.features = blob.features || [];
       S.settings = blob.settings || [];
       renderSettings();
     })
@@ -1429,7 +1458,7 @@ function setSetting(id, value) {
         return;
       }
       meta.textContent = t('common:saved');
-      S.capabilities = b.capabilities || [];
+      S.features = b.features || [];
       S.settings = b.settings || [];
       renderSettings();
     })

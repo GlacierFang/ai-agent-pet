@@ -627,13 +627,21 @@ footer p { margin: 4px 0; }
 button:disabled { opacity: .4; cursor: default; }
 
 
-/* 宠物设定 —— 能力卡 + 设定卡混排 */
+/* 宠物设定 —— 功能段 + 设置段 */
 .set-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   margin: 10px 0;
 }
+.set-sec {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+.set-sec-title { font-weight: 600; font-size: 13px; }
+.set-sec-note { color: var(--muted); font-size: 12px; }
 .set-card {
   display: grid;
   gap: 10px;
@@ -647,16 +655,16 @@ button:disabled { opacity: .4; cursor: default; }
 .set-head { display: grid; gap: 2px; }
 .set-name { font-weight: 600; }
 .set-desc { color: var(--muted); font-size: 12px; }
-.cap-head { display: flex; gap: 8px; align-items: center; cursor: pointer; }
-.cap-name { font-weight: 600; }
-.cap-tip { color: var(--muted); font-size: 12px; }
-.cap-opt {
+.feat-head { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.feat-name { font-weight: 600; }
+.feat-tip { color: var(--muted); font-size: 12px; }
+.feat-opt {
   display: grid;
   gap: 4px;
   padding-top: 8px;
   border-top: 1px dashed var(--line);
 }
-.cap-opt-label { color: var(--muted); font-size: 12px; }
+.feat-opt-label { color: var(--muted); font-size: 12px; }
 .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ctl-number input { width: 96px; }
 .ctl-text input { flex: 1 1 160px; }

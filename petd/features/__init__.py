@@ -26,5 +26,5 @@ def all_features():
 
 
 def catalog():
-    """给后台「空闲时显示什么」用的清单 —— 加一个 feature 这里自动多一项。"""
+    """给后台「宠物设定」的功能段用 —— 加一个 feature 这里自动多一项。"""
     return [{"name": f.name, "title": f.title, "tip": f.tip} for f in BUILTIN]

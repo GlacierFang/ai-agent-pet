@@ -1,8 +1,11 @@
 """宠物设定 —— 用户能挑的东西。
 
-这一份列的每一项都对应 petd 里一个**真的能改**的运行时状态：宠物会做哪些
-能力、每张卡住多久、工作结束后留多久、睡觉时段、信息密度、优先显示哪个会话。
-改完立刻生效，也写进配置（重启还在）。
+这页分两段：
+  功能  屏上会显示哪些内容（会话、通知、最近完成、时间、设备、天气）
+  设置  做事的节奏（每张卡停多久、干完留多久、信息密度、睡觉时段）
+
+每一项都对应 petd 里一个**真的能改**的运行时状态 —— 改完立刻生效，
+也写进配置（重启还在）。
 
 以前这里放过一份 capabilities.json —— 列的是旋钮动作 id，而那个 enabled
 字段全仓没有任何地方读它，勾掉了什么也不会发生。那种清单是骗人的，不如没有。
@@ -23,15 +26,15 @@ DENSITY_DESCS = {
 # value 是一个组合串："22:00-07:00"，或 "off"（不睡）。
 SLEEP_OFF = "off"
 
-# 哪些能力自带一个设定项。能力勾上了才上屏，它的设定也跟着生效。
-CAPABILITY_OPTIONS = {
+# 哪些功能自带一个设定项。功能勾上了才上屏，它的设定也跟着生效。
+FEATURE_OPTIONS = {
     "sessions": "session",
     "weather": "weatherCity",
 }
 
 
 def _session_option(pet):
-    """优先显示哪个会话 —— 它跟着会话能力走，不是独立一项。"""
+    """优先显示哪个会话 —— 它跟着会话功能走，不是独立一项。"""
     opts = [{"value": "", "label": "自动（跟着最活跃的会话）", "desc": ""}]
     for s in pet.public_sessions():
         opts.append({"value": s.get("key") or "",
@@ -50,12 +53,12 @@ def _city_option(pet):
             "type": "text"}
 
 
-def _capability(pet, entry, selected):
-    """一个能力 = 勾选框 + 说明 + 它自己的设定项。"""
+def _feature(pet, entry, selected):
+    """一个功能 = 勾选框 + 说明 + 它自己的设定项。"""
     name = entry["name"]
     item = {"name": name, "title": entry["title"], "tip": entry["tip"],
             "enabled": name in selected, "options": []}
-    extra = CAPABILITY_OPTIONS.get(name)
+    extra = FEATURE_OPTIONS.get(name)
     if extra == "session":
         item["options"].append(_session_option(pet))
     elif extra == "weatherCity":
@@ -98,7 +101,7 @@ def _sleep_item(pet):
     return {
         "id": "sleep",
         "name": "睡觉时段",
-        "desc": "这个时段显示睡脸（可跨午夜）。夜里 OpenClaw 干活，宠物会醒着干",
+        "desc": "这段时间宠物睡觉，不显示内容。但 OpenClaw 接到活，它会立刻醒来。",
         "value": combined,
         # 通用契约要求「当前值在可选项里」—— 放当前值进去。
         # 这一项真正的界面是 type=timerange，options 不参与渲染。
@@ -114,11 +117,11 @@ def build(pet):
     """给后台页的宠物设定。
 
     返回两个部分：
-      capabilities  宠物会做哪些事（每项一个勾选框，可能再带自己的设定）
-      settings      做事的节奏（时长、密度、睡觉时段）
+      features  屏上会显示哪些内容（每项一个勾选框，可能再带自己的设定）
+      settings  做事的节奏（时长、密度、睡觉时段）
     """
     selected = set(pet.features_enabled)
-    capabilities = [_capability(pet, c, selected) for c in feature_mod.catalog()]
+    features = [_feature(pet, c, selected) for c in feature_mod.catalog()]
     settings = [_dwell_item(pet), _hold_item(pet),
                 _density_item(pet), _sleep_item(pet)]
-    return {"capabilities": capabilities, "settings": settings}
+    return {"features": features, "settings": settings}

@@ -201,7 +201,7 @@ class PetApp:
             await self.cycle_skin()
 
     # ---------- 能改的设置 ----------
-    # 后台功能清单和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
+    # 后台设定和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
 
     def set_features(self, names):
         """勾选参与轮播的 feature。"""
@@ -568,7 +568,7 @@ class PetApp:
                        "lastTs": int(self.last_jpeg_ts)},
         }
 
-    # ---------- 功能清单 ----------
+    # ---------- 宠物设定 ----------
     def settings_payload(self):
         """后台「宠物设定」—— 每一项都对应上面某个 setter。"""
         return settings_mod.build(self)

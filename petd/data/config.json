@@ -28,7 +28,7 @@
     "maxInFlight": 2
   },
   "ui": {
-    "skin": "柴犬麦兜",
+    "skin": "喵酱",
     "density": 1,
     "features": [
       "clock",
@@ -38,12 +38,12 @@
       "sessions",
       "weather"
     ],
-    "cardDwellSec": 8,
+    "cardDwellSec": 15,
     "messageHoldSec": 3,
-    "sleepStart": "22:00",
-    "sleepEnd": "06:30",
+    "sleepStart": "23:30",
+    "sleepEnd": "07:00",
     "sleepEnabled": true,
-    "weatherCity": ""
+    "weatherCity": "郑州"
   },
   "mdns": {
     "enabled": true,

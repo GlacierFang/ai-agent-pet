@@ -40,8 +40,8 @@ def test_features_requires_auth_when_password_set(monkeypatch):
 
 def test_settings_shape(client):
     body = client.get("/admin/api/settings").json()
-    assert set(body.keys()) == {"capabilities", "settings"}
-    names = [c["name"] for c in body["capabilities"]]
+    assert set(body.keys()) == {"features", "settings"}
+    names = [c["name"] for c in body["features"]]
     assert "sessions" in names
     assert "clock" in names
     assert "weather" in names
@@ -49,9 +49,9 @@ def test_settings_shape(client):
     assert ids == ["dwell", "hold", "density", "sleep"]
 
 
-def test_capability_has_checkbox_and_tip(client):
+def test_feature_has_checkbox_and_tip(client):
     """能力 = 勾选框 + 一句说明 + 它自己的设定项。"""
-    for c in client.get("/admin/api/settings").json()["capabilities"]:
+    for c in client.get("/admin/api/settings").json()["features"]:
         assert set(c.keys()) >= {"name", "title", "tip", "enabled", "options"}
         assert c["title"]
         assert c["tip"], "每项能力都要说清它是干什么的"
@@ -81,18 +81,18 @@ def test_dwell_and_hold_are_number_inputs(client):
     assert items["dwell"]["unit"] == "秒"
 
 
-def test_sessions_capability_carries_session_choice(client):
+def test_sessions_feature_carries_session_choice(client):
     """「优先显示哪个会话」跟着会话能力走，不是独立一项。"""
-    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["capabilities"]}
+    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
     opts = caps["sessions"]["options"]
     assert len(opts) == 1
     assert opts[0]["id"] == "session"
     assert opts[0]["type"] == "select"
 
 
-def test_weather_capability_carries_city(client):
+def test_weather_feature_carries_city(client):
     """天气城市以前没地方填 —— 现在跟着天气能力走。"""
-    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["capabilities"]}
+    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
     opts = caps["weather"]["options"]
     assert len(opts) == 1
     assert opts[0]["id"] == "weatherCity"
@@ -114,13 +114,13 @@ def test_set_features_takes_effect(client):
     assert pet.features_enabled == {"clock", "sessions"}
 
 
-def test_toggle_capability_reflects_in_payload(client):
+def test_toggle_feature_reflects_in_payload(client):
     """勾掉一个能力 —— 返回的清单里它就不是勾上的了。"""
     client.post("/admin/api/settings",
                 json={"id": "features", "value": ["clock", "sessions"]})
     body = client.post("/admin/api/settings",
                        json={"id": "features", "value": ["clock"]}).json()
-    caps = {c["name"]: c for c in body["capabilities"]}
+    caps = {c["name"]: c for c in body["features"]}
     assert caps["clock"]["enabled"] is True
     assert caps["sessions"]["enabled"] is False
 
