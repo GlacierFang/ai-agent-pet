@@ -26,7 +26,6 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from . import capabilities as capabilities_mod
 from . import config as config_mod
 from . import skins as skins_mod
 from .app import PetApp
@@ -207,6 +206,19 @@ def create_app(cfg=None, start_gateway=True, port=None):
         return JSONResponse({"authRequired": _key is not None,
                              "authed": _authed(request)})
 
+    async def api_logout(request):
+        """登出 —— 清掉 cookie。前端拿到 200 就回到口令页。"""
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(AUTH_COOKIE)
+        return resp
+
+    async def api_setup_public(request):
+        """没登录也能看的那部分引导 —— 只含设备地址和配网说明。
+
+        设备编号、会话数、帧数不在这里：那是登录之后才该知道的东西。
+        """
+        return JSONResponse(pet.setup_public_payload())
+
     async def api_preview(request):
         if not pet.last_jpeg:
             return Response(b"", media_type="image/jpeg", status_code=404)
@@ -252,24 +264,35 @@ def create_app(cfg=None, start_gateway=True, port=None):
         """会话列表 —— 宠物反应全部会话，这里看得到每一条。"""
         return JSONResponse({"items": pet.public_sessions()})
 
-    async def api_capabilities_get(request):
-        return JSONResponse(capabilities_mod.load())
+    async def api_features_get(request):
+        """功能清单 —— 每一项都对应一个真的能改的设置。"""
+        return JSONResponse({"items": pet.features_payload()})
 
-    async def api_capabilities_post(request):
+    async def api_features_post(request):
+        """改一项设置。改完立刻生效，也写进配置。"""
         try:
             body = await request.json()
         except Exception:
             return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
-        items = body.get("capabilities")
-        if not isinstance(items, list):
-            return JSONResponse({"ok": False, "error": "capabilities 必须是数组"},
-                                status_code=400)
+        fid = str(body.get("id") or "").strip()
+        value = body.get("value")
         try:
-            saved = capabilities_mod.save_user(items)
-        except Exception as exc:
-            return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-        pet.log("info", "能力清单已更新（%d 条用户条目）" % len(saved))
-        return JSONResponse({"ok": True, **capabilities_mod.load()})
+            if fid == "page":
+                await pet.set_page(str(value))
+            elif fid == "density":
+                await pet.set_density(int(value))
+            elif fid == "skin":
+                await pet.set_skin(str(value))
+            elif fid == "session":
+                pet.set_session(str(value or ""))
+            elif fid == "sleep":
+                pet.set_sleep_minutes(int(value))
+            else:
+                return JSONResponse({"ok": False, "error": "未知项：%s" % fid},
+                                    status_code=400)
+        except (TypeError, ValueError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True, "items": pet.features_payload()})
 
     async def api_skins_get(request):
         root = pet.cfg.get("_repo_root", ".")
@@ -292,12 +315,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 skins_mod.delete_skin(root, name)
                 pet.log("info", "删除形象 %s" % name)
             elif op == "activate":
-                if name not in skins_mod.list_skins(root):
-                    raise ValueError("没有这个形象")
-                pet.skin = name
-                pet.cfg.setdefault("ui", {})["skin"] = name
-                pet._persist_ui()
-                pet.log("info", "形象 -> %s" % name)
+                await pet.set_skin(name)
             else:
                 return JSONResponse({"ok": False, "error": "未知操作"},
                                     status_code=400)
@@ -373,7 +391,9 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin", admin_redirect),
         Route("/admin/", admin_index),
         Route("/admin/api/login", api_login, methods=["POST"]),
+        Route("/admin/api/logout", api_logout, methods=["POST"]),
         Route("/admin/api/session", api_session),
+        Route("/admin/api/setup/public", api_setup_public),
         Route("/admin/api/preview.jpg", _guard(api_preview)),
         Route("/admin/api/status", _guard(api_status)),
         Route("/admin/api/setup", _guard(api_setup)),
@@ -381,8 +401,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
         Route("/admin/api/logs", _guard(api_logs)),
         Route("/admin/api/sessions", _guard(api_sessions)),
-        Route("/admin/api/capabilities", _guard(api_capabilities_get), methods=["GET"]),
-        Route("/admin/api/capabilities", _guard(api_capabilities_post), methods=["POST"]),
+        Route("/admin/api/features", _guard(api_features_get), methods=["GET"]),
+        Route("/admin/api/features", _guard(api_features_post), methods=["POST"]),
         Route("/admin/api/skins", _guard(api_skins_get), methods=["GET"]),
         Route("/admin/api/skins", _guard(api_skins_post), methods=["POST"]),
         Route("/admin/api/skins/frame", _guard(api_skin_frame_post), methods=["POST"]),

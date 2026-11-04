@@ -69,7 +69,22 @@ def load(path=None):
 def save(cfg, path=None):
     p = pathlib.Path(path) if path else DATA_DIR / "config.json"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    out = json.loads(json.dumps(cfg))
+    # gateway token 不进 config.json —— 这个文件是进 git 的。
+    # 内存里的 token 可能来自 PETD_GATEWAY_TOKEN 或 secrets.json，
+    # 整份写回去就等于把凭据提交进仓库。
+    # 但如果用户本来就在这个文件里写了 token，保留 —— 那是他自己的选择。
+    old = {}
+    if p.exists():
+        try:
+            old = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            old = {}
+    old_token = ((old.get("gateway") or {}).get("token")) or ""
+    new_token = ((out.get("gateway") or {}).get("token")) or ""
+    if new_token and not old_token:
+        out.setdefault("gateway", {})["token"] = ""
+    p.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     return p
 
 

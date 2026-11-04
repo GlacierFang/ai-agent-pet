@@ -1,7 +1,7 @@
 'use strict';
 /* petd 控制台 —— 原生 JS，无框架、无构建、无外部依赖（离线可用）。
 
-   四个区块：我的宠物 / 素材仓库 / 能力清单 / 安装与诊断。
+   五个区块：我的宠物 / 素材仓库 / 功能清单 / 安装与诊断 / 开始使用。
    默认落在「我的宠物」—— 这是内容页，不是系统监控页。
 
    文案只有一个来源：T 字典。
@@ -40,8 +40,8 @@ var T = {
 
   auth: {
     need: '需要口令',
-    on: '已启用口令',
     off: '未设口令',
+    logout: '退出登录',
     title: 'petd 控制台',
     note: '需要口令才能查看。',
     password: '口令',
@@ -57,8 +57,9 @@ var T = {
   tabs: {
     pet: '我的宠物',
     skins: '素材仓库',
-    caps: '能力清单',
-    diag: '安装与诊断'
+    features: '功能清单',
+    diag: '安装与诊断',
+    setup: '开始使用'
   },
 
   /* 上传素材时选状态用的词 —— 表单语境，说的是「这张图是什么心情」。
@@ -142,42 +143,11 @@ var T = {
     saved: '已保存'
   },
 
-  caps: {
-    title: '能力清单',
-    noteHtml: '清单随仓库更新发布；你可以在这里停用某项，或加自己的。改动存进 <code>petd/data/capabilities.local.json</code>。',
+  features: {
+    title: '功能清单',
+    noteHtml: '这里列的每一项都能立刻生效 —— 挑一个你想要的，宠物就照着来。',
     empty: '清单是空的',
-    scopeDevice: '设备',
-    scopeServer: '服务端',
-    onScreen: '屏上可见',
-    noAction: '（无动作）',
-    save: '保存改动',
-    dirty: '有改动，记得点保存',
-    saving: '保存中…',
-    saved: '已保存',
-    saveFail: '保存失败',
-    newTitle: '加一项能力',
-    id: '标识',
-    idPlaceholder: 'my.action',
-    name: '名称',
-    namePlaceholder: '我的能力',
-    desc: '说明',
-    descPlaceholder: '做什么用的',
-    action: '动作',
-    add: '加入清单',
-    needId: '先填标识',
-    dupId: '这个标识已经有了',
-    added: '加好了，记得点保存'
-  },
-
-  /* 动作 id -> 人话。id 本身照样显示出来（灰色小字），
-     懂技术的人要靠它对文档、对 issue。 */
-  action: {
-    'state.refresh': '重新判断状态',
-    'session.next': '切到下一个会话',
-    'skin.next': '换成下一个形象',
-    'page.next': '翻到下一页',
-    'page.prev': '翻到上一页',
-    'density.cycle': '换个显示密度'
+    failed: '改不了：{e}'
   },
 
   diag: {
@@ -253,7 +223,7 @@ var T = {
       '把固件刷进设备：下载固件文件，用 esptool 写进 ESP32-S3 开发板（<code>esptool.py write_flash 0x0 firmware.bin</code>）。',
       '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。',
       '在电脑上把 petd 跑起来（<code>python -m petd</code>），它会监听设备并接收画面。',
-      '打开这个后台页面，「我的宠物」里就能看到设备屏幕上的画面了。'
+      '打开这个后台页面，「开始使用」里能看到每一步的进度，「我的宠物」里能看到设备屏幕上的画面。'
     ],
     addrTitle: '设备地址',
     addrHint: '设备要连到这台电脑 —— 下面哪个地址都填。',
@@ -316,12 +286,12 @@ var S = {
   gated: false,    // 停在口令页时为 true
   started: false,  // dashboard 是否已经启动过
   sessions: [],
-  caps: [],        // 合并后的能力清单
-  localCaps: {},   // 用户那份（存在 capabilities.local.json）
+  features: [],    // 功能清单（GET /features）
   skins: [],
   skin: '',
   tab: 'pet',
-  setup: null      // GET /setup 的结果（操作指引）
+  setup: null,        // GET /setup 的结果（操作指引）
+  setupPublic: null   // GET /setup/public 的结果（未登录可见的那部分）
 };
 
 function el(id) { return document.getElementById(id); }
@@ -436,7 +406,7 @@ function switchTab(name) {
     else p.classList.add('hidden');
   });
   if (name === 'skins') loadSkins();
-  if (name === 'caps') loadCapabilities();
+  if (name === 'features') loadFeatures();
 }
 
 /* ---------------- 我的宠物 ---------------- */
@@ -547,8 +517,8 @@ function loadSessions() {
 
 /* 静态的四步上手说明 —— 刷固件那步没法自动检测，只能写死。
    内容来自我们自己的字典（不含用户输入），所以可以直接 innerHTML。 */
-function renderGuide() {
-  var ol = el('setup-guide');
+function renderGuide(boxId) {
+  var ol = el(boxId || 'setup-guide');
   if (!ol) return;
   ol.textContent = '';
   (t('setup:guide') || []).forEach(function (html) {
@@ -577,11 +547,11 @@ function nextAction(step, d) {
 }
 
 /* 设备地址 —— 用户要靠这个让设备找到服务端。 */
-function renderSetupAddr() {
-  var box = el('setup-addr');
+function renderSetupAddr(boxId, data) {
+  var box = el(boxId || 'setup-addr');
   if (!box) return;
   box.textContent = '';
-  var d = S.setup || {};
+  var d = data || S.setup || {};
   var m = d.mdns || {};
   var lines = [];
   /* 服务端还没这个接口 —— 别显示一堆「暂时没拿到」的灰字，
@@ -691,13 +661,25 @@ function renderSetup() {
   badge.className = 'badge ' + (allDone ? 'ok' : 'warn');
   badge.textContent = allDone ? t('setup:allDone') : fill(t('setup:remaining'), { n: pending });
 
-  renderSetupAddr();
+  renderSetupAddr('setup-addr', S.setup);
 
   /* 服务端要是给了版本号，以它为准。 */
   var fv = el('footer-version');
   if (d.version && fv) {
     fv.textContent = fill(t('app:versionLine'), { v: d.version });
   }
+}
+
+/* 未登录也能看的那部分引导 —— 只有设备地址和配网说明。
+   没有设备编号、会话数、帧数：那些是登录之后才该知道的东西。 */
+function loadPublicSetup() {
+  return fetch(API + '/setup/public', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.setupPublic = blob || null;
+      renderSetupAddr('gate-addr', S.setupPublic);
+    })
+    .catch(function () { /* 服务端没这个接口 —— 登录页少一块内容而已 */ });
 }
 
 function loadSetup() {
@@ -892,130 +874,87 @@ function onSkinFrame(ev) {
   reader.readAsDataURL(file);
 }
 
-/* ---------------- 能力清单 ---------------- */
+/* ---------------- 功能清单 ---------------- */
 
-function renderCaps() {
-  var box = el('cap-list');
+/* 一项一张卡，卡里是这一项能选的值 —— 点一下就生效。
+   跟以前那份「能力清单」的区别：那一列的勾选框背后没有任何代码读它，
+   勾掉了什么也不会发生。这份每一项都对应服务端一个真的 setter。 */
+function renderFeatures() {
+  var box = el('feature-list');
   box.textContent = '';
-  if (!S.caps.length) {
+  if (!S.features.length) {
     var e = document.createElement('div');
     e.className = 'empty';
-    e.textContent = t('caps:empty');
+    e.textContent = t('features:empty');
     box.appendChild(e);
     return;
   }
-  S.caps.forEach(function (c) {
-    var row = document.createElement('div');
-    row.className = 'row-item';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = c.enabled !== false;
-    cb.addEventListener('change', function () {
-      var item = S.localCaps[c.id] || Object.assign({}, c);
-      item.enabled = cb.checked;
-      item.source = 'user';
-      S.localCaps[c.id] = item;
-      el('cap-meta').textContent = t('caps:dirty');
-    });
-    row.appendChild(cb);
-    var main = document.createElement('div');
-    main.className = 'grow';
+  S.features.forEach(function (f) {
+    var card = document.createElement('div');
+    card.className = 'feature-card';
+
+    var head = document.createElement('div');
+    head.className = 'feature-head';
     var nm = document.createElement('div');
-    nm.className = 'name';
-    nm.textContent = c.name;
-    main.appendChild(nm);
-    if (c.desc) {
+    nm.className = 'feature-name';
+    nm.textContent = f.name;
+    head.appendChild(nm);
+    if (f.desc) {
       var de = document.createElement('div');
-      de.className = 'sub';
-      de.textContent = c.desc;
-      main.appendChild(de);
+      de.className = 'feature-desc';
+      de.textContent = f.desc;
+      head.appendChild(de);
     }
-    row.appendChild(main);
-    var sc = document.createElement('span');
-    sc.className = 'badge dim';
-    sc.textContent = c.scope === 'device' ? t('caps:scopeDevice') : t('caps:scopeServer');
-    row.appendChild(sc);
-    if (c.screen) {
-      var sm = document.createElement('span');
-      sm.className = 'badge ok';
-      sm.textContent = t('caps:onScreen');
-      row.appendChild(sm);
-    }
-    /* 动作：中文名 + 英文 id（灰色小字）。
-       id 必须留着 —— 懂技术的人靠它对文档、对 issue。 */
-    var act = document.createElement('span');
-    act.className = 'cap-action';
-    var cn = tv('action:' + (c.action || ''), null);
-    if (cn) {
-      var cnEl = document.createElement('span');
-      cnEl.textContent = cn;
-      act.appendChild(cnEl);
-    }
-    var idEl = document.createElement('span');
-    idEl.className = 'id';
-    idEl.textContent = c.action || t('caps:noAction');
-    act.appendChild(idEl);
-    row.appendChild(act);
-    box.appendChild(row);
+    card.appendChild(head);
+
+    var opts = document.createElement('div');
+    opts.className = 'feature-opts';
+    (f.options || []).forEach(function (o) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      /* 当前选中项不画灰底 —— 一眼看出现在是哪个 */
+      var on = String(o.value) === String(f.value);
+      b.className = on ? '' : 'ghost';
+      b.textContent = o.label;
+      if (o.desc) b.title = o.desc;
+      b.addEventListener('click', function () { setFeature(f.id, o.value); });
+      opts.appendChild(b);
+    });
+    card.appendChild(opts);
+    box.appendChild(card);
   });
 }
 
-function loadCapabilities() {
-  return fetch(API + '/capabilities', { cache: 'no-store' })
+function loadFeatures() {
+  return fetch(API + '/features', { cache: 'no-store' })
     .then(function (r) { return r.json(); })
     .then(function (blob) {
-      S.caps = blob.items || [];
-      S.localCaps = {};
-      (blob.userItems || []).forEach(function (c) { S.localCaps[c.id] = c; });
-      renderCaps();
+      S.features = blob.items || [];
+      renderFeatures();
     })
     .catch(function () { /* 忽略 */ });
 }
 
-function saveCaps() {
-  var meta = el('cap-meta');
-  meta.textContent = t('caps:saving');
-  var list = Object.keys(S.localCaps).map(function (k) { return S.localCaps[k]; });
-  fetch(API + '/capabilities', {
+/* 改一项 —— 服务端改完立刻生效，页面按返回的新清单重画。 */
+function setFeature(id, value) {
+  var meta = el('feature-meta');
+  meta.textContent = t('common:saving');
+  fetch(API + '/features', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ capabilities: list })
+    body: JSON.stringify({ id: id, value: value })
   })
     .then(function (r) { return r.json(); })
     .then(function (b) {
-      if (!b.ok) { meta.textContent = b.error || t('caps:saveFail'); return; }
-      meta.textContent = t('caps:saved');
-      S.caps = b.items || [];
-      S.localCaps = {};
-      (b.userItems || []).forEach(function (c) { S.localCaps[c.id] = c; });
-      renderCaps();
+      if (!b.ok) {
+        meta.textContent = fill(t('features:failed'), { e: b.error || '' });
+        return;
+      }
+      meta.textContent = t('common:saved');
+      S.features = b.items || [];
+      renderFeatures();
     })
     .catch(function () { meta.textContent = t('common:netError'); });
-}
-
-function onCapNew(ev) {
-  ev.preventDefault();
-  var meta = el('cap-new-meta');
-  var id = el('cap-new-id').value.trim();
-  if (!id) { meta.textContent = t('caps:needId'); return; }
-  if (S.caps.some(function (c) { return c.id === id; })) {
-    meta.textContent = t('caps:dupId');
-    return;
-  }
-  S.localCaps[id] = {
-    id: id,
-    name: el('cap-new-name').value.trim() || id,
-    desc: el('cap-new-desc').value.trim(),
-    action: el('cap-new-action').value,
-    scope: 'server',
-    screen: true,
-    enabled: true
-  };
-  el('cap-new-id').value = '';
-  el('cap-new-name').value = '';
-  el('cap-new-desc').value = '';
-  meta.textContent = t('caps:added');
-  saveCaps();
 }
 
 /* ---------------- 原始遥测 ---------------- */
@@ -1251,16 +1190,48 @@ function saveConfig(ev) {
 
 /* ---------------- 鉴权状态 ---------------- */
 
-/* 口令是可选的：没设时给个中性提示 —— 说清楚，但不吓人。 */
+/* 登录了就给一个「退出登录」按钮。
+   右上角那个位置原本放的是「已启用口令」这种状态描述 —— 用户只会以为能点。 */
 function renderAuth(s) {
   var badge = el('badge-auth');
+  var out = el('btn-logout');
+  if (s.authRequired && s.authed) {
+    badge.classList.add('hidden');
+    out.classList.remove('hidden');
+    return;
+  }
+  out.classList.add('hidden');
+  badge.classList.remove('hidden');
   if (s.authRequired) {
-    setBadge(badge, s.authed ? 'ok' : 'warn',
-      s.authed ? t('auth:on') : t('auth:need'));
+    setBadge(badge, 'warn', t('auth:need'));
   } else {
     setBadge(badge, 'warn', t('auth:off'));
     el('footer-security').classList.remove('hidden');
   }
+}
+
+/* 登出 —— 清 cookie，回口令页。 */
+function doLogout() {
+  fetch(API + '/logout', { method: 'POST' })
+    .catch(function () { /* 清不掉也得回登录页 */ })
+    .then(function () {
+      stopDashboard();
+      showGate();
+      renderAuth({ authRequired: true, authed: false });
+    });
+}
+
+/* 停掉所有轮询 —— 登出后别再往要鉴权的接口上打。 */
+function stopDashboard() {
+  [S.previewTimer, S.logTimer, S.statusTimer, S.sessionsTimer, S.setupTimer]
+    .forEach(function (id) { if (id) clearInterval(id); });
+  S.previewTimer = null;
+  S.logTimer = null;
+  S.statusTimer = null;
+  S.sessionsTimer = null;
+  S.setupTimer = null;
+  if (S.es) { S.es.close(); S.es = null; }
+  S.started = false;
 }
 
 /* ---------------- 口令（可选） ---------------- */
@@ -1337,8 +1308,6 @@ function startDashboard() {
   el('form-config').addEventListener('submit', saveConfig);
   el('form-skin-new').addEventListener('submit', onSkinNew);
   el('form-skin-frame').addEventListener('submit', onSkinFrame);
-  el('form-cap-new').addEventListener('submit', onCapNew);
-  el('btn-cap-save').addEventListener('click', saveCaps);
 
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -1369,11 +1338,13 @@ function init() {
   applyI18n();
   renderGuide();
   fillSelect('skin-frame-state', T.state);
-  fillSelect('cap-new-action', T.action);
   var ttl = el('telemetry-title');
   if (ttl) ttl.textContent = fill(t('diag:telemetryTitle'), { n: KV.length });
   el('footer-version').textContent = fill(t('app:versionLine'), { v: t('app:version') });
   el('form-gate').addEventListener('submit', onGateSubmit);
+  el('btn-logout').addEventListener('click', doLogout);
+  renderGuide('gate-guide');
+  loadPublicSetup();
 
   fetch(API + '/session', { cache: 'no-store' })
     .then(function (r) { return r.json(); })

@@ -12,6 +12,7 @@
   <strong id="banner-note" data-i18n="app:title">petd 控制台</strong>
   <span class="banner-sub" data-i18n="tabs:pet">我的宠物</span>
   <span class="badge" id="badge-auth">—</span>
+  <button type="button" class="badge logout hidden" id="btn-logout" data-i18n="auth:logout">退出登录</button>
 </header>
 
 <div class="gate hidden" id="gate">
@@ -22,6 +23,17 @@
     <button type="submit" data-i18n="auth:enter">进入</button>
     <div class="muted" id="gate-meta"></div>
   </form>
+
+  <!-- 没登录也要能看到「怎么开始」—— 最需要这份指引的人正是还没配好的人 -->
+  <section class="gate-setup">
+    <h2 data-i18n="setup:title">开始使用</h2>
+    <ol class="guide-list" id="gate-guide"></ol>
+    <div class="addr-box">
+      <h3 data-i18n="setup:addrTitle">设备地址</h3>
+      <p class="note" data-i18n="setup:addrHint">设备要连到这台电脑 —— 下面哪个地址都填。</p>
+      <div id="gate-addr"></div>
+    </div>
+  </section>
 </div>
 
 <main id="app">
@@ -29,30 +41,13 @@
   <nav class="tabs" id="tabs">
     <button type="button" class="tab active" data-tab="pet" data-i18n="tabs:pet">我的宠物</button>
     <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">素材仓库</button>
-    <button type="button" class="tab" data-tab="caps" data-i18n="tabs:caps">能力清单</button>
+    <button type="button" class="tab" data-tab="features" data-i18n="tabs:features">功能清单</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">安装与诊断</button>
+    <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">开始使用</button>
   </nav>
 
   <!-- ============ 我的宠物 ============ -->
   <section class="panel" data-panel="pet">
-
-    <!-- 操作指引：能自动检测的四步 + 静态上手说明（刷固件那步没法检测） -->
-    <section class="card setup-card" id="setup-card">
-      <div class="card-head">
-        <h2 data-i18n="setup:title">开始使用</h2>
-        <span class="badge warn" id="setup-summary">…</span>
-      </div>
-      <ol class="steps" id="setup-steps"></ol>
-      <details class="fold">
-        <summary data-i18n="setup:guideTitle">第一次用？按这四步来</summary>
-        <ol class="guide-list" id="setup-guide"></ol>
-        <div class="addr-box">
-          <h3 data-i18n="setup:addrTitle">设备地址</h3>
-          <p class="note" data-i18n="setup:addrHint">设备要连到这台电脑 —— 下面哪个地址都填。</p>
-          <div id="setup-addr"></div>
-        </div>
-      </details>
-    </section>
 
     <div class="card hero">
       <div class="hero-state" id="pet-state">—</div>
@@ -134,38 +129,15 @@
     </div>
   </section>
 
-  <!-- ============ 能力清单 ============ -->
-  <section class="panel hidden" data-panel="caps">
+  <!-- ============ 功能清单 ============ -->
+  <section class="panel hidden" data-panel="features">
     <section class="card">
-      <h2 data-i18n="caps:title">能力清单</h2>
-      <p class="note" data-i18n-html="caps:noteHtml">清单随仓库更新发布；你可以在这里停用某项，或加自己的。改动存进 petd/data/capabilities.local.json。</p>
-      <div class="list" id="cap-list"></div>
+      <h2 data-i18n="features:title">功能清单</h2>
+      <p class="note" data-i18n-html="features:noteHtml">这里列的每一项都能立刻生效 —— 挑一个你想要的，宠物就照着来。</p>
+      <div class="feature-grid" id="feature-list"></div>
       <div class="row">
-        <button type="button" id="btn-cap-save" data-i18n="caps:save">保存改动</button>
-        <span class="muted" id="cap-meta"></span>
+        <span class="muted" id="feature-meta"></span>
       </div>
-    </section>
-
-    <section class="card">
-      <h2 data-i18n="caps:newTitle">加一项能力</h2>
-      <form id="form-cap-new" autocomplete="off">
-        <div class="grid2">
-          <label><span data-i18n="caps:id">标识</span><input type="text" id="cap-new-id" placeholder="my.action" data-i18n-placeholder="caps:idPlaceholder"></label>
-          <label><span data-i18n="caps:name">名称</span><input type="text" id="cap-new-name" placeholder="我的能力" data-i18n-placeholder="caps:namePlaceholder"></label>
-        </div>
-        <label><span data-i18n="caps:desc">说明</span><input type="text" id="cap-new-desc" placeholder="做什么用的" data-i18n-placeholder="caps:descPlaceholder"></label>
-        <!-- 动作的 value 是动作 id；显示文字写死一份中文，JS 再用字典刷新 -->
-        <label><span data-i18n="caps:action">动作</span><select id="cap-new-action">
-          <option value="state.refresh">重新判断状态</option>
-          <option value="session.next">切到下一个会话</option>
-          <option value="skin.next">换成下一个形象</option>
-          <option value="page.next">翻到下一页</option>
-          <option value="page.prev">翻到上一页</option>
-          <option value="density.cycle">换个显示密度</option>
-        </select></label>
-        <div class="row"><button type="submit" data-i18n="caps:add">加入清单</button>
-          <span class="muted" id="cap-new-meta"></span></div>
-      </form>
     </section>
   </section>
 
@@ -217,6 +189,26 @@
     <section class="card">
       <h2 data-i18n="diag:gesturesTitle">旋钮手势（开发者向）</h2>
       <p class="note" data-i18n-html="diag:gesturesNoteHtml">旋钮手势：编辑 petd/data/gestures.json，重启 petd 后生效。</p>
+    </section>
+  </section>
+
+  <!-- ============ 开始使用 ============ -->
+  <section class="panel hidden" data-panel="setup">
+    <section class="card setup-card" id="setup-card">
+      <div class="card-head">
+        <h2 data-i18n="setup:title">开始使用</h2>
+        <span class="badge warn" id="setup-summary">…</span>
+      </div>
+      <ol class="steps" id="setup-steps"></ol>
+      <details class="fold">
+        <summary data-i18n="setup:guideTitle">第一次用？按这四步来</summary>
+        <ol class="guide-list" id="setup-guide"></ol>
+        <div class="addr-box">
+          <h3 data-i18n="setup:addrTitle">设备地址</h3>
+          <p class="note" data-i18n="setup:addrHint">设备要连到这台电脑 —— 下面哪个地址都填。</p>
+          <div id="setup-addr"></div>
+        </div>
+      </details>
     </section>
   </section>
 

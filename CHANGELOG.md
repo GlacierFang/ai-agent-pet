@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Changed
+
+**后台控制台**
+
+- **功能清单取代能力清单**：原来那份列的是旋钮动作 id，`enabled` 字段全仓没有任何地方读它 —— 勾掉了什么也不会发生。换成「用户能挑的东西」：屏幕页面 / 信息密度 / 宠物形象 / 关注的会话 / 多久算睡着，每一项点一下立刻生效，也写进配置
+  - 新接口 `GET /admin/api/features`（清单）+ `POST /admin/api/features`（改一项）
+  - 界面参考 InkSight 的模式目录：一项一张卡，卡里是可选的值，选中项反白
+  - 旋钮和后台走同一批 setter（`set_page` / `set_density` / `set_skin` / `set_session` / `set_sleep_minutes`）
+- **「开始使用」独立成一个区块**，不再混在「我的宠物」里
+- **右上角角标改「退出登录」**：登录后那里给一个能点的按钮，调 `POST /admin/api/logout` 清 cookie 后回口令页（原来显示的是「已启用口令」这种状态描述，用户只会以为能点）
+- **未登录也能看到「开始使用」**：新增公开接口 `GET /admin/api/setup/public`，只给设备地址和配网说明 —— 设备编号 / 会话数 / 帧数一律不给
+
+### Removed
+
+- **假的能力清单**：`petd/capabilities.py` + `petd/data/capabilities.json`。那份清单的 `enabled` 从来没被任何代码读过
+
+### Fixed
+
+- **gateway token 不会被写进 `petd/data/config.json`**：那个文件是进 git 的，而内存里的 token 可能来自 `PETD_GATEWAY_TOKEN` 环境变量或 `petd/data/secrets.json` —— 整份配置写回磁盘就等于把凭据提交进仓库。现在写盘时若旧文件里本来没有 token，就不写新的进去（用户自己手写进 config.json 的那个会保留）
+
 ### Added
 
 **服务端 petd**

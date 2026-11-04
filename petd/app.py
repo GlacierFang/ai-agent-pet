@@ -9,6 +9,7 @@ import time
 from collections import deque
 
 from . import config as config_mod
+from . import features as features_mod
 from . import gestures as gestures_mod
 from . import render as render_mod
 from . import skins as skins_mod
@@ -19,7 +20,8 @@ from .state import DEFAULT_RULES, StateEngine, epoch_s
 log = logging.getLogger("petd.app")
 
 ACTIVE_STATES = ("working", "waiting", "error", "done")
-PAGES = ("face", "session", "notify")
+# 屏幕上的三块页面 —— 定义在 features.py，后台的功能清单和这里共用一份。
+PAGES = features_mod.PAGES
 
 # 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
 # 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
@@ -41,6 +43,8 @@ class PetApp:
         self.page = cfg.get("ui", {}).get("page", "face")
         self.density = int(cfg.get("ui", {}).get("density", 1))
         self.skin = cfg.get("ui", {}).get("skin", "default")
+        # 后台选定的关注会话（空 = 自动跟最活跃的）
+        self.engine.selected_key = cfg.get("ui", {}).get("session") or None
         self.frame_seq = 0
         self.last_jpeg = None
         self.last_jpeg_ts = 0
@@ -159,15 +163,12 @@ class PetApp:
     async def run_action(self, action, magnitude=1):
         if action == "page.next":
             idx = PAGES.index(self.page) if self.page in PAGES else -1
-            self.page = PAGES[(idx + 1) % len(PAGES)]
-            await self.devices.send_json({"type": "setPage", "page": self.page})
+            await self.set_page(PAGES[(idx + 1) % len(PAGES)])
         elif action == "page.prev":
             idx = PAGES.index(self.page) if self.page in PAGES else 0
-            self.page = PAGES[(idx - 1) % len(PAGES)]
-            await self.devices.send_json({"type": "setPage", "page": self.page})
+            await self.set_page(PAGES[(idx - 1) % len(PAGES)])
         elif action == "density.cycle":
-            self.density = (self.density + 1) % 3
-            await self.devices.send_json({"type": "setDensity", "level": self.density})
+            await self.set_density((self.density + 1) % 3)
         elif action == "state.refresh":
             await self.refresh()
             await self.devices.send_json({"type": "refresh", "id": self.frame_seq})
@@ -175,6 +176,50 @@ class PetApp:
             await self.select_next_session(int(magnitude or 1))
         elif action == "skin.next":
             await self.cycle_skin()
+
+    # ---------- 能改的设置 ----------
+    # 后台功能清单和旋钮都调这几个方法 —— 同一份状态，改完立刻生效，也落盘。
+
+    async def set_page(self, page):
+        if page not in PAGES:
+            raise ValueError("未知页面：%s" % page)
+        self.page = page
+        self.cfg.setdefault("ui", {})["page"] = page
+        self._persist_config()
+        await self.devices.send_json({"type": "setPage", "page": page})
+        self.log("info", "页面 -> " + page)
+
+    async def set_density(self, level):
+        level = max(0, min(2, int(level)))
+        self.density = level
+        self.cfg.setdefault("ui", {})["density"] = level
+        self._persist_config()
+        await self.devices.send_json({"type": "setDensity", "level": level})
+        self.log("info", "信息密度 -> %d" % level)
+
+    async def set_skin(self, name):
+        root = self.cfg.get("_repo_root", ".")
+        if name not in skins_mod.list_skins(root):
+            raise ValueError("没有这个形象")
+        self.skin = name
+        self.cfg.setdefault("ui", {})["skin"] = name
+        self._persist_config()
+        self.log("info", "形象 -> " + name)
+
+    def set_session(self, key):
+        """关注某个会话。空 = 自动（跟着最活跃的那个）。"""
+        key = str(key or "")
+        self.engine.select(key or None)
+        self.cfg.setdefault("ui", {})["session"] = key
+        self._persist_config()
+        self.log("info", "关注会话 -> " + (key or "自动"))
+
+    def set_sleep_minutes(self, minutes):
+        minutes = max(0, int(minutes))
+        self.engine.sleep_after_min = minutes
+        self.cfg.setdefault("state", {})["sleepAfterMin"] = minutes
+        self._persist_config()
+        self.log("info", "多久算睡着 -> %d 分钟" % minutes)
 
     async def cycle_skin(self):
         """切到下一个形象 —— 旋钮和后台走同一条路。"""
@@ -184,11 +229,9 @@ class PetApp:
             self.log("info", "没有可用形象")
             return
         cur = names.index(self.skin) if self.skin in names else -1
-        self.skin = names[(cur + 1) % len(names)]
-        self._persist_ui()
-        self.log("info", "形象 -> " + self.skin)
+        await self.set_skin(names[(cur + 1) % len(names)])
 
-    def _persist_ui(self):
+    def _persist_config(self):
         try:
             config_mod.save({k: v for k, v in self.cfg.items()
                              if not k.startswith("_")})
@@ -324,6 +367,11 @@ class PetApp:
                        "lastTs": int(self.last_jpeg_ts)},
         }
 
+    # ---------- 功能清单 ----------
+    def features_payload(self):
+        """后台「功能清单」—— 每一项都对应上面某个 setter。"""
+        return features_mod.build(self)
+
     # ---------- 首次使用指引 ----------
     def _load_setup_state(self):
         """读落盘的状态。读不了就当没有 —— 引导页不该因为一个文件挂掉。"""
@@ -422,13 +470,27 @@ class PetApp:
         return {
             "steps": steps,
             "mdns": self._mdns_view(),
-            # 配网能力说明。等固件 v0.2.0 落地后，supported 改由固件 hello/status
-            # 报文里的字段决定（petd 侧已经预留了 provisioned）。
-            "provisioning": {
-                "supported": True,
-                "apSsidPattern": "petd-setup-XXXX",
-                "apUrl": "http://192.168.4.1",
-                "note": "密码显示在设备屏幕上",
-            },
+            "provisioning": self._provisioning_view(),
+        }
+
+    def _provisioning_view(self):
+        """配网能力说明。等固件 v0.2.0 落地后，supported 改由固件 hello/status
+        报文里的字段决定（petd 侧已经预留了 provisioned）。"""
+        return {
+            "supported": True,
+            "apSsidPattern": "petd-setup-XXXX",
+            "apUrl": "http://192.168.4.1",
+            "note": "密码显示在设备屏幕上",
+        }
+
+    def setup_public_payload(self):
+        """没登录也能看的那部分引导。
+
+        只有「设备该连到哪」和「怎么配网」—— 设备编号、会话数、帧数一律不给，
+        那些是登录之后才该看到的东西。
+        """
+        return {
+            "mdns": self._mdns_view(),
+            "provisioning": self._provisioning_view(),
         }
 
