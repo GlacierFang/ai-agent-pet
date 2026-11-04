@@ -50,9 +50,17 @@ class PetApp:
         self.gestures = gestures_mod.load()
         self.density = int(cfg.get("ui", {}).get("density", 1))
         self.skin = cfg.get("ui", {}).get("skin", "default")
-        # 空闲时参与轮播的 feature
-        self.features_enabled = feature_mod.normalize(
-            cfg.get("ui", {}).get("features") or [])
+        # 空闲时参与轮播的 feature。
+        # 老配置里没有新功能的名字 —— 直接 normalize 会把它们悄悄关掉
+        # （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
+        # 升上来时把这版新增的补上，补完记下版本。
+        ui_cfg = cfg.setdefault("ui", {})
+        self.features_enabled, fver = feature_mod.reconcile(
+            ui_cfg.get("features"), ui_cfg.get("featuresVersion"))
+        self._features_dirty = int(ui_cfg.get("featuresVersion") or 0) != fver
+        if self._features_dirty:
+            ui_cfg["featuresVersion"] = fver
+            ui_cfg["features"] = sorted(self.features_enabled)
         self.card_dwell_sec = int(cfg.get("ui", {}).get("cardDwellSec", 8))
         self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
         self.sleep_start = str(cfg.get("ui", {}).get(
@@ -86,6 +94,10 @@ class PetApp:
         # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
         self.listen_port = int((cfg.get("server", {}) or {}).get("port", 18860))
         self._sync_director()
+        # 老配置升上来补了新功能 —— 落盘，记下「用户看过第几版」。
+        # 用户之后自己勾掉，就不会再被加回来。
+        if self._features_dirty:
+            self._persist_config()
 
     @staticmethod
     def _load_rules():
@@ -267,7 +279,11 @@ class PetApp:
         """勾选参与轮播的 feature。"""
         picked = feature_mod.normalize(names)
         self.features_enabled = picked
-        self.cfg.setdefault("ui", {})["features"] = sorted(picked)
+        ui = self.cfg.setdefault("ui", {})
+        ui["features"] = sorted(picked)
+        # 版本要跟着记上 —— 用户自己勾掉的是他的选择，
+        # 下次启动不该又被「新版本自动补齐」加回来。
+        ui["featuresVersion"] = feature_mod.FEATURES_VERSION
         self._persist_config()
         self.log("info", "空闲显示 -> " + ("、".join(sorted(picked)) or "无"))
         self._wake_poll()
@@ -358,6 +374,10 @@ class PetApp:
             self.dice.dismiss()
             self.log("info", "收起骰子")
             return "closed"
+        if not self.dice_on():
+            # 骰子功能没勾 —— 按旋钮不弹骰子
+            self.log("info", "骰子没开")
+            return "off"
         state = self.engine.state
         if state in ("working", "waiting", "error"):
             self.log("info", "有活，先干活")
@@ -369,6 +389,14 @@ class PetApp:
         self.dice.press()
         self.log("info", "摇骰子")
         return "opened"
+
+    def merit_on(self):
+        """功德箱功能开没开 —— 关了屏上不出现任何功德字样。"""
+        return "merit" in self.features_enabled
+
+    def dice_on(self):
+        """赛博骰子功能开没开 —— 关了短按旋钮不弹骰子。"""
+        return "dice" in self.features_enabled
 
     def toys_view(self):
         """屏上玩具的现状 —— 后台要显示它，也得说清现在摇不摇得动。
@@ -384,6 +412,7 @@ class PetApp:
                 "active": bool(self.dice.active),
                 "rolling": bool(self.dice.rolling),
                 "value": int(self.dice.value),
+                "rolled": bool(self.dice.rolled),
             },
             "busy": busy,
             "night": night,
@@ -531,6 +560,9 @@ class PetApp:
         now = time.time()
 
         # 骰子占屏 —— 一次性覆盖层。这时没有宠物脸。
+        if not self.dice_on():
+            # 功能被关掉了 —— 屏上不该还有骰子
+            self.dice.dismiss()
         dice_on, dice_face, dice_rolling = self.dice.update(now)
         if dice_on:
             jpeg = render_mod.render_dice(self.cfg, value=dice_face,
@@ -541,7 +573,7 @@ class PetApp:
 
         # 飘字层 —— 功德 +1 之类，盖在宠物脸上飘过去
         overlay = None
-        bubble = self.merit.bubble(now)
+        bubble = self.merit.bubble(now) if self.merit_on() else None
         if bubble:
             remain = float(bubble["until"]) - now
             # 最后 0.8 秒淡出
@@ -564,7 +596,8 @@ class PetApp:
             skin_img = skins_mod.load_image(root, self.skin, face)
             jpeg = render_mod.render_frame(self.cfg, face, sub, name,
                                            density=self.density, skin_image=skin_img,
-                                           overlay=overlay, merit=self.merit.value)
+                                           overlay=overlay,
+                                           merit=self.merit.value if self.merit_on() else 0)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
@@ -586,6 +619,13 @@ class PetApp:
             "focused": self.engine.selected_key,
             "device": self.devices.status(),
             "weatherCity": str(self.cfg.get("ui", {}).get("weatherCity") or ""),
+            # 功德和骰子 —— 它们也是 feature，卡片内容从这儿拿
+            "merit": int(self.merit.value),
+            "meritPhrase": self.merit.last_phrase(),
+            "dice": {"active": bool(self.dice.active),
+                     "rolling": bool(self.dice.rolling),
+                     "value": int(self.dice.value),
+                     "rolled": bool(self.dice.rolled)},
         }
 
     def _feature_sessions(self):

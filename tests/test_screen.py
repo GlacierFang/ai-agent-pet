@@ -223,10 +223,21 @@ def test_catalog_lists_every_feature():
         assert c["name"] and c["title"]
 
 
+def feat(name):
+    """按名字取 feature —— 不用下标。
+
+    下标会随注册表增减移位，加一个功能就崩一片。名字不会。
+    """
+    for f in feature_mod.all_features():
+        if f.name == name:
+            return f
+    raise AssertionError("没有这个 feature: " + name)
+
+
 def test_recent_done_shows_finished_work():
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[2]
+    f = feat("recent_done")
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "跑测试", "state": "done", "lastActivityAt": now - 60},
     ]}
@@ -239,7 +250,7 @@ def test_recent_done_shows_finished_work():
 def test_recent_done_stays_quiet_when_nothing_finished():
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[2]
+    f = feat("recent_done")
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "跑测试", "state": "working", "lastActivityAt": now},
     ]}
@@ -250,7 +261,7 @@ def test_recent_done_ignores_old_completions():
     """半小时前做完的事 —— 不该还占着屏。"""
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[2]
+    f = feat("recent_done")
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "老事", "state": "done",
          "lastActivityAt": now - 3600},
@@ -261,7 +272,7 @@ def test_recent_done_ignores_old_completions():
 def test_sessions_feature_lists_sessions():
     import time
     now = time.time()
-    f = feature_mod.BUILTIN[0]
+    f = feat("sessions")
     ctx = {"now": now, "sessions": [
         {"key": "a", "name": "跑测试", "state": "working", "lastActivityAt": now},
     ]}
@@ -271,7 +282,7 @@ def test_sessions_feature_lists_sessions():
 
 
 def test_notify_feature_quiet_without_unread():
-    f = feature_mod.BUILTIN[1]
+    f = feat("notify")
     ctx = {"now": 1000.0, "sessions": [
         {"key": "a", "name": "跑测试", "state": "working", "unread": False,
          "pending": False},
@@ -280,7 +291,7 @@ def test_notify_feature_quiet_without_unread():
 
 
 def test_notify_feature_lists_pending():
-    f = feature_mod.BUILTIN[1]
+    f = feat("notify")
     ctx = {"now": 1000.0, "sessions": [
         {"key": "a", "name": "跑测试", "state": "waiting", "unread": False,
          "pending": True},
@@ -292,7 +303,7 @@ def test_notify_feature_lists_pending():
 
 def test_clock_feature_shows_time():
     import time
-    f = feature_mod.BUILTIN[3]
+    f = feat("clock")
     card = f.context({"now": time.time()})
     assert card is not None
     assert ":" in card["big"]
@@ -300,7 +311,7 @@ def test_clock_feature_shows_time():
 
 def test_host_feature_quiet_before_first_sample():
     """主机还没采过样 —— 没话说，不上屏。"""
-    f = feature_mod.BUILTIN[4]
+    f = feat("host")
     assert f.name == "host"
     assert f.context({"now": 1000.0}) in (None, f.context({"now": 1000.0}))
 

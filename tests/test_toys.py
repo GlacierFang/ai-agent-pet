@@ -13,6 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from petd import config  # noqa: E402
+from petd import features as feature_mod  # noqa: E402
 from petd import render as render_mod  # noqa: E402
 from petd import toys as toys_mod  # noqa: E402
 
@@ -274,13 +275,150 @@ def test_toys_view_shape(client):
     pet = client.app.state.pet
     view = pet.toys_view()
     assert set(view.keys()) == {"merit", "dice", "busy", "night", "canRoll", "pressAction"}
-    assert set(view["dice"].keys()) == {"active", "rolling", "value"}
+    assert set(view["dice"].keys()) == {"active", "rolling", "value", "rolled"}
 
 
 def test_toys_view_reports_press_mapping(client):
     """页面要照实说短按被映射成什么 —— 不替用户猜。"""
     pet = client.app.state.pet
     assert pet.toys_view()["pressAction"] == "dice.roll"
+
+
+# ---------- 玩具是功能 ----------
+
+def test_toys_are_real_features():
+    """功德箱和赛博骰子是功能清单里的两项 —— 不是另开一节。
+
+    冰河大人点名过：它们该作为「功能」出现，别自成一类。
+    """
+    names = [f.name for f in feature_mod.all_features()]
+    assert "merit" in names
+    assert "dice" in names
+    cat = [c["name"] for c in feature_mod.catalog()]
+    assert "merit" in cat
+    assert "dice" in cat
+
+
+def test_dice_feature_off_means_no_dice(client):
+    """骰子功能没勾 —— 按旋钮不弹骰子，屏上也不该有骰子。"""
+    pet = client.app.state.pet
+    pet.set_features(["clock"])
+    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
+    assert body["result"] == "off"
+    assert body["toys"]["dice"]["active"] is False
+
+
+def test_merit_feature_off_hides_merit_number(client):
+    """功德功能没勾 —— 屏角不画功德数。"""
+    pet = client.app.state.pet
+    pet.merit.value = 9
+    pet.set_features(["clock"])
+    jpeg = render_mod.render_frame(config.load(), "idle", "在吗", "会话",
+                                   density=1, merit=pet.merit.value
+                                   if pet.merit_on() else 0)
+    assert jpeg[:2] == b"\xff\xd8"
+
+
+def test_old_config_gets_new_features_enabled():
+    """老配置里没有新功能的名字 —— 升级时要自动补上。
+
+    不补的话骰子会直接失灵：用户没勾过，不是他不要，是配置太老。
+    """
+    names, ver = feature_mod.reconcile(["clock", "host"], 1)
+    assert "merit" in names
+    assert "dice" in names
+    assert ver == feature_mod.FEATURES_VERSION
+
+
+def test_reconcile_respects_user_choice():
+    """用户自己勾掉的不能被加回来 —— 版本记上了就说明他看过这一版。"""
+    names, ver = feature_mod.reconcile(["clock"], feature_mod.FEATURES_VERSION)
+    assert "merit" not in names
+    assert "dice" not in names
+
+
+def test_reconcile_keeps_v1_features_user_removed():
+    """老配置的用户可能自己勾掉过第 1 版的功能 —— 不能全加回来。
+
+    老配置没有版本号，按「看过第 1 版」算：只补第 2 版新增的。
+    """
+    names, ver = feature_mod.reconcile(["clock"], 1)
+    assert "clock" in names
+    assert "weather" not in names, "用户勾掉的旧功能不该被加回来"
+    assert "merit" in names
+    assert "dice" in names
+
+
+def test_config_load_keeps_old_config_without_version(tmp_path, monkeypatch):
+    """老 config.json 里没有 featuresVersion —— 读出来也不能当成最新版。
+
+    靠默认值合并会把默认的版本号带过去，于是新增功能永远补不上，
+    骰子会直接失灵。
+    """
+    import json
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"ui": {"features": ["clock", "host"]}}), encoding="utf-8")
+    cfg = config.load(path=p)
+    assert cfg["ui"]["featuresVersion"] == 1
+    names, ver = feature_mod.reconcile(cfg["ui"]["features"],
+                                       cfg["ui"]["featuresVersion"])
+    assert "merit" in names
+    assert "dice" in names
+
+
+def test_user_toggle_persists_version(client):
+    """用户自己勾掉骰子 —— 版本要记上，下次启动别又加回来。"""
+    client.post("/admin/api/settings",
+                json={"id": "features", "value": ["clock", "merit"]})
+    pet = client.app.state.pet
+    assert pet.cfg["ui"]["featuresVersion"] == feature_mod.FEATURES_VERSION
+    names, _ = feature_mod.reconcile(pet.cfg["ui"]["features"],
+                                      pet.cfg["ui"]["featuresVersion"])
+    assert "dice" not in names
+
+
+def test_merit_feature_card_shows_count():
+    """功德卡上得有累计数。"""
+    f = feature_mod.BUILTIN[[x.name for x in feature_mod.BUILTIN].index("merit")]
+    ctx = {"now": 1000.0, "merit": 12, "meritPhrase": "稳了"}
+    card = f.context(ctx)
+    assert card is not None
+    assert card["big"] == "12"
+
+
+def test_merit_feature_silent_before_any_work():
+    """还没干完过活 —— 功德卡没话可说，不占屏。"""
+    f = feature_mod.BUILTIN[[x.name for x in feature_mod.BUILTIN].index("merit")]
+    assert f.context({"now": 1000.0, "merit": 0}) is None
+
+
+def test_dice_feature_card_shows_last_roll():
+    """骰子卡上显示上次摇出的点数。"""
+    f = feature_mod.BUILTIN[[x.name for x in feature_mod.BUILTIN].index("dice")]
+    card = f.context({"now": 1000.0, "dice": {"rolled": True, "value": 4}})
+    assert card is not None
+    assert card["big"] == "4"
+
+
+def test_settings_expose_toy_features_with_live_slots(client):
+    """后台「功能」清单里要有这两项，而且带实时数字槽。"""
+    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
+    assert "merit" in caps
+    assert "dice" in caps
+    merit_live = {lv["id"] for lv in caps["merit"].get("live") or []}
+    assert "feat-live-merit" in merit_live
+    dice_live = {lv["id"] for lv in caps["dice"].get("live") or []}
+    assert "feat-live-dice" in dice_live
+    assert "feat-live-press" in dice_live
+
+
+def test_dice_feature_carries_simulate_button(client):
+    """骰子功能带一个「模拟短按旋钮」按钮 —— 不改配置，只是按一下。"""
+    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
+    opts = caps["dice"]["options"]
+    assert len(opts) == 1
+    assert opts[0]["type"] == "button"
+    assert opts[0]["gesture"] == "press_short"
 
 
 def test_status_carries_toys(client):

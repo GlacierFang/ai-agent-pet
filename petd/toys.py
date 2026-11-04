@@ -52,6 +52,8 @@ class Dice:
         self.rolling = False
         self.value = 1
         self._face = 1
+        # 摇过没有 —— 屏上要区分「还没摇过」和「上次摇了 3」
+        self.rolled = False
         # 两个截止时刻都在按下的那一刻定好 —— 不随观察到的帧往后挪。
         # 否则单帧落在两个截止点之间时，骰子会多显示一整个 HOLD。
         self._roll_until = 0.0
@@ -66,6 +68,7 @@ class Dice:
             return False
         self.active = True
         self.rolling = True
+        self.rolled = True
         self.value = self._rng.randint(1, DICE_FACES)
         self._face = self._rng.randint(1, DICE_FACES)
         self._roll_until = now + DICE_ROLL_MS / 1000.0
@@ -126,6 +129,10 @@ class Merit:
                 break
         self._last_phrase = phrase
         return phrase
+
+    def last_phrase(self):
+        """上一句玄学 —— 屏上那张功德卡要显示它。"""
+        return self._last_phrase
 
     def bubble(self, now=None):
         """当前飘字；没有或者过期了返回 None。"""

@@ -30,6 +30,7 @@ SLEEP_OFF = "off"
 FEATURE_OPTIONS = {
     "sessions": "session",
     "weather": "weatherCity",
+    "dice": "diceButton",
 }
 
 
@@ -53,6 +54,17 @@ def _city_option(pet):
             "type": "text"}
 
 
+def _dice_button_option():
+    """「模拟短按旋钮」按钮 —— 不改任何配置，只是按一下。
+
+    它走的是真手势表：改了 petd/data/gestures.json，这个按钮跟着变。
+    """
+    return {"id": "diceButton", "name": "模拟短按旋钮",
+            "label": "模拟短按旋钮",
+            "desc": "在浏览器里模拟一次短按旋钮 —— 没有板子也能看效果",
+            "type": "button", "gesture": "press_short"}
+
+
 def _feature(pet, entry, selected):
     """一个功能 = 勾选框 + 说明 + 它自己的设定项。"""
     name = entry["name"]
@@ -63,6 +75,20 @@ def _feature(pet, entry, selected):
         item["options"].append(_session_option(pet))
     elif extra == "weatherCity":
         item["options"].append(_city_option(pet))
+    elif extra == "diceButton":
+        item["options"].append(_dice_button_option())
+    # live —— 这张卡上会显示的实时数字。前端按 id 填，不猜。
+    if name == "merit":
+        item["live"] = [{"id": "feat-live-merit", "kind": "merit",
+                         "text": "功德 %d" % int(pet.merit.value)}]
+    elif name == "dice":
+        item["live"] = [
+            {"id": "feat-live-dice", "kind": "dice",
+             "text": ("上次摇出 %d" % int(pet.dice.value)) if pet.dice.rolled
+                     else "还没摇过"},
+            {"id": "feat-live-press", "kind": "press", "text": ""},
+            {"id": "feat-live-roll", "kind": "roll", "text": ""},
+        ]
     return item
 
 

@@ -7,17 +7,32 @@
 要加内容就往 BUILTIN 里加一行。
 """
 from .base import Feature
-from . import clock, host, notify, recent_done, sessions, weather
+from . import clock, dice, host, merit, notify, recent_done, sessions, weather
 
 # 注册顺序 = 轮播顺序
 BUILTIN = [
     sessions.Sessions(),
     notify.Notify(),
     recent_done.RecentDone(),
+    merit.Merit(),
+    dice.Dice(),
     clock.Clock(),
     host.HostStatus(),
     weather.Weather(),
 ]
+
+# 功能清单的版本。新增功能时 +1，并把新加的名字记进 FEATURE_INTRO。
+#
+# 老用户的 config 里没有新功能的名字 —— 直接 normalize 会把它们悄悄关掉
+# （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
+# 老配置升上来时把这一版新增的功能补上，补完记下版本。
+# 之后用户自己勾掉，就真的是他的选择了，不会再被加回来。
+FEATURES_VERSION = 2
+
+FEATURE_INTRO = {
+    1: ["sessions", "notify", "recent_done", "clock", "host"],
+    2: ["merit", "dice"],
+}
 
 # 老名字 -> 新名字。
 # 「device」以前指的是那块 ESP32 屏（信号、固件、在线时长）—— 屏就在用户
@@ -40,6 +55,28 @@ def normalize(names):
 def all_features():
     """所有 feature。"""
     return list(BUILTIN)
+
+
+def reconcile(names, version):
+    """把老配置补到当前版本。返回 (功能名单, 版本)。
+
+    用户自己勾掉的不会被加回来 —— 版本记上了就说明他看过这一版。
+    """
+    out = set(normalize(names))
+    try:
+        ver = int(version)
+    except (TypeError, ValueError):
+        ver = 1
+    # 版本 0 = 没记过版本的老配置 —— 按「看过第 1 版」算。
+    # 第 1 版那批功能用户可能自己勾掉过，别全加回来。
+    if ver < 1:
+        ver = 1
+    known = {f.name for f in BUILTIN}
+    for v in range(ver + 1, FEATURES_VERSION + 1):
+        for n in FEATURE_INTRO.get(v, []):
+            if n in known:
+                out.add(n)
+    return out, FEATURES_VERSION
 
 
 def catalog():

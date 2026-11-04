@@ -43,7 +43,11 @@ def defaults():
             "skin": "default",
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
-            "features": ["sessions", "notify", "recent_done", "clock", "host"],
+            "features": ["sessions", "notify", "recent_done", "merit", "dice",
+                         "clock", "host"],
+            # 用户看过第几版功能清单 —— 老配置升上来时补齐这版新增的功能。
+            # 这个值要跟 petd/features/__init__.py 的 FEATURES_VERSION 对上。
+            "featuresVersion": 2,
             "cardDwellSec": 8,      # 每张卡停留秒数
             "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
             "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）
@@ -71,11 +75,21 @@ def _deep_merge(base, over):
 def load(path=None):
     cfg = defaults()
     p = pathlib.Path(path) if path else DATA_DIR / "config.json"
+    raw = None
     if p.exists():
         try:
-            cfg = _deep_merge(cfg, json.loads(p.read_text(encoding="utf-8")))
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            cfg = _deep_merge(cfg, raw)
         except Exception as exc:
             print("[config] 读取失败，用默认值:", exc)
+    # featuresVersion 是「用户看过第几版功能清单」，不是普通配置项。
+    # 不能靠默认值带过去 —— 老配置合并后会继承默认值那份，
+    # 于是新增的功能永远补不上（骰子会直接失灵）。
+    # 以文件里有没有这个键为准：没有 = 用户还没看过当前这几版。
+    if not isinstance(raw, dict) or "featuresVersion" not in (raw.get("ui") or {}):
+        # 老配置按「看过第 1 版」算 —— 第 1 版那批功能他可能自己勾掉过，
+        # 不能因为没有版本号就全加回来。第 2 版新增的（功德箱、骰子）才补。
+        cfg.setdefault("ui", {})["featuresVersion"] = 1
     if not cfg["gateway"].get("token"):
         env = os.environ.get("PETD_GATEWAY_TOKEN", "")
         if env:

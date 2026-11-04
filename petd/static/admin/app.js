@@ -130,18 +130,14 @@ var T = {
 
   /* 屏上的玩具 —— 不是宠物状态，是屏上的一次性覆盖层 */
   toys: {
-    title: '屏上的玩具',
-    note: '骰子和功德箱是宠物能做的两件事。它们是屏上的一次性覆盖层，不改宠物在干什么 —— 所以不跟上面那拨轮播功能列在一起。',
-    meritName: '功德箱',
-    meritDesc: 'agent 每次真把活干完 +1，飘一句程序员玄学。数字存在本机，重启不清零。',
-    diceName: '赛博骰子',
-    diceDesc: '短按旋钮就摇一次。整屏变骰子，滚 1.5 秒出结果。',
-    rollBtn: '模拟短按旋钮',
+    meritLive: '功德 {n}',
+    diceLive: '上次摇出 {n}',
+    diceNever: '还没摇过',
     rolling: '骰子滚着…',
-    result: '这次摇了 {n}',
     closed: '骰子收起来了',
     busy: '有活，先干活 —— 骰子让路',
     night: '睡着了，不吵醒它',
+    off: '骰子功能没勾上 —— 按旋钮不弹',
     canRoll: '现在按旋钮会弹骰子',
     cannotRoll: '现在按旋钮不弹（{why}）',
     pressMapped: '短按旋钮现在被映射成「{a}」。改 petd/data/gestures.json 就换。',
@@ -528,42 +524,29 @@ function renderPet(s) {
     addBadge(badges, 'ok', t('pet:diceOn'));
   }
 
-  renderToys(pet.toys);
+  renderToyLive(pet.toys);
 }
 
 /* 屏上的玩具 —— 功德数、骰子状态、还有「现在按旋钮会不会弹」。
 
-   入参是 toys 视图本身（status 里是 pet.toys）。 */
-function renderToys(toys) {
-  var box = el('toy-merit');
-  if (!box) return;
+   入参是 toys 视图本身（status 里是 pet.toys）。
+   填的是功能卡上的 live 槽 —— 那一页没打开时槽不存在，填了也白填，无所谓。 */
+function renderToyLive(toys) {
   toys = toys || {};
-  box.textContent = String(toys.merit || 0);
+
+  var mEl = el('feat-live-merit');
+  if (mEl) mEl.textContent = fill(t('toys:meritLive'), { n: toys.merit || 0 });
 
   var dice = toys.dice || {};
-  var dEl = el('toy-dice');
+  var dEl = el('feat-live-dice');
   if (dEl) {
-    if (!dice.active) dEl.textContent = t('common:dash');
-    else if (dice.rolling) dEl.textContent = t('toys:rolling');
-    else dEl.textContent = String(dice.value);
+    if (!dice.rolled) dEl.textContent = t('toys:diceNever');
+    else if (dice.active && dice.rolling) dEl.textContent = t('toys:rolling');
+    else dEl.textContent = fill(t('toys:diceLive'), { n: dice.value });
   }
-
-  var meta = el('toy-meta');
-  if (meta) {
-    if (toys.canRoll) meta.textContent = t('toys:canRoll');
-    else {
-      var why = toys.night ? t('toys:night') : t('toys:busy');
-      meta.textContent = fill(t('toys:cannotRoll'), { why: why });
-    }
-  }
-
-  /* 按钮不禁用 —— 按下去会走手势表，服务端自己判断该不该弹。
-     忙或者夜里，点了会告诉用户为什么不行。 */
-  var btn = el('btn-toy-dice');
-  if (btn) btn.disabled = false;
 
   /* 短按被映射到哪个动作 —— 照实说，不替用户猜 */
-  var pEl = el('toy-press');
+  var pEl = el('feat-live-press');
   if (pEl) {
     if (toys.pressAction) {
       pEl.textContent = fill(t('toys:pressMapped'), { a: actionName(toys.pressAction) });
@@ -577,17 +560,17 @@ function renderToys(toys) {
 
    用户改了 petd/data/gestures.json，这个按钮跟着变。
    所以这里不直接调某个动作，只发一条「按了一下旋钮」。 */
-function pressKnob() {
-  var meta = el('toy-meta');
-  var btn = el('btn-toy-dice');
+function pressKnob(gesture, btn) {
+  var meta = el('feat-live-roll');
   if (btn) btn.disabled = true;
   fetch(API + '/knob', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gesture: 'press_short' })
+    body: JSON.stringify({ gesture: gesture || 'press_short' })
   })
     .then(function (r) { return r.json(); })
     .then(function (b) {
+      if (btn) btn.disabled = false;
       if (!b.ok) {
         if (meta) meta.textContent = b.error || t('common:netError');
         return;
@@ -597,14 +580,18 @@ function pressKnob() {
         else if (b.result === 'closed') meta.textContent = t('toys:closed');
         else if (b.result === 'busy') meta.textContent = t('toys:busy');
         else if (b.result === 'night') meta.textContent = t('toys:night');
+        else if (b.result === 'off') meta.textContent = t('toys:off');
         else if (b.result === 'unassigned') meta.textContent = t('toys:pressUnmapped');
         else if (b.action) meta.textContent = fill(t('toys:pressed'), { a: actionName(b.action) });
       }
-      if (b.toys) renderToys(b.toys);
+      if (b.toys) renderToyLive(b.toys);
       /* 骰子占屏了 —— 预览立刻刷一帧，别等下一秒 */
       refreshPreview();
     })
-    .catch(function () { if (meta) meta.textContent = t('common:netError'); });
+    .catch(function () {
+      if (btn) btn.disabled = false;
+      if (meta) meta.textContent = t('common:netError');
+    });
 }
 
 /* 动作 id -> 中文名。手势表里写的是 id，页面上要给人看的话。 */
@@ -1219,6 +1206,18 @@ function closeSkinModal(saved) {
 function renderControl(o) {
   if (o.type === 'timerange') return renderTimeRange(o);
 
+  /* 按钮型 —— 模拟一次旋钮手势。不改任何配置，只是按一下。 */
+  if (o.type === 'button') {
+    var bw = document.createElement('div');
+    bw.className = 'ctl ctl-button';
+    var bb = document.createElement('button');
+    bb.type = 'button';
+    bb.textContent = o.label || o.name || '';
+    bb.addEventListener('click', function () { pressKnob(o.gesture || 'press_short', bb); });
+    bw.appendChild(bb);
+    return bw;
+  }
+
   if (o.type === 'number') {
     var nw = document.createElement('div');
     nw.className = 'ctl ctl-number';
@@ -1330,6 +1329,15 @@ function featureCard(c) {
     row.appendChild(lb);
     row.appendChild(renderControl(o));
     card.appendChild(row);
+  });
+
+  /* live —— 这张卡上的实时数字。服务端给 id，前端按 id 填，不猜。 */
+  (c.live || []).forEach(function (lv) {
+    var d = document.createElement('div');
+    d.className = 'feat-live-item';
+    d.id = lv.id;
+    d.textContent = lv.text || '';
+    card.appendChild(d);
   });
 
   return card;
@@ -2045,7 +2053,6 @@ function startDashboard() {
   });
 
   el('btn-preview').addEventListener('click', refreshPreview);
-  el('btn-toy-dice').addEventListener('click', pressKnob);
   el('preview-auto').addEventListener('change', tickPreview);
 
   el('btn-log-clear').addEventListener('click', function () {
