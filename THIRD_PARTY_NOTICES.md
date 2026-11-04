@@ -52,10 +52,14 @@ TJpgDec 由 ChaN 编写，作者在源码头声明为「free software」，
 
 ## 美术素材
 
-**代码与美术分开授权。** 仓库里目前只有程序化生成的几何默认角色（由 `petd/render.py` 画出），无第三方素材。
+**代码与美术分开授权。**
 
-维护者提供的美术作为独立皮肤包发布，
-授权在每个素材目录的 `meta.json` 的 `license` 字段单独声明 —— 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+| 素材 | 出处 | 授权 |
+|---|---|---|
+| `skins/default/`（六态各一张 PNG） | 维护者绘制 | Apache-2.0，见该目录的 `meta.json` |
+
+每个素材目录的 `meta.json` 里单独声明 `license` 字段 —— 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+无第三方素材。
 
 ## 未收录
 
