@@ -74,6 +74,13 @@ def test_chinese_skin_name_allowed(repo):
     assert "咖啡猫" in skins.list_skins(repo)
 
 
+def test_builtin_pet_cannot_be_edited(repo):
+    """默认宠物是底线 —— 用户改不了它。要改就新建一只。"""
+    (repo / "skins" / "default").mkdir(parents=True)
+    with pytest.raises(ValueError):
+        skins.save_image(repo, "default", "idle", _png_bytes())
+
+
 def test_builtin_pet_has_display_title(repo):
     """内置那只在界面上叫「默认宠物」，目录名还是 default。"""
     (repo / "skins" / "default").mkdir(parents=True)

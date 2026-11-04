@@ -865,18 +865,19 @@ function skinCard(sk) {
   }
   card.appendChild(tags);
 
-  var acts = document.createElement('div');
-  acts.className = 'pet-actions';
-  var ed = document.createElement('button');
-  ed.type = 'button';
-  ed.className = 'ghost';
-  ed.textContent = t('skins:edit');
-  ed.addEventListener('click', function (ev) {
-    ev.stopPropagation();
-    openSkinModal(sk);
-  });
-  acts.appendChild(ed);
+  /* 只有自建的能改、能删 —— 仓库自带的那只是随版本走的底线 */
   if (sk.source === 'user') {
+    var acts = document.createElement('div');
+    acts.className = 'pet-actions';
+    var ed = document.createElement('button');
+    ed.type = 'button';
+    ed.className = 'ghost';
+    ed.textContent = t('skins:edit');
+    ed.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      openSkinModal(sk);
+    });
+    acts.appendChild(ed);
     var del = document.createElement('button');
     del.type = 'button';
     del.className = 'ghost';
@@ -886,8 +887,8 @@ function skinCard(sk) {
       deleteSkin(sk.name);
     });
     acts.appendChild(del);
+    card.appendChild(acts);
   }
-  card.appendChild(acts);
   return card;
 }
 
