@@ -4,6 +4,7 @@
 v1 只有三种信息密度，差别是表情区高度，文字区跟着变。
 """
 import io
+import os
 import pathlib
 
 from PIL import Image, ImageDraw, ImageFont
@@ -393,3 +394,87 @@ def bubble_overlay(cfg, text, phrase="", alpha=1.0):
         _center(d, width * scale // 2, y + int(28 * scale), phrase,
                 int(13 * scale), sub)
     return big.resize((width, height), Image.LANCZOS)
+
+
+# ---------- 照片（整屏一张图） ----------
+
+# 照片缓存 —— 同一张照片在屏上待 8 秒，按 1fps 算就是解码 8 次。
+# 存的是缩好的图，key 是 (路径, 修改时间) —— 改了文件自动失效。
+_PHOTO_CACHE = {}
+_PHOTO_CACHE_MAX = 4
+
+
+def _photo_scaled(path, tw, th):
+    """读照片、缩到屏尺寸。命中缓存就直接给。"""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    key = (str(path), mtime, tw, th)
+    hit = _PHOTO_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        src = Image.open(path)
+        src.load()
+    except Exception:
+        return None
+    if src.mode != "RGB":
+        src = src.convert("RGB")
+    fw, fh = src.size
+    if fw < 1 or fh < 1:
+        return None
+    # cover —— 铺满，宁可裁边
+    factor = max(tw / float(fw), th / float(fh))
+    nw, nh = max(1, int(fw * factor)), max(1, int(fh * factor))
+    big = src.resize((nw, nh), Image.LANCZOS)
+    left = (nw - tw) // 2
+    top = (nh - th) // 2
+    big = big.crop((left, top, left + tw, top + th))
+    if len(_PHOTO_CACHE) >= _PHOTO_CACHE_MAX:
+        _PHOTO_CACHE.clear()
+    _PHOTO_CACHE[key] = big
+    return big
+
+
+def render_photo_card(cfg, path, counter=""):
+
+    """整屏照片。没有宠物脸 —— 照片就是屏上全部的东西。
+
+    等比裁切铺满（cover）：宁可裁掉边，也不留黑边、也不压扁。
+    照片读不出来就返回 None —— 让调用方退回普通卡片，别让屏上开天窗。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+    quality = int(cfg.get("render", {}).get("quality", 85))
+    subsampling = int(cfg.get("render", {}).get("subsampling", 2))
+
+    scale = 2
+    tw, th = width * scale, height * scale
+    big = _photo_scaled(path, tw, th)
+    if big is None:
+        return None
+    # 缓存里那张不能改 —— 角标是叠上去的
+    big = big.copy()
+
+    # 角标 —— 右下角「第几张 / 共几张」
+    if counter:
+        ov = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        od = ImageDraw.Draw(ov)
+        f, _ = _font(int(11 * scale))
+        box = od.textbbox((0, 0), counter, font=f)
+        pad = int(6 * scale)
+        x1 = tw - int(8 * scale)
+        y1 = th - int(8 * scale)
+        x0 = x1 - (box[2] - box[0]) - pad * 2
+        y0 = y1 - (box[3] - box[1]) - pad * 2
+        od.rounded_rectangle([x0, y0, x1, y1], radius=int(4 * scale),
+                             fill=(12, 12, 20, 160))
+        od.text((x0 + pad - box[0], y0 + pad - box[1]), counter, font=f,
+                fill=(214, 220, 234, 255))
+        big = Image.alpha_composite(big.convert("RGBA"), ov).convert("RGB")
+
+    img = big.resize((width, height), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
+    return buf.getvalue()

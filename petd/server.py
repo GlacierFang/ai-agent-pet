@@ -26,6 +26,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from . import album as album_mod
 from . import config as config_mod
 from . import skins as skins_mod
 from .app import PetApp
@@ -486,6 +487,64 @@ def create_app(cfg=None, start_gateway=True, port=None):
         body["ok"] = True
         return JSONResponse(body)
 
+    async def api_album_get(request):
+        """相册清单 —— 后台要显示照片，也得说清有几张。"""
+        return JSONResponse({"ok": True, "album": pet.album_view()})
+
+    async def api_album_upload(request):
+        """传一张照片。
+
+        走 base64 —— 跟皮肤图那条路一样，一条路一种格式，不搞两套。
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        raw = str(body.get("data") or "")
+        if not raw:
+            return JSONResponse({"ok": False, "error": "没有图片数据"},
+                                status_code=400)
+        if len(raw) > album_mod.MAX_UPLOAD_B64:
+            return JSONResponse({"ok": False, "error": "图片太大了"}, status_code=400)
+        try:
+            data = base64.b64decode(raw)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "图片数据不是 base64"},
+                                status_code=400)
+        try:
+            rec = album_mod.add(data, str(body.get("name") or ""))
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        pet.reload_album()
+        pet.log("info", "相册加了 1 张，现在 %d 张" % album_mod.count())
+        return JSONResponse({"ok": True, "album": pet.album_view()})
+
+    async def api_album_delete(request):
+        """删一张照片。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        if not album_mod.delete(str(body.get("file") or "")):
+            return JSONResponse({"ok": False, "error": "没有这张照片"},
+                                status_code=400)
+        pet.reload_album()
+        pet.log("info", "相册删了 1 张，现在 %d 张" % album_mod.count())
+        return JSONResponse({"ok": True, "album": pet.album_view()})
+
+    async def api_album_thumb(request):
+        """缩略图 —— 后台网格用。
+
+        文件名走 query 参数（名字可能带中文，浏览器会自动编码）。
+        """
+        fname = str(request.query_params.get("file") or "")
+        data = album_mod.thumb_bytes(fname)
+        if data is None:
+            return JSONResponse({"ok": False, "error": "没有这张照片"},
+                                status_code=404)
+        return Response(data, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
     async def api_skins_get(request):
         root = pet.cfg.get("_repo_root", ".")
         return JSONResponse({"items": skins_mod.list_skin_info(root),
@@ -615,6 +674,10 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/sessions", _guard(api_sessions)),
         Route("/admin/api/settings", _guard(api_settings_get), methods=["GET"]),
         Route("/admin/api/settings", _guard(api_settings_post), methods=["POST"]),
+        Route("/admin/api/album", _guard(api_album_get), methods=["GET"]),
+        Route("/admin/api/album/upload", _guard(api_album_upload), methods=["POST"]),
+        Route("/admin/api/album/delete", _guard(api_album_delete), methods=["POST"]),
+        Route("/admin/api/album/thumb", _guard(api_album_thumb), methods=["GET"]),
         Route("/admin/api/skins", _guard(api_skins_get), methods=["GET"]),
         Route("/admin/api/skins", _guard(api_skins_post), methods=["POST"]),
         Route("/admin/api/skins/frame", _guard(api_skin_frame_post), methods=["POST"]),

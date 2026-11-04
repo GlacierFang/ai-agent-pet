@@ -44,10 +44,10 @@ def defaults():
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
             "features": ["sessions", "notify", "recent_done", "merit", "dice",
-                         "clock", "host"],
+                         "clock", "host", "album"],
             # 用户看过第几版功能清单 —— 老配置升上来时补齐这版新增的功能。
             # 这个值要跟 petd/features/__init__.py 的 FEATURES_VERSION 对上。
-            "featuresVersion": 2,
+            "featuresVersion": 3,
             "cardDwellSec": 8,      # 每张卡停留秒数
             "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
             "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）

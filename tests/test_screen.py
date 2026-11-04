@@ -211,7 +211,7 @@ def test_broken_feature_does_not_break_the_screen():
 def test_registry_contains_all_builtin():
     names = [f.name for f in feature_mod.all_features()]
     for expected in ("sessions", "notify", "recent_done", "clock",
-                     "host", "weather"):
+                     "host", "weather", "merit", "dice", "album"):
         assert expected in names
 
 

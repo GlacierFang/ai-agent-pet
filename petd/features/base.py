@@ -42,9 +42,21 @@ class Feature:
             big     超大字 —— 时间、温度这类
             body    短句，最多三行
             rows    列表行 [{"left": ..., "right": ..., "accent": ...}]
+            photo   整屏照片的路径 —— 有它就走「整屏一张图」的路子
+            counter 照片计数（角标）
             state   用宠物哪一态的表情
                     （idle / working / waiting / done / error / sleeping）
             source  底部小字 —— 这条内容从哪来
+        """
+        return None
+
+    def on_show(self, ctx=None):
+        """新的一段显示开始了 —— 屏上仲裁叫它一声。
+
+        通用钩子，不相册专用。轮播切到它、或者同一张卡住够了一轮，
+        都算「轮到它」。用它来推进自己的进度（相册换下一张照片）。
+
+        别在这里自己算时间 —— 什么时候轮到，屏上仲裁说了算。
         """
         return None
 
@@ -55,7 +67,7 @@ class Feature:
     def poll(self, ctx=None):
         """后台取数钩子。可选 —— 不覆盖就什么都不做。
 
-        在后台线程里调用，不阻塞渲染循环。取到的数据自己存，
+        在后台线程里调用，不阻塞渲染。取到的数据自己存，
         context() 里读缓存。
         """
         return None

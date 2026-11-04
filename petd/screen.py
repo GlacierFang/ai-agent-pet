@@ -161,8 +161,27 @@ class ScreenDirector:
             if name not in cards:
                 continue
             f = by_name[name]
-            if f is not self.feature:
-                self._layer_since = now
+            # 换了一张卡 —— 住的时间重新算
+            self._layer_since = now
             self._force_next = False
-            return cards[name], f
+            card = self._reshow(f, ctx, name)
+            if card:
+                return card, f
         return None, None
+
+    def _reshow(self, feature, ctx, name):
+        """新的一段显示开始 —— 先让它准备，再取它的内容。
+
+        on_show 是通用钩子：轮播切到它、或者同一张卡住够了一轮，
+        都算「轮到它」。相册靠这个换下一张照片。
+
+        内容要重新取一遍 —— 准备过程可能改了内容（相册换了图）。
+        """
+        try:
+            on_show = getattr(feature, "on_show", None)
+            if callable(on_show):
+                on_show(ctx)
+            return feature.context(ctx)
+        except Exception:
+            log.warning("feature %s 出错，跳过", name, exc_info=True)
+            return None

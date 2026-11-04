@@ -7,7 +7,7 @@
 要加内容就往 BUILTIN 里加一行。
 """
 from .base import Feature
-from . import clock, dice, host, merit, notify, recent_done, sessions, weather
+from . import album, clock, dice, host, merit, notify, recent_done, sessions, weather
 
 # 注册顺序 = 轮播顺序
 BUILTIN = [
@@ -19,6 +19,7 @@ BUILTIN = [
     clock.Clock(),
     host.HostStatus(),
     weather.Weather(),
+    album.Album(),
 ]
 
 # 功能清单的版本。新增功能时 +1，并把新加的名字记进 FEATURE_INTRO。
@@ -27,11 +28,12 @@ BUILTIN = [
 # （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
 # 老配置升上来时把这一版新增的功能补上，补完记下版本。
 # 之后用户自己勾掉，就真的是他的选择了，不会再被加回来。
-FEATURES_VERSION = 2
+FEATURES_VERSION = 3
 
 FEATURE_INTRO = {
     1: ["sessions", "notify", "recent_done", "clock", "host"],
     2: ["merit", "dice"],
+    3: ["album"],
 }
 
 # 老名字 -> 新名字。
@@ -55,6 +57,17 @@ def normalize(names):
 def all_features():
     """所有 feature。"""
     return list(BUILTIN)
+
+
+def get(name):
+    """按名字取 feature。找不到就是 None。
+
+    按下标取会随注册表增减移位 —— 加一个功能就崩一片。按名字不会。
+    """
+    for f in BUILTIN:
+        if f.name == name:
+            return f
+    return None
 
 
 def reconcile(names, version):

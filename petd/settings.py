@@ -11,6 +11,7 @@
 字段全仓没有任何地方读它，勾掉了什么也不会发生。那种清单是骗人的，不如没有。
 """
 
+from . import album as album_mod
 from . import config as config_mod
 from . import features as feature_mod
 
@@ -31,6 +32,7 @@ FEATURE_OPTIONS = {
     "sessions": "session",
     "weather": "weatherCity",
     "dice": "diceButton",
+    "album": "albumPanel",
 }
 
 
@@ -65,6 +67,23 @@ def _dice_button_option():
             "type": "button", "gesture": "press_short"}
 
 
+def _album_option(pet):
+    """相册面板 —— 缩略图网格 + 上传按钮。
+
+    照片在服务端存，这里只给清单和元数据。
+    """
+    items = album_mod.list_items()
+    return {
+        "id": "albumPanel",
+        "name": "照片",
+        "desc": "最多 %d 张，轮播到就换一张" % album_mod.MAX_PHOTOS,
+        "type": "album",
+        "max": album_mod.MAX_PHOTOS,
+        "count": len(items),
+        "photos": [{"file": it["file"], "name": it["name"]} for it in items],
+    }
+
+
 def _feature(pet, entry, selected):
     """一个功能 = 勾选框 + 说明 + 它自己的设定项。"""
     name = entry["name"]
@@ -77,10 +96,17 @@ def _feature(pet, entry, selected):
         item["options"].append(_city_option(pet))
     elif extra == "diceButton":
         item["options"].append(_dice_button_option())
+    elif extra == "albumPanel":
+        item["options"].append(_album_option(pet))
     # live —— 这张卡上会显示的实时数字。前端按 id 填，不猜。
     if name == "merit":
         item["live"] = [{"id": "feat-live-merit", "kind": "merit",
                          "text": "功德 %d" % int(pet.merit.value)}]
+    elif name == "album":
+        n = album_mod.count()
+        item["live"] = [{"id": "feat-live-album", "kind": "album",
+                         "text": ("%d / %d 张照片" % (n, album_mod.MAX_PHOTOS))
+                                 if n else "还没有照片"}]
     elif name == "dice":
         item["live"] = [
             {"id": "feat-live-dice", "kind": "dice",

@@ -171,6 +171,14 @@ var T = {
     uploadFail: '上传失败'
   },
 
+  album: {
+    count: '{n} / {max} 张',
+    empty: '还没有照片 —— 传几张，轮播到就换一张',
+    uploadHint: 'JPG / PNG / WebP，最多 {max} 张',
+    uploadFail: '上传失败',
+    del: '删掉这张'
+  },
+
   settings: {
     title: '宠物设定',
     note: '宠物能做的，和做事的节奏。都在这儿改，改完立刻生效。',
@@ -1206,6 +1214,40 @@ function closeSkinModal(saved) {
 function renderControl(o) {
   if (o.type === 'timerange') return renderTimeRange(o);
 
+  /* 相册 —— 缩略图网格 + 上传按钮。照片存在服务端，这里只管传和删。 */
+  if (o.type === 'album') {
+    var aw = document.createElement('div');
+    aw.className = 'ctl ctl-album';
+
+    var meta = document.createElement('div');
+    meta.className = 'album-meta';
+    meta.textContent = (o.count || 0)
+      ? fill(t('album:count'), { n: o.count, max: o.max })
+      : t('album:empty');
+    aw.appendChild(meta);
+
+    var grid = document.createElement('div');
+    grid.className = 'album-grid';
+    (o.photos || []).forEach(function (p) { grid.appendChild(albumCell(p)); });
+    aw.appendChild(grid);
+
+    var up = document.createElement('div');
+    up.className = 'album-upload';
+    var fi = document.createElement('input');
+    fi.type = 'file';
+    fi.accept = 'image/jpeg,image/png,image/webp';
+    fi.multiple = true;
+    fi.addEventListener('change', function () { uploadAlbum(fi, aw); });
+    up.appendChild(fi);
+    var hint = document.createElement('span');
+    hint.className = 'muted';
+    hint.textContent = fill(t('album:uploadHint'), { max: o.max });
+    up.appendChild(hint);
+    aw.appendChild(up);
+
+    return aw;
+  }
+
   /* 按钮型 —— 模拟一次旋钮手势。不改任何配置，只是按一下。 */
   if (o.type === 'button') {
     var bw = document.createElement('div');
@@ -1322,7 +1364,7 @@ function featureCard(c) {
 
   (c.options || []).forEach(function (o) {
     var row = document.createElement('div');
-    row.className = 'feat-opt';
+    row.className = 'feat-opt' + (o.type === 'album' ? ' wide' : '');
     var lb = document.createElement('span');
     lb.className = 'feat-opt-label';
     lb.textContent = o.name;
@@ -1633,6 +1675,82 @@ function setSetting(id, value) {
     .catch(function () { meta.textContent = t('common:netError'); });
 }
 
+
+
+/* ---------------- 相册 ---------------- */
+
+/* 一张缩略图 —— 右上角一个删除按钮。 */
+function albumCell(p) {
+  var cell = document.createElement('div');
+  cell.className = 'album-cell';
+  var img = document.createElement('img');
+  img.src = API + '/album/thumb?file=' + encodeURIComponent(p.file);
+  img.alt = p.name || '';
+  cell.appendChild(img);
+  var del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'album-del';
+  del.textContent = '×';
+  del.title = t('album:del');
+  del.addEventListener('click', function () { deleteAlbum(p.file, del); });
+  cell.appendChild(del);
+  return cell;
+}
+
+/* 读成 base64。服务端收的是纯 base64 —— data URL 的头去掉。 */
+function readAsBase64(file) {
+  return new Promise(function (resolve, reject) {
+    var r = new FileReader();
+    r.onload = function () {
+      var s = String(r.result || '');
+      resolve(s.indexOf(',') >= 0 ? s.slice(s.indexOf(',') + 1) : s);
+    };
+    r.onerror = function () { reject(new Error('read failed')); };
+    r.readAsDataURL(file);
+  });
+}
+
+function uploadAlbum(input, panel) {
+  var files = Array.prototype.slice.call(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  var meta = panel.querySelector('.album-meta');
+  if (meta) meta.textContent = t('common:saving');
+
+  var chain = Promise.resolve();
+  files.forEach(function (f) {
+    chain = chain.then(function () {
+      return readAsBase64(f).then(function (data) {
+        return fetch(API + '/album/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: data, name: f.name || '' })
+        }).then(function (r) { return r.json(); });
+      }).then(function (b) {
+        if (!b.ok) throw new Error(b.error || t('album:uploadFail'));
+      });
+    });
+  });
+  chain.then(function () { loadSettings(); })
+       .catch(function (err) {
+         if (meta) meta.textContent = (err && err.message) ? err.message : t('album:uploadFail');
+       });
+}
+
+function deleteAlbum(file, btn) {
+  btn.disabled = true;
+  fetch(API + '/album/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: file })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { btn.disabled = false; return; }
+      loadSettings();
+    })
+    .catch(function () { btn.disabled = false; });
+}
 
 
 /* ---------------- 原始遥测 ---------------- */

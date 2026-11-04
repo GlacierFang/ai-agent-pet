@@ -13,6 +13,7 @@ from collections import deque
 
 from . import chatter as chatter_mod
 from . import config as config_mod
+from . import album as album_mod
 from . import features as feature_mod
 from . import gestures as gestures_mod
 from . import render as render_mod
@@ -89,6 +90,11 @@ class PetApp:
         # 它们不是宠物状态，不进六态语义表；状态机一个字节都没动。
         self.dice = toys_mod.Dice()
         self.merit = toys_mod.Merit(cfg.get("ui", {}).get("merit", 0))
+        # 相册 —— 用户传的照片。照片列表读一次就够，
+        # 用户增删时再 reload（见 reload_album）。
+        self.album = feature_mod.get("album")
+        if self.album is not None:
+            self.album.reload()
         self.mdns = None          # server 生命周期里塞进来的 MdnsAdvertiser
         # 实际在听的端口。命令行 --port 会盖过配置，但不该被写回配置文件 ——
         # 那是「这次跑在哪个端口」，不是「以后都跑哪个端口」。
@@ -390,6 +396,20 @@ class PetApp:
         self.log("info", "摇骰子")
         return "opened"
 
+    def reload_album(self):
+        """照片变了 —— 让相册重新读一遍列表。"""
+        if self.album is not None:
+            self.album.reload()
+
+    def album_view(self):
+        """相册现状 —— 后台要显示照片，也得说清有几张。"""
+        items = album_mod.list_items()
+        return {
+            "items": items,
+            "count": len(items),
+            "max": album_mod.MAX_PHOTOS,
+        }
+
     def merit_on(self):
         """功德箱功能开没开 —— 关了屏上不出现任何功德字样。"""
         return "merit" in self.features_enabled
@@ -585,10 +605,20 @@ class PetApp:
                                     self._features(), night=self.is_night(now))
         if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
-            cstate = str(card.get("state") or state)
-            skin_img = skins_mod.load_image(root, self.skin, cstate)
-            jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img,
-                                          overlay=overlay)
+            # 照片卡 —— 整屏一张图，没有宠物脸，也没有飘字。
+            # 照片上飘一行字太乱，压住。
+            photo = str(card.get("photo") or "")
+            if photo:
+                jpeg = render_mod.render_photo_card(
+                    self.cfg, photo, str(card.get("counter") or ""))
+                if jpeg is None:
+                    # 照片读不出来 —— 退回普通卡片，别让屏上开天窗
+                    jpeg = render_mod.render_card(self.cfg, card)
+            else:
+                cstate = str(card.get("state") or state)
+                skin_img = skins_mod.load_image(root, self.skin, cstate)
+                jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img,
+                                              overlay=overlay)
         else:
             face = str(view.get("face") or state)
             sub = self._subtitle()
