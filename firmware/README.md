@@ -157,7 +157,8 @@ storage    0x620000    1MB
 | 项 | 怎么测 | 期望 |
 |---|---|---|
 | 画面方向 | 看第一帧 | 竖屏 240×320，不旋转 |
-| 红蓝互换 | 看表情颜色 | 若互换 → `data_endian` 改 `LCD_RGB_DATA_ENDIAN_LITTLE` |
+| 颜色发白发灰 | 看第一帧 | 若像负片 → 改 `display.c` 的 `LCD_INVERT_COLOR` |
+| 红蓝互换 | 看第一帧 | 改 `LCD_RGB_ORDER` 或 `LCD_DATA_ENDIAN`，见 `docs/故障排查.md` |
 | 旋钮方向 | 往右转 | 若方向反 → `KNOB_DIR_INVERT` 改 1 |
 | 每圈步数 | 慢转一整圈数步 | 假设 20，实测后校准 |
 | 帧率 | 看 `status.decodeMs` | 26MHz 下预期 30–50ms/帧 |

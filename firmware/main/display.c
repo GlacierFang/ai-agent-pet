@@ -30,6 +30,16 @@ static const char *TAG = "display";
 /* 26MHz = 240MHz / 9（整数分频）。稳定后可试 40MHz。 */
 #define LCD_PIXEL_CLOCK_HZ  (26 * 1000 * 1000)
 
+/* 面板色彩参数 —— 换屏时只改这三行。
+   控制器是 ST7789，换面板（TN ↔ IPS）不用换驱动，改这三个就行。
+   症状对照见 docs/故障排查.md「换了屏之后颜色不对」。 */
+/* 颜色反相。屏上颜色发白发灰、像负片，就翻它。 */
+#define LCD_INVERT_COLOR   true
+/* 红蓝互换就改 LCD_RGB_ELEMENT_ORDER_BGR。 */
+#define LCD_RGB_ORDER      LCD_RGB_ELEMENT_ORDER_RGB
+/* 字节序。红蓝互换且 BGR 也改了还不对，就换这个。 */
+#define LCD_DATA_ENDIAN    LCD_RGB_DATA_ENDIAN_BIG
+
 /* 在途传输的 FIFO。SPI 事务按提交顺序完成，所以 FIFO 顺序 == 完成顺序。
    一行块拆成 2 段事务，2 个 buffer → 最多 4 段在途，队列留 8 保险。 */
 #define DISP_FIFO_SZ      8
@@ -203,15 +213,15 @@ esp_err_t display_init(void)
 
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = PIN_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .data_endian = LCD_RGB_DATA_ENDIAN_BIG,
+        .rgb_ele_order = LCD_RGB_ORDER,
+        .data_endian = LCD_DATA_ENDIAN,
         .bits_per_pixel = 16,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io, &panel_cfg, &s_panel));
 
     ESP_ERROR_CHECK(esp_lcd_panel_reset(s_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_panel, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_panel, LCD_INVERT_COLOR));
 #if DISP_SWAP_XY
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(s_panel, true));
 #endif
