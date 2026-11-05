@@ -1,7 +1,7 @@
 # 8MB flash 布局（0x800000）
 # 两个 2MB app 分区留给 OTA。
 # 注意：merged.bin 是含 0x0 头的整片镜像，只能整片刷，不能用于 OTA；
-# OTA 只能用 app 分区镜像（0x10000 偏移的 petd.bin）。
+# OTA 只能用 app 分区镜像（petd.bin），烧录偏移 0x20000（factory 分区起点）。
 #
 # name,     type, subtype,  offset,     size,     flags
 nvs,        data, nvs,      0x9000,     0x6000,

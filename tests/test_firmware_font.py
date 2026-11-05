@@ -16,7 +16,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FONT_H = ROOT / "firmware" / "main" / "ascii_font.h"
 
-EXPECTED_CHARS = " -./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+EXPECTED_CHARS = " -./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
 
 # 字库表里空格的注释写的是 sp（不然一行里看不见），这里还原成空格。
 NAME_TO_CHAR = {"sp": " "}
@@ -111,3 +111,61 @@ def test_lookup_does_not_use_ascii_offset():
     assert "s_ascii_chars" in src, (
         "ascii_font_glyph() 应该按字符查表（s_ascii_chars）"
     )
+
+def test_font_count_matches_tables():
+    """ASCII_FONT_COUNT 必须跟字形表、字符表对得上。
+
+    三者错开一个，屏幕上就是错字或越界读。
+    """
+    src = FONT_H.read_text(encoding="utf-8")
+    m = re.search(r"#define\s+ASCII_FONT_COUNT\s+(\d+)", src)
+    assert m, "ascii_font.h 里找不到 ASCII_FONT_COUNT"
+    count = int(m.group(1))
+    glyphs = _parse_font()
+    assert len(glyphs) == count, f"字形 {len(glyphs)} 行，ASCII_FONT_COUNT 写的 {count}"
+    cm = re.search(r's_ascii_chars\[ASCII_FONT_COUNT\]\s*=\s*\n?\s*"([^"]*)"', src, re.S)
+    assert cm, "ascii_font.h 里找不到 s_ascii_chars"
+    assert len(cm.group(1)) == count, (
+        f"字符表 {len(cm.group(1))} 个，ASCII_FONT_COUNT 写的 {count}"
+    )
+
+
+def test_lowercase_glyphs_present_and_distinct():
+    """小写字母必须在字库里，而且不能跟大写画出来一样。
+
+    真实踩过：热点名是 petd-setup-XXXX（小写），字库里只有大写 A-Z，
+    引导屏上热点名显示成「-    -XXXX」，用户根本不知道该连哪个热点。
+    """
+    glyphs = dict(_parse_font())
+    missing = [c for c in "abcdefghijklmnopqrstuvwxyz" if c not in glyphs]
+    assert not missing, f"字库缺小写字母：{''.join(missing)}"
+    for c in "abcdefghijklmnopqrstuvwxyz":
+        assert any(glyphs[c]), f"小写 {c!r} 的字形是空白"
+        upper = c.upper()
+        if upper in glyphs:
+            assert glyphs[c] != glyphs[upper], f"{c!r} 和 {upper!r} 画出来一模一样"
+
+
+def test_hotspot_prefix_is_renderable():
+    """热点名前缀的每个字符都得在字库里 —— 否则屏上是空白。"""
+    src = (ROOT / "firmware" / "main" / "provision.c").read_text(encoding="utf-8")
+    m = re.search(r'#define\s+AP_SSID_PREFIX\s+"([^"]*)"', src)
+    assert m, "provision.c 里找不到 AP_SSID_PREFIX"
+    prefix = m.group(1)
+    chars = {name for name, _ in _parse_font()}
+    missing = sorted({c for c in prefix if c not in chars})
+    assert not missing, f"热点名前缀 {prefix!r} 里的字符 {missing} 不在字库里，屏上是空白"
+
+
+def test_setup_screen_strings_are_renderable():
+    """引导屏上写死的每一句，字符都必须在字库里。"""
+    src = (ROOT / "firmware" / "main" / "app_main.c").read_text(encoding="utf-8")
+    literals = re.findall(r'screen_text_draw(?:_centered)?\("([^"]*)"', src)
+    assert literals, "app_main.c 里没找到屏上文字"
+    chars = {name for name, _ in _parse_font()}
+    missing = {}
+    for lit in literals:
+        bad = sorted({c for c in lit if c not in chars})
+        if bad:
+            missing[lit] = bad
+    assert not missing, f"这些屏上文字有字库里没有的字符：{missing}"
