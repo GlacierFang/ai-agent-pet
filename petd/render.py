@@ -8,7 +8,7 @@ import io
 import os
 import pathlib
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -253,8 +253,55 @@ def render_card(cfg, card, skin_image=None, overlay=None):
     return buf.getvalue()
 
 
+# ---------- 防烧屏 ----------
+
+# 长时间显示同一张图，IPS 屏的液晶会慢慢烙出残影。
+# 这块屏的背光直接接 3.3V（硬件上没有开关），所以只能靠软件：
+# 把画面挪一挪，让每个物理像素看到的内容持续变化。
+#
+# 位移是主力 —— 它直接改变像素显示的内容。
+# 亮度微调是补刀 —— 纯色背景位移也看不出变化（所有像素电平相同，
+# 移了还是同一个值），画面整体亮一点再暗回来，电平就在两个值之间来回。
+
+# 每步 30 秒。四个位置循环 —— 每两分钟过一遍四种内容。
+ANTI_BURN_STEP_SEC = 30
+ANTI_BURN_POSITIONS = ((0, 0), (1, 0), (0, 1), (1, 1))
+# 亮度偏移（色阶）。每走完一轮位置换一次档 —— 两档之间来回。
+# ±4 约合 1.6% —— 肉眼基本看不出，但足以让像素的电平在两个值之间来回。
+# 实测 ±2 也能活过 JPEG，但余量太小，这里留一倍。
+ANTI_BURN_LEVELS = (4, -4)
+
+# 亮度偏移的查找表。缓存起来 —— 每帧重算 768 个数没必要。
+_LEVEL_LUTS = {}
+
+
+def _level_lut(level):
+    """亮度偏移的查找表。
+
+    多通道图要 3*256 项 —— Pillow 自己处理 callable 时也是这么拼的。
+    """
+    lut = _LEVEL_LUTS.get(level)
+    if lut is None:
+        one = [max(0, min(255, v + level)) for v in range(256)]
+        lut = one * 3
+        _LEVEL_LUTS[level] = lut
+    return lut
+
+
+def anti_burn_state(now):
+    """算出这一帧的防烧屏参数。
+
+    返回 (dx, dy, level) —— dx/dy 是**逻辑像素**的位移，level 是亮度偏移色阶。
+    """
+    step = int(now // ANTI_BURN_STEP_SEC)
+    dx, dy = ANTI_BURN_POSITIONS[step % len(ANTI_BURN_POSITIONS)]
+    level = ANTI_BURN_LEVELS[(step // len(ANTI_BURN_POSITIONS)) % len(ANTI_BURN_LEVELS)]
+    return dx, dy, level
+
+
 def render_frame(cfg, state, subtitle="", session_name="", density=1,
-                 skin_image=None, overlay=None, merit=0, background_image=None):
+                 skin_image=None, overlay=None, merit=0, background_image=None,
+                 anti_burn=None):
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
     quality = int(cfg.get("render", {}).get("quality", 85))
@@ -330,6 +377,19 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
     big.paste(pet, (0, band_px), pet)
 
     img = big.resize((width, height), Image.LANCZOS)
+
+    # 防烧屏 —— 放在缩到屏尺寸之后，位移量就是屏幕上的实际像素。
+    # 整幅一起移：文字带、宠物、背景都在里面，每一个像素都被轮到。
+    # 文字也移 —— 文字带占 31% 屏面、还带最亮的像素，静止一整夜
+    # 正是最该打散的地方。1 像素 / 30 秒看不出来。
+    if anti_burn:
+        dx, dy, level = anti_burn
+        if dx or dy:
+            # 环绕位移 —— 边缘卷回来的那一两像素来自另一侧，看不出来。
+            img = ImageChops.offset(img, int(dx), int(dy))
+        if level:
+            img = img.point(_level_lut(int(level)))
+
     if overlay is not None:
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     buf = io.BytesIO()
@@ -357,7 +417,7 @@ DICE_DOTS = {
 }
 
 
-def render_dice(cfg, value=1, rolling=False, title="赛博骰子"):
+def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=None):
     """整屏骰子。宠物脸不画 —— 骰子占屏时没有脸。
 
     value 在 1..6；rolling 时画面上的点数每帧都在换，出结果后定住。
@@ -398,6 +458,12 @@ def render_dice(cfg, value=1, rolling=False, title="赛博骰子"):
             int(16 * scale), DICE_FACE)
 
     img = big.resize((width, height), Image.LANCZOS)
+    if anti_burn:
+        dx, dy, level = anti_burn
+        if dx or dy:
+            img = ImageChops.offset(img, int(dx), int(dy))
+        if level:
+            img = img.point(_level_lut(int(level)))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
     return buf.getvalue()

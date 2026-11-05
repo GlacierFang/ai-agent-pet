@@ -592,14 +592,24 @@ class PetApp:
         state = self.engine.state
         now = time.time()
 
+        # 防烧屏 —— 只在睡觉时段开。
+        # 夜里屏上是一张不动的睡觉图，一挂就是好几个小时；
+        # 白天有卡片轮播，内容本来就在变，不需要。
+        anti_burn = render_mod.anti_burn_state(now) if self.is_night(now) else None
+        # 骰子、卡片在夜里不会出现（导演先判睡觉），所以只有
+        # render_frame 和 render_dice 需要接这个参数。
+
         # 骰子占屏 —— 一次性覆盖层。这时没有宠物脸。
         if not self.dice_on():
             # 功能被关掉了 —— 屏上不该还有骰子
             self.dice.dismiss()
         dice_on, dice_face, dice_rolling = self.dice.update(now)
         if dice_on:
+            # 骰子也要防烧屏 —— 出完结果就定住了，夜里能定一整夜。
+            # 这条路径先于睡觉判断返回，不带上就会漏掉。
             jpeg = render_mod.render_dice(self.cfg, value=dice_face,
-                                          rolling=dice_rolling)
+                                          rolling=dice_rolling,
+                                          anti_burn=anti_burn)
             self.last_jpeg = jpeg
             self.last_jpeg_ts = time.time()
             return jpeg
@@ -642,7 +652,8 @@ class PetApp:
                                            density=self.density, skin_image=skin_img,
                                            overlay=overlay,
                                            merit=self.merit.value if self.merit_on() else 0,
-                                           background_image=bg_img)
+                                           background_image=bg_img,
+                                           anti_burn=anti_burn)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
