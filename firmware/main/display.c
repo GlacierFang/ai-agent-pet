@@ -342,7 +342,11 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
 }
 
 
-/* 刷一个纯色矩形。文字画在有色底上时用得上。 */
+/* 刷一个纯色矩形（背景色 + 目标列段）。
+   注意：**会覆盖整行**。SPI 一次推的是整行宽度，所以线缓冲里
+   矩形之外的列也必须重写成背景色，否则会残留上一帧的像素。
+   代价是它**不能叠加在已有内容上** —— 同行的其它东西会被清掉。
+   要在色块上写字只能用 display_blit（它同样把字底涂黑）。 */
 esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
 {
     if (!s_lines[0]) return ESP_ERR_INVALID_STATE;
@@ -365,7 +369,10 @@ esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
 
         for (int r = 0; r < rows; r++) {
             uint16_t *dst = base + (size_t)r * DISP_WIDTH;
-            for (int c = 0; c < DISP_WIDTH; c++) dst[c] = color;
+            /* 整行铺背景色，x 之前的列不属于这个矩形 */
+            for (int c = 0; c < DISP_WIDTH; c++) dst[c] = 0x0000;
+            /* 只涂 x..x+w 这一段 */
+            for (int c = x; c < x + w; c++) dst[c] = color;
         }
 
         for (int r = 0; r < rows; r += DISP_SPI_CHUNK_ROWS) {

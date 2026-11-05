@@ -45,6 +45,11 @@ static const char *TAG = "pet";
 #define CLR_DIM       0x8410   /* 灰 */
 #define CLR_WARN      0xFD20   /* 橙 */
 
+/* 首屏自检用的三原色（RGB565）。 */
+#define CLR_RED       0xF800
+#define CLR_GREEN     0x07E0
+#define CLR_BLUE      0x001F
+
 /* ---- 配网相关的屏上布局 ---- */
 #define LINE_TITLE    24
 #define LINE_AP       64
@@ -87,6 +92,42 @@ static volatile prov_state_t s_screen_state = PROV_ST_IDLE;
 static char s_ap_ssid[32];
 static char s_ap_pass[16];
 static volatile bool s_screen_dirty = true;
+
+
+/* ---- 首屏自检 ----
+   进配网模式先亮 5 秒色条：颜色对不对、方向对不对，一眼看完。
+   日常开机不显示 —— 只有进配网模式（首次开机，或按住旋钮 5 秒重进）才亮。
+   用四种颜色而不是文字：屏上文字走 display_blit，会把字底涂成黑色，
+   在色块上画字会戳出黑洞。色条不需要文字，也不受这个限制。 */
+#define SELFTEST_HOLD_MS   5000
+#define SELFTEST_MARK_H    60      /* 顶部方向角标区高度 */
+#define SELFTEST_BAND_H    65      /* 每条色带高度 */
+#define SELFTEST_MARK_W    10      /* 角标线宽 */
+#define SELFTEST_MARK_L    60      /* 角标长边 */
+
+static bool s_selftest_pending = false;   /* 下次刷新先画自检 */
+static int64_t s_selftest_until = 0;       /* 自检显示到什么时候（ms） */
+
+
+/* 画自检色条。
+   顶部 60px 黑底画一个左上角 L 形白标 —— 转 90 度或 180 度它会跑到别的角，
+   一眼看出方向反了。下面四条全宽色带：红、绿、蓝、白。
+   白色那一带能看出反相（INVOFF/INVON）配错：反了就是全黑。 */
+static void draw_selftest_screen(void)
+{
+    display_clear(CLR_BG);
+
+    /* 方向角标：左上角 L 形 */
+    display_fill_rect(0, 0, SELFTEST_MARK_W, SELFTEST_MARK_H, CLR_TEXT);
+    display_fill_rect(0, 0, SELFTEST_MARK_L, SELFTEST_MARK_W, CLR_TEXT);
+
+    /* 四条色带 */
+    static const uint16_t bands[4] = { CLR_RED, CLR_GREEN, CLR_BLUE, CLR_TEXT };
+    for (int i = 0; i < 4; i++) {
+        display_fill_rect(0, SELFTEST_MARK_H + i * SELFTEST_BAND_H,
+                          DISP_WIDTH, SELFTEST_BAND_H, bands[i]);
+    }
+}
 
 
 /* 画配网引导屏。
@@ -149,12 +190,24 @@ static void on_prov_state(prov_state_t st, const char *msg)
 }
 
 
-/* 屏幕刷新任务。状态变了才重画 —— 每次都重画会闪。 */
+/* 屏幕刷新任务。状态变了才重画 —— 每次都重画会闪。
+   自检色条优先级最高：它显示期间不画别的，等 5 秒到了再切回当前状态画面。 */
 static void screen_task(void *arg)
 {
     (void)arg;
     while (1) {
-        if (s_screen_dirty) {
+        int64_t now = esp_timer_get_time() / 1000;
+
+        if (s_selftest_pending && !s_selftest_until) {
+            s_selftest_pending = false;
+            draw_selftest_screen();
+            s_selftest_until = now + SELFTEST_HOLD_MS;
+        } else if (s_selftest_until) {
+            if (now >= s_selftest_until) {
+                s_selftest_until = 0;
+                s_screen_dirty = true;   /* 切回当前状态画面 */
+            }
+        } else if (s_screen_dirty) {
             s_screen_dirty = false;
             if (s_screen_state == PROV_ST_CONNECTED) {
                 char ip[16];
@@ -329,6 +382,13 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(provision_init(on_prov_state));
+
+    /* 进配网模式 → 先亮 5 秒自检色条。
+       必须在建 screen_task 之前置位，否则任务会先抢到一帧画成引导屏。 */
+    if (!have_creds) {
+        s_selftest_pending = true;
+    }
+
     xTaskCreate(screen_task, "screen", 4096, NULL, 4, NULL);
 
     if (!have_creds) {

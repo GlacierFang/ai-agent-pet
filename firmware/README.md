@@ -164,9 +164,9 @@ storage    0x620000    1MB
 
 | 项 | 怎么测 | 期望 |
 |---|---|---|
-| 画面方向 | 看第一帧 | 竖屏 240×320，不旋转 |
-| 颜色发白发灰 | 看第一帧 | 默认 `LCD_INVERT_COLOR=false`（0x20）；若像负片 → 改 `true` |
-| 红蓝互换 | 看第一帧 | 改 `LCD_RGB_ORDER` 或 `LCD_DATA_ENDIAN`，见 `docs/故障排查.md` |
+| 画面方向 | 看配网自检色条的左上角 L 形白标 | 在左上角 = 竖屏 240×320 不旋转 |
+| 颜色发白发灰 | 看配网自检色条的白色带 | 默认 `LCD_INVERT_COLOR=false`（0x20）；若白带全黑 → 改 `true` |
+| 红蓝互换 | 看配网自检色条的红/蓝带 | 改 `LCD_RGB_ORDER` 或 `LCD_DATA_ENDIAN`，见 `docs/故障排查.md` |
 | 旋钮方向 | 往右转 | 若方向反 → `KNOB_DIR_INVERT` 改 1 |
 | 每圈步数 | 慢转一整圈数步 | 假设 20，实测后校准 |
 | 帧率 | 看 `status.decodeMs` | 26MHz 下预期 30–50ms/帧 |

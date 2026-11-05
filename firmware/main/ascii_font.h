@@ -6,7 +6,9 @@
  *
  * 格式：每个字形 5 列，每列一个 uint8_t。
  * bit0 = 最上面一行，bit6 = 最下面一行。
- * 索引 = ASCII 码 - 0x20（空格）。
+ *
+ * ⚠️ 表是**稀疏**的（跳过了 ASCII 标点），所以**不能**用「ASCII 码 - 0x20」当索引。
+ * 查找走 s_ascii_chars 按字符查表 —— 改表时两个数组要一起改。
  */
 #ifndef PETD_ASCII_FONT_H
 #define PETD_ASCII_FONT_H
@@ -15,7 +17,6 @@
 
 #define ASCII_FONT_W 5
 #define ASCII_FONT_H 7
-#define ASCII_FONT_FIRST 0x20
 #define ASCII_FONT_COUNT 42
 
 /* 每一列的低 7 位有效 */
@@ -64,14 +65,22 @@ static const uint8_t s_ascii_font[ASCII_FONT_COUNT][ASCII_FONT_W] = {
     {0x40, 0x40, 0x40, 0x40, 0x40},  /* _ */
 };
 
+/* 字库里的字符，按 s_ascii_font 的顺序排。
+   注意：**表是稀疏的**（跳过了 !"#$%&'()*+, 等），不能用「ASCII 码 - 0x20」当索引 ——
+   那样 'A' 会取到 'S'，'J' 之后直接越界。
+   这里改成按字符查表，索引关系写在同一处，改表时不会错位。 */
+static const char s_ascii_chars[ASCII_FONT_COUNT] =
+    " -./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+
 /* 取字形指针。字符不在字库内时返回 0（调用方自己决定画什么）。 */
 static inline const uint8_t *ascii_font_glyph(char ch)
 {
-    unsigned char u = (unsigned char)ch;
-    if (u < ASCII_FONT_FIRST || u >= ASCII_FONT_FIRST + ASCII_FONT_COUNT) {
-        return 0;
+    for (unsigned i = 0; i < ASCII_FONT_COUNT; i++) {
+        if (s_ascii_chars[i] == ch) {
+            return s_ascii_font[i];
+        }
     }
-    return s_ascii_font[u - ASCII_FONT_FIRST];
+    return 0;
 }
 
 #endif /* PETD_ASCII_FONT_H */
