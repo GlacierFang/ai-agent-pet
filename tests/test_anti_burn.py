@@ -78,17 +78,25 @@ def test_shift_actually_moves_pixels():
 def test_shift_direction_is_correct():
     """偏移 1 像素后，第 2 列应该等于原图第 1 列。
 
-    方向搞反了照样「有差异」，只有这样才能验出方向。"""
-    import numpy as np
+    方向搞反了照样「有差异」，只有这样才能验出方向。
+
+    用 Pillow 做逐列比较，不引入 numpy ——
+    CI 的 requirements.txt 里没有 numpy，加依赖只为这一个断言不值当。"""
     cfg = _cfg()
-    base = np.asarray(_dec(render.render_frame(cfg, "sleeping"))).astype(int)
-    shifted = np.asarray(
-        _dec(render.render_frame(cfg, "sleeping", anti_burn=(1, 0, 0)))).astype(int)
-    # offset 之后 S[:, 1:] 对应 A[:, :-1]
-    right = np.abs(shifted[:, 1:] - base[:, :-1]).mean()
-    # 对照组要少切一列，两边宽度才一致
-    wrong = np.abs(shifted[:, 1:-1] - base[:, :-2]).mean()
-    assert right < wrong
+    base = _dec(render.render_frame(cfg, "sleeping"))
+    shifted = _dec(render.render_frame(cfg, "sleeping", anti_burn=(1, 0, 0)))
+    w, h = base.size
+
+    def _mean_diff(a, b):
+        """两张同宽图的平均逐像素差。"""
+        diff = ImageChops.difference(a, b)
+        return sum(ImageStat.Stat(diff).mean) / 3.0
+
+    # offset 之后：shifted 的第 1..w-1 列 对应 base 的第 0..w-2 列
+    right = _mean_diff(shifted.crop((1, 0, w, h)), base.crop((0, 0, w - 1, h)))
+    # 对照组少切一列 —— 两边宽度一致，比较才有意义
+    wrong = _mean_diff(shifted.crop((1, 0, w - 1, h)), base.crop((0, 0, w - 2, h)))
+    assert right < wrong, "位移方向反了：right=%.3f wrong=%.3f" % (right, wrong)
 
 
 def test_zero_shift_leaves_frame_unchanged():

@@ -85,7 +85,7 @@ def test_photo_card_is_downscaled_when_too_big():
     noisy.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))
                    for _ in range(240 * 320)])
 
-    path = pathlib.Path(str(config_mod.DATA_DIR) + "/noisy.png")
+    path = pathlib.Path(config_mod.DATA_DIR) / "noisy.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     noisy.save(str(path))
 
