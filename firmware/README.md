@@ -108,7 +108,7 @@ idf.py -p /dev/ttyACM0 flash
 > 🔴 **UF2 的 family id 与基址需要实机确认** —— CI 里用的 `esp32s3` / `0x0` 是常见写法，
 > 拖进去不认的话先确认芯片型号再改。
 
-## 分区表与 OTA
+## 分区表
 
 ```
 nvs        0x9000     24KB
@@ -120,8 +120,11 @@ ota_1      0x420000    2MB
 storage    0x620000    1MB
 ```
 
-**只有 app 分区镜像能走 OTA**（`petd.bin`，offset `0x20000`）。
-`merged-binary.bin` 是含 `0x0` 头的整片镜像，**只能整片刷，不能 OTA**。
+🔴 **本项目不做 OTA 升级** —— 固件只能手动 USB 烧录。
+分区表里的 `ota_0` / `ota_1` 是 ESP-IDF 模板自带的，本项目不用它们刷固件。
+
+`petd.bin` 是 app 分区镜像（offset `0x20000`），`merged-binary.bin` 是含
+`0x0` 头的整片镜像。USB 烧录两个都行 —— 烧录不挑分区。
 
 ## 🔴 待实机确认清单
 

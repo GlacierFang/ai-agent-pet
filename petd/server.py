@@ -4,7 +4,7 @@
   /device              设备 WS
   /admin/              管理控制台（静态单页）
   /admin/api/*         控制台接口
-  /firmware/           固件下载（供设备 OTA）
+  /firmware/           固件文件下载（手动 USB 烧录用）
 
 **可选口令** —— 设了 PETD_ADMIN_PASSWORD 才鉴权；没设就是老样子。
 公网入口由 nginx 反代到 /ai-agent-pet/ 前缀。
@@ -683,9 +683,6 @@ def create_app(cfg=None, start_gateway=True, port=None):
     async def api_releases(request):
         return JSONResponse({"items": [], "note": "v1 未接入 GitHub Release"})
 
-    async def api_ota(request):
-        return JSONResponse({"ok": False, "error": "设备 OTA 未实现"}, status_code=501)
-
     async def api_firmware_list(request):
         d = REPO_ROOT / "firmware" / "build"
         items = []
@@ -724,7 +721,6 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/skins/image", _guard(api_skin_image), methods=["GET"]),
         Route("/admin/api/events", _guard(api_events)),
         Route("/admin/api/releases", _guard(api_releases)),
-        Route("/admin/api/ota", _guard(api_ota), methods=["POST"]),
         Route("/admin/api/firmware", _guard(api_firmware_list)),
         WebSocketRoute("/device", device_ws),
     ]

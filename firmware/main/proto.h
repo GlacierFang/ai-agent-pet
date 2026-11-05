@@ -50,7 +50,6 @@
 #define PETD_T_STATUS        "status"
 #define PETD_T_LOG           "log"
 #define PETD_T_ERROR         "error"
-#define PETD_T_OTA           "ota"
 
 /* ---- 旋钮事件（设备只报原始量）---- */
 #define PETD_EV_ROT          "rot"
