@@ -267,10 +267,21 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
 esp_err_t ws_client_init(const char *host, uint16_t port)
 {
     for (int i = 0; i < RX_BUF_COUNT; i++) {
+        /* 收帧缓冲优先放 PSRAM —— N8R8 有 8MB，两份 32KB 不占内部 SRAM。
+           内部 SRAM 还要装 2 份 DMA 行缓冲（15KB）+ TJpgDec pool（4KB）
+           + 各任务栈。万一 PSRAM 分配失败，退回内部 SRAM 会把内部内存吃紧，
+           所以兜底那一次**显式**要 MALLOC_CAP_INTERNAL（不写的话
+           MALLOC_CAP_8BIT 会漂到哪不一定），并且打一条警告 ——
+           上机日志里看到这条就说明 PSRAM 没起来（八线 Octal 配错就是这个症状）。
+
+           这块不是 SPI DMA 源（DMA 源是 display.c 的 s_lines[]，
+           那两块单独用 MALLOC_CAP_DMA 分配），所以放 PSRAM 没有 DMA 限制。 */
         s_rx_buf[i] = heap_caps_malloc(PETD_MAX_JPEG_BYTES,
                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!s_rx_buf[i]) {
-            s_rx_buf[i] = heap_caps_malloc(PETD_MAX_JPEG_BYTES, MALLOC_CAP_8BIT);
+            ESP_LOGW(TAG, "PSRAM alloc failed, fallback to internal SRAM");
+            s_rx_buf[i] = heap_caps_malloc(PETD_MAX_JPEG_BYTES,
+                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         }
         ESP_ERROR_CHECK(s_rx_buf[i] ? ESP_OK : ESP_ERR_NO_MEM);
         s_rx_len[i] = 0;
