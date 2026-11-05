@@ -3,6 +3,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
@@ -76,6 +77,29 @@ static uint8_t s_fifo_head, s_fifo_tail;
 /* 每个 buffer 在途的 SPI 事务数。一个行块拆 2 段发，所以不是 0/1 ——
    用计数才不会在第二段还在飞的时候提前释放 buffer（那会花屏）。 */
 static volatile uint8_t s_busy[2];
+
+/* 显示互斥锁。
+   screen_task（配网屏 / 自检色条）和 frame_task（宠物帧）会同时刷屏 ——
+   两边共用 s_lines[] / s_busy[] / s_fifo[]。不加锁会出两种事：
+     1. 一个任务往 line buffer 写，另一个任务的 DMA 还在读那块内存 → 花屏；
+     2. 两个任务同时改 s_fifo_tail / s_busy → 计数错位 → drain_all 永久卡死。
+   用 FreeRTOS 互斥锁（带优先级继承），不是关中断 ——
+   SPI 要跑 DMA，关中断太久会出问题。 */
+static SemaphoreHandle_t s_lock;
+
+static void disp_lock(void)
+{
+    if (s_lock) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+    }
+}
+
+static void disp_unlock(void)
+{
+    if (s_lock) {
+        xSemaphoreGive(s_lock);
+    }
+}
 
 
 /* ------------------------------------------------------------------ */
@@ -228,6 +252,10 @@ esp_err_t display_init(void)
         /* 必须 >= 单次实际发送的字节数（DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2）。 */
         .max_transfer_sz = DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2,
     };
+    /* 显示互斥锁 —— 先建好，之后所有刷屏的入口都拿它。 */
+    s_lock = xSemaphoreCreateMutex();
+    ESP_ERROR_CHECK(s_lock ? ESP_OK : ESP_ERR_NO_MEM);
+
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     esp_lcd_panel_io_handle_t io = NULL;
@@ -292,21 +320,30 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     };
 
     JDEC jd;
-    JRESULT rc = jd_prepare(&jd, jpeg_in, s_pool, DISP_TJPGD_POOL, &ctx);
+    JRESULT rc;
+    uint32_t t0;
+    esp_err_t ret = ESP_OK;
+
+    disp_lock();
+
+    rc = jd_prepare(&jd, jpeg_in, s_pool, DISP_TJPGD_POOL, &ctx);
     if (rc != JDR_OK) {
         ESP_LOGE(TAG, "jd_prepare failed: %d", rc);
-        return ESP_ERR_INVALID_RESPONSE;
+        ret = ESP_ERR_INVALID_RESPONSE;
+        goto out;
     }
     if (jd.width != DISP_WIDTH || jd.height != DISP_HEIGHT) {
         ESP_LOGE(TAG, "bad size %ux%u", jd.width, jd.height);
-        return ESP_ERR_INVALID_SIZE;
+        ret = ESP_ERR_INVALID_SIZE;
+        goto out;
     }
 
-    uint32_t t0 = esp_timer_get_time();
+    t0 = esp_timer_get_time();
     rc = jd_decomp(&jd, mcu_out, 0);
     if (rc != JDR_OK) {
         ESP_LOGE(TAG, "jd_decomp failed: %d", rc);
-        return ESP_FAIL;
+        ret = ESP_FAIL;
+        goto out;
     }
     /* 最后一组 16 行没有「行切换」事件，需要手动刷 */
     flush_line_block(ctx.buf_idx, ctx.row_y);
@@ -315,7 +352,10 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     if (decode_ms) {
         *decode_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
     }
-    return ESP_OK;
+
+out:
+    disp_unlock();
+    return ret;
 }
 
 
@@ -335,6 +375,8 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
     if (x + w > DISP_WIDTH) w = DISP_WIDTH - x;
     if (y + h > DISP_HEIGHT) h = DISP_HEIGHT - y;
     if (w <= 0 || h <= 0) return ESP_OK;
+
+    disp_lock();
 
     for (int row = 0; row < h; row += DISP_LINE_H) {
         int rows = h - row;
@@ -368,6 +410,7 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
         }
     }
     drain_all();
+    disp_unlock();
     return ESP_OK;
 }
 
@@ -388,6 +431,8 @@ esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
     if (x + w > DISP_WIDTH) w = DISP_WIDTH - x;
     if (y + h > DISP_HEIGHT) h = DISP_HEIGHT - y;
     if (w <= 0 || h <= 0) return ESP_OK;
+
+    disp_lock();
 
     for (int row = 0; row < h; row += DISP_LINE_H) {
         int rows = h - row;
@@ -418,6 +463,7 @@ esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
         }
     }
     drain_all();
+    disp_unlock();
     return ESP_OK;
 }
 
@@ -425,6 +471,7 @@ esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
 esp_err_t display_clear(uint16_t color)
 {
     if (!s_lines[0]) return ESP_ERR_INVALID_STATE;
+    disp_lock();
     for (int b = 0; b < 2; b++) {
         uint16_t *p = s_lines[b];
         for (int i = 0; i < DISP_WIDTH * DISP_LINE_H; i++) {
@@ -437,5 +484,6 @@ esp_err_t display_clear(uint16_t color)
         flush_line_block(idx, y);
     }
     drain_all();
+    disp_unlock();
     return ESP_OK;
 }

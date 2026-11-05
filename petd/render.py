@@ -28,6 +28,16 @@ PALETTE = {
     "sleeping": {"bg": (18, 20, 32), "body": (108, 118, 172), "glow": (150, 160, 210)},
 }
 
+# 单帧上限 —— 设备端缓冲区是 PETD_MAX_JPEG_BYTES（firmware/main/proto.h，32KB）。
+#
+# 超了会怎样：设备直接丢帧，而且**不回 frameAck** → 服务端的 inflight
+# 永远减不回来 → 之后再也不推帧（整台设备卡在上一帧）。
+#
+# 协议文档（docs/协议.md）写的是「超了 petd 降 quality 重渲」——
+# 那个实现一直没做，这里补上。
+MAX_FRAME_BYTES = 32 * 1024
+
+
 # 文字带高度（逻辑 px）—— 顶部那条，放状态词、副标题、会话名。
 #
 # 文字在上、宠物在下：跟功能卡一个顺序。屏上不会一会儿头重脚轻，
@@ -248,9 +258,7 @@ def render_card(cfg, card, skin_image=None, overlay=None):
     img = big.resize((width, height), Image.LANCZOS)
     if overlay is not None:
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
-    return buf.getvalue()
+    return _encode_jpeg(img, quality, subsampling)
 
 
 # ---------- 防烧屏 ----------
@@ -286,6 +294,29 @@ def _level_lut(level):
         lut = one * 3
         _LEVEL_LUTS[level] = lut
     return lut
+
+
+def _encode_jpeg(img, quality, subsampling):
+    """编 JPEG，必要时降 quality 直到进得了设备缓冲区。
+
+    屏只有 240x320 —— 降 quality 肉眼看不出来，体积收益却很大。
+    实测最差的那张相册照片：q=85 是 40752 字节，q=75 就降到 31412。
+    """
+    q = max(1, min(95, int(quality)))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=q, subsampling=subsampling)
+    data = buf.getvalue()
+    while len(data) > MAX_FRAME_BYTES and q > 30:
+        q -= 5
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=q, subsampling=subsampling)
+        data = buf.getvalue()
+    if len(data) > MAX_FRAME_BYTES:
+        # 兜底：连 q=30 都进不了 —— 把色度抽样也关掉。
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=30, subsampling=0)
+        data = buf.getvalue()
+    return data
 
 
 def anti_burn_state(now):
@@ -392,9 +423,7 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
 
     if overlay is not None:
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
-    return buf.getvalue()
+    return _encode_jpeg(img, quality, subsampling)
 
 # ---------- 骰子与飘字（一次性覆盖层） ----------
 
@@ -464,9 +493,7 @@ def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=Non
             img = ImageChops.offset(img, int(dx), int(dy))
         if level:
             img = img.point(_level_lut(int(level)))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
-    return buf.getvalue()
+    return _encode_jpeg(img, quality, subsampling)
 
 
 def bubble_overlay(cfg, text, phrase="", alpha=1.0):
@@ -582,6 +609,4 @@ def render_photo_card(cfg, path, counter=""):
         big = Image.alpha_composite(big.convert("RGBA"), ov).convert("RGB")
 
     img = big.resize((width, height), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
-    return buf.getvalue()
+    return _encode_jpeg(img, quality, subsampling)

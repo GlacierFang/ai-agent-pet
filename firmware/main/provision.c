@@ -4,7 +4,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_event.h"
@@ -34,10 +34,6 @@ static const char *TAG = "prov";
    密码错的情况下一直重试没有意义，用户看到 NO WIFI 会自己想办法。 */
 #define STA_MAX_RETRY   30
 
-/* Wi-Fi 事件位：拿到 IP 时置位，供 provision_wait_for_ip() 等待。
-   自己定义而不用 BIT0 —— 省掉一个头文件依赖。 */
-#define WIFI_EVENT_BIT    (1 << 0)
-
 /* 重连间隔 2 秒。用一次性定时器实现 ——
    不能在 Wi-Fi 事件回调里 vTaskDelay：默认事件循环是单任务，
    阻塞 2 秒会把 GOT_IP 等其它事件一起拖住。 */
@@ -53,7 +49,11 @@ static bool            s_ap_started;
 static bool            s_wifi_started;
 static char            s_ip[16];
 static httpd_handle_t  s_http;
-static EventGroupHandle_t s_wifi_events;
+/* 「拿到 IP」的信号。用**计数信号量**而不是事件组：
+   事件组那种「先清位再等」会把已经到达的通知吞掉 —— IP 恰好在
+   发起连接和等待之间到的话，清位就把它丢了，连接任务白等满 20 秒。
+   计数信号量不会：先 give 后 take 照样拿得到。 */
+static SemaphoreHandle_t s_ip_sem;
 static esp_timer_handle_t s_retry_timer;
 static esp_timer_handle_t s_ap_timer;
 
@@ -375,6 +375,9 @@ static esp_err_t captive_handler(httpd_req_t *req)
 
 static esp_err_t http_start(void)
 {
+    /* 已经起过了 —— 重复 start 会报错。 */
+    if (s_http) return ESP_OK;
+
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port += 1;   /* 避开默认 32768，跟别的服务不撞 */
@@ -444,8 +447,8 @@ static void schedule_sta_retry(void)
 
 /* 退到配网模式的定时器回调。
    必须在定时器上下文做，不能在 Wi-Fi 事件回调里直接调
-   provision_start_ap() —— 那里面会 esp_wifi_stop()，
-   而事件回调正跑在 Wi-Fi 驱动派发事件的那个任务上，等自己停会卡死。 */
+   provision_start_ap() —— 那里面会切 Wi-Fi 模式，
+   而事件回调正跑在 Wi-Fi 驱动派发事件的那个任务上。 */
 static void ap_fallback_cb(void *arg)
 {
     (void)arg;
@@ -500,8 +503,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_fail_count = 0;
         ESP_LOGI(TAG, "got ip %s", s_ip);
         set_state(PROV_ST_CONNECTED, s_ip);
-        if (s_wifi_events) {
-            xEventGroupSetBits(s_wifi_events, WIFI_EVENT_BIT);
+        if (s_ip_sem) {
+            xSemaphoreGive(s_ip_sem);
         }
     }
 }
@@ -514,8 +517,8 @@ esp_err_t provision_init(prov_state_cb_t cb)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    s_wifi_events = xEventGroupCreate();
-    ESP_ERROR_CHECK(s_wifi_events ? ESP_OK : ESP_ERR_NO_MEM);
+    s_ip_sem = xSemaphoreCreateCounting(1, 0);
+    ESP_ERROR_CHECK(s_ip_sem ? ESP_OK : ESP_ERR_NO_MEM);
 
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
@@ -552,20 +555,16 @@ esp_err_t provision_start_ap(void)
     wc.ap.max_connection = AP_MAX_CONN;
     wc.ap.authmode = WIFI_AUTH_WPA2_PSK;
 
-    /* Wi-Fi 可能已经在跑 —— 从「连不上退配网」这条路进来时就是。
-       直接再调 esp_wifi_start() 会返回错误，ESP_ERROR_CHECK 会 abort，
-       结果是「连不上 → 退配网 → abort → 重启 → 再连不上」的无限重启，
-       设备永远出不来配网页。所以先停、再起，全程自己处理错误。 */
-    if (s_wifi_started) {
-        esp_err_t err = esp_wifi_stop();
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "wifi stop failed: %s", esp_err_to_name(err));
-            return err;
-        }
-        s_wifi_started = false;
-    }
+    /* AP + STA 共存 —— 原来那条 STA 连接要留着，重配期间后端仍看得到设备。
 
-    /* AP + STA 共存：原来那条 STA 连接可以留着，重配期间后端仍看得到设备 */
+       所以**不能** esp_wifi_stop()：停了 STA 就断，而 esp_wifi_start()
+       之后不会自动重连（得再显式 esp_wifi_connect()）。
+       Wi-Fi 已经在跑的时候直接切模式就行 —— set_mode / set_config
+       都支持运行中调用，比停机再起稳得多。
+
+       「连不上退配网」那条路进来时 Wi-Fi 也是开着的（STA 连不上但驱动在跑），
+       这里同样不用停 —— 停了反而多走一遍重连。
+       重复 esp_wifi_start() 会返回错误，所以用 s_wifi_started 把住。 */
     esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "set mode failed: %s", esp_err_to_name(err));
@@ -576,12 +575,24 @@ esp_err_t provision_start_ap(void)
         ESP_LOGE(TAG, "set ap config failed: %s", esp_err_to_name(err));
         return err;
     }
-    err = esp_wifi_start();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "wifi start failed: %s", esp_err_to_name(err));
-        return err;
+    if (!s_wifi_started) {
+        err = esp_wifi_start();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "wifi start failed: %s", esp_err_to_name(err));
+            return err;
+        }
+        s_wifi_started = true;
     }
-    s_wifi_started = true;
+
+    /* STA 侧：没连着就拉一次。
+       切模式有可能把 STA 踢下来，esp_wifi_connect() 幂等 ——
+       连着的时候它自己报错，无害。 */
+    if (s_has_creds) {
+        wifi_ap_record_t ap;
+        if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
+            esp_wifi_connect();
+        }
+    }
 
     err = http_start();
     if (err != ESP_OK) {
@@ -639,12 +650,13 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
 
 esp_err_t provision_wait_for_ip(uint32_t timeout_ms)
 {
-    if (!s_wifi_events) return ESP_ERR_INVALID_STATE;
-    /* 先清掉陈旧的位 —— 上一条连接拿到过 IP 时置的位还在的话，
-       这次等待会立刻返回，等于没等。 */
-    xEventGroupClearBits(s_wifi_events, WIFI_EVENT_BIT);
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_events, WIFI_EVENT_BIT,
-                                           pdFALSE, pdFALSE,
-                                           pdMS_TO_TICKS(timeout_ms));
-    return (bits & WIFI_EVENT_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
+    if (!s_ip_sem) return ESP_ERR_INVALID_STATE;
+    /* 不在这里清计数 —— 计数信号量里「先 give 后 take」照样拿得到。
+       IP 在等待**之前**就到是常态（连得快的网络），
+       那种情况下这里必须立刻返回成功。
+       清掉反而会把它吞掉，白等满超时。 */
+    if (xSemaphoreTake(s_ip_sem, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }

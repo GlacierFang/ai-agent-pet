@@ -233,9 +233,10 @@ static void screen_task(void *arg)
 static void enter_setup_mode(void)
 {
     ESP_LOGW(TAG, "entering setup mode");
-    /* 先停 WS —— 不停的话 petd 会继续推帧，把配网页盖掉。
-       配网保存后设备会重启，重启后自然重连。 */
-    ws_client_stop();
+    /* 挡掉宠物帧 —— 不挡的话 petd 推的帧会把配网页盖掉。
+       **不 disconnect**：esp_websocket_client_stop() 会释放 transport，
+       之后没法安全地 start 回来。只暂停绘制，连接和 ACK 都留着。 */
+    ws_client_set_paused(true);
     s_setup_mode = true;
     s_screen_state = PROV_ST_AP;
     s_screen_dirty = true;
@@ -246,6 +247,30 @@ static void enter_setup_mode(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "start ap failed: %s", esp_err_to_name(err));
     }
+}
+
+
+/* 退出配网模式。
+
+   长按进配网是给用户一条「改 WiFi」的路 —— 但用户不一定真要改。
+   不给退路的话：配网页一直占着屏、WS 停着、旋钮事件也发不出去，
+   设备等于失联，除了拆电重来没别的办法。
+
+   短按旋钮 = 退出。屏上不用额外提示 —— 配网引导屏开着的时候，
+   用户自己知道刚才干了什么。 */
+static void exit_setup_mode(void)
+{
+    ESP_LOGW(TAG, "leaving setup mode");
+    s_setup_mode = false;
+    s_screen_dirty = true;
+
+    /* 状态屏：连上了显示 LINKED，等 WS 推第一帧宠物。 */
+    char ip[16];
+    provision_get_ip(ip, sizeof(ip));
+    s_screen_state = ip[0] ? PROV_ST_CONNECTED : PROV_ST_CONNECTING;
+
+    /* 恢复绘制 —— WS 一直没断，只是刚才不画。 */
+    ws_client_set_paused(false);
 }
 
 
@@ -280,6 +305,12 @@ static void knob_task(void *arg)
                照常上报给服务端，不触发重配。 */
             if (!strcmp(ev.ev, PETD_EV_PRESS) && ev.ms >= REENTRY_HOLD_MS) {
                 enter_setup_mode();
+                continue;
+            }
+            /* 配网模式下短按 = 退出配网。
+               长按那一支上面已经 continue 了，走到这里的是短按。 */
+            if (s_setup_mode && !strcmp(ev.ev, PETD_EV_PRESS)) {
+                exit_setup_mode();
                 continue;
             }
             if (ws_client_send_input(&ev) != ESP_OK) {

@@ -38,6 +38,10 @@ static QueueHandle_t s_frame_q;
 
 static esp_websocket_client_handle_t s_ws;
 static volatile bool s_connected;
+/* 暂停绘制。配网模式下屏上是配网引导屏，宠物帧不能盖上去。
+   **只是不画，连接和 ACK 都照旧** —— 不然服务端 inflight 顶到上限后
+   就不再推帧，退出配网时屏上会一直是空的。 */
+static volatile bool s_paused;
 static volatile uint32_t s_last_decode_ms;
 
 /* 文本预告里带来的帧 id，等下一个 binary 帧收完时绑定进去。
@@ -141,11 +145,15 @@ static void frame_task(void *arg)
         }
         int idx = item.idx;
         uint32_t ms = 0;
-        esp_err_t err = display_draw_jpeg(s_rx_buf[idx], s_rx_len[idx], &ms);
-        if (err == ESP_OK) {
-            s_last_decode_ms = ms;
+        if (s_paused) {
+            /* 配网模式 —— 不画。但下面照发 ACK。 */
         } else {
-            ESP_LOGE(TAG, "draw failed: %s", esp_err_to_name(err));
+            esp_err_t err = display_draw_jpeg(s_rx_buf[idx], s_rx_len[idx], &ms);
+            if (err == ESP_OK) {
+                s_last_decode_ms = ms;
+            } else {
+                ESP_LOGE(TAG, "draw failed: %s", esp_err_to_name(err));
+            }
         }
 
         /* 解码失败也必须回 ACK —— 服务端收到 ACK 才把 inflight 减一，
@@ -306,12 +314,11 @@ esp_err_t ws_client_start(void)
 }
 
 
-esp_err_t ws_client_stop(void)
+/* 暂停/恢复绘制。连接不断 —— 见 s_paused 的说明。 */
+void ws_client_set_paused(bool paused)
 {
-    if (!s_ws) return ESP_ERR_INVALID_STATE;
-    s_connected = false;
-    reset_rx_state();
-    return esp_websocket_client_stop(s_ws);
+    s_paused = paused;
+    ESP_LOGI(TAG, "paused=%d", (int)paused);
 }
 
 

@@ -9,6 +9,8 @@ import json
 import logging
 import time
 
+from .render import MAX_FRAME_BYTES
+
 log = logging.getLogger("petd.device")
 
 
@@ -38,6 +40,13 @@ class DeviceSession:
 
     async def send_frame(self, jpeg, frame_id, mime="image/jpeg"):
         """文本预告 + binary，紧挨着发。"""
+        if len(jpeg) > MAX_FRAME_BYTES:
+            # 设备缓冲区装不下这一帧。发了它会被丢掉，而且设备不会回 ACK ——
+            # 服务端的 inflight 就永远减不回来，之后再也不推帧。
+            # 宁可不发，也不能让整条链路卡死。
+            log.warning("帧过大(%d > %d)，已丢弃 id=%s",
+                        len(jpeg), MAX_FRAME_BYTES, frame_id)
+            return False
         if self.inflight >= 2:
             return False
         await self.send_json({"type": "frame", "id": frame_id,
