@@ -107,19 +107,24 @@ def test_density_no_longer_scales_the_pet():
     from PIL import Image, ImageChops
     a = Image.open(io.BytesIO(render.render_frame(cfg, "idle", density=0))).convert("RGB")
     b = Image.open(io.BytesIO(render.render_frame(cfg, "idle", density=2))).convert("RGB")
-    # 表情区（顶部 200 逻辑 px）两档必须完全一样
-    assert ImageChops.difference(a.crop((0, 0, 240, 400)), b.crop((0, 0, 240, 400))).getbbox() is None
+    # 宠物区（底部，文字带以下）两档必须完全一样
+    band = render.TEXT_BAND_H
+    assert ImageChops.difference(a.crop((0, band, 240, 320)),
+                                 b.crop((0, band, 240, 320))).getbbox() is None
 
 
 def test_density_2_text_is_visible():
-    """大号档的副标题和会话名得在画布内 —— 之前它们画到画布外去了。"""
+    """详细档的副标题和会话名得在画布内 —— 之前它们画到画布外去了。
+
+    探针文字用 ASCII：没装中文字体的机器（CI runner）上中文会被过滤掉，
+    那样这个断言就测不到任何东西了。
+    """
     cfg = config_mod.defaults()
     import io
-    from PIL import Image
+    from PIL import Image, ImageChops
     a = Image.open(io.BytesIO(render.render_frame(cfg, "idle"))).convert("RGB")
     b = Image.open(io.BytesIO(
-        render.render_frame(cfg, "idle", "探针文字", "会话名", density=2))).convert("RGB")
-    from PIL import ImageChops
+        render.render_frame(cfg, "idle", "PROBE-TEXT", "SESSION", density=2))).convert("RGB")
     assert ImageChops.difference(a, b).getbbox() is not None
 
 

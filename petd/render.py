@@ -1,7 +1,8 @@
 """服务端整帧渲染：Pillow → JPEG。
 
 设备端零字体、零业务语义 —— 所有文字在这里烧进 JPEG。
-v1 只有三种信息密度，差别是表情区高度，文字区跟着变。
+版式：文字带在上，宠物在下 —— 跟功能卡一个顺序。
+密度只管文字带显示几行字，宠物大小不变。
 """
 import io
 import os
@@ -27,11 +28,11 @@ PALETTE = {
     "sleeping": {"bg": (18, 20, 32), "body": (108, 118, 172), "glow": (150, 160, 210)},
 }
 
-# 宠物区高度（逻辑 px）—— 固定，不随密度变。
+# 文字带高度（逻辑 px）—— 顶部那条，放状态词、副标题、会话名。
 #
-# 宠物大小不跟着密度缩放：背景和宠物是解耦的两件事，
-# 换一张背景不该让宠物跟着变大变小。密度只管下面放几行字。
-PET_FACE_H = 200
+# 文字在上、宠物在下：跟功能卡一个顺序。屏上不会一会儿头重脚轻，
+# 一会儿脚重头轻。宠物区因此固定，密度只管显示几行字。
+TEXT_BAND_H = 100
 
 STATE_CN = {
     "idle": "闲置",
@@ -105,10 +106,11 @@ def _gradient(img, top, bottom):
         d.line([(0, y), (w, y)], fill=col)
 
 
-def _scrim(img, top_y, bottom_y, max_alpha=215):
-    # 文字区铺一条由淡到浓的暗带。
+def _scrim(img, top_y, bottom_y, max_alpha=215, dense_top=True):
+    # 文字区铺一条暗带。
     # 文字压在背景图上得看得清 —— 用户自己画的背景可能是亮色。
-    # 顶端留一点底色（不然第一行状态词没对比度），往下逐渐加浓。
+    # dense_top=True  上浓下淡（文字带在顶部）
+    # dense_top=False 上淡下浓（文字区在底部）
     w, h = img.size
     top_y = max(0, min(h, int(top_y)))
     bottom_y = max(top_y, min(h, int(bottom_y)))
@@ -119,7 +121,10 @@ def _scrim(img, top_y, bottom_y, max_alpha=215):
     od = ImageDraw.Draw(ov)
     for y in range(top_y, bottom_y):
         t = (y - top_y) / max(1, band_h - 1)
-        a = int(max_alpha * (0.5 + 0.5 * t))
+        if dense_top:
+            a = int(max_alpha * (1.0 - 0.55 * t))
+        else:
+            a = int(max_alpha * (0.5 + 0.5 * t))
         od.line([(0, y), (w, y)], fill=(8, 10, 16, a))
     return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
@@ -272,31 +277,18 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
         _gradient(big, tuple(min(255, c + 14) for c in pal["bg"]), pal["bg"])
 
     density = max(0, min(2, int(density)))
-    face_px = PET_FACE_H * scale
+    band_px = TEXT_BAND_H * scale
 
-    # 宠物区 —— 高度固定，密度不影响它
-    pet = Image.new("RGBA", (width * scale, face_px), (0, 0, 0, 0))
-    if skin_image is not None:
-        # 皮肤图 —— 一态一张，等比缩放，不拉伸
-        sw, sh = skin_image.size
-        box_w = width * scale
-        box_h = face_px
-        factor = min(box_w / sw, box_h / sh)
-        nw, nh = max(1, int(sw * factor)), max(1, int(sh * factor))
-        frame = skin_image.resize((nw, nh), Image.LANCZOS)
-        pet.paste(frame, ((box_w - nw) // 2, (box_h - nh) // 2), frame)
-    big.paste(pet, (0, 0), pet)
-
+    # 文字带在顶部 —— 铺一条上浓下淡的暗带，字压在亮背景上也读得清
+    if has_bg:
+        big = _scrim(big, 0, band_px, dense_top=True)
     d = ImageDraw.Draw(big)
     if not has_bg:
-        # 有背景图时分隔线太硬，靠底部暗带分开就行
-        d.line([(0, face_px), (width * scale, face_px)], fill=pal["glow"] + (70,), width=2)
-    else:
-        big = _scrim(big, face_px, height * scale)
-        d = ImageDraw.Draw(big)
+        d.line([(0, band_px - int(1 * scale)), (width * scale, band_px - int(1 * scale))],
+               fill=pal["glow"] + (70,), width=2)
 
-    # 文字区
-    ty = face_px + int(10 * scale)
+    # 文字区 —— 从文字带顶部往下排
+    ty = int(12 * scale)
     cjk = _font(18)[1]
     label = STATE_CN.get(state, state) if cjk else STATE_EN.get(state, state)
     _center(d, width * scale // 2, ty, label, int(18 * scale), pal["glow"])
@@ -316,15 +308,26 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
             _center(d, width * scale // 2, ty, session_name[:26], int(11 * scale), (150, 160, 185))
         ty += int(18 * scale)
 
-    # 页脚提示
-    _center(d, width * scale // 2, height * scale - int(16 * scale),
-            "petd", int(9 * scale), (110, 118, 140))
-
-    # 功德计数 —— 常驻左下角。飘字只是一瞬间，
-    # 想看累计值的时候得有个地方能看。
+    # 功德计数 —— 常驻左上角。宠物挪到底下，这里才不会被压到。
+    # 飘字只是一瞬间，想看累计值的时候得有个地方能看。
     if merit:
-        _text(d, (int(6 * scale), height * scale - int(16 * scale)),
+        _text(d, (int(6 * scale), int(10 * scale)),
               "功德 %d" % int(merit), int(9 * scale), (150, 158, 180))
+
+    # 宠物区 —— 底部，高度固定，密度不影响它
+    pet_h = height * scale - band_px
+    pet = Image.new("RGBA", (width * scale, pet_h), (0, 0, 0, 0))
+    if skin_image is not None:
+        # 皮肤图 —— 一态一张，等比缩放，不拉伸。
+        # 整幅缩放，不裁到墨迹：六态墨迹范围不一样，
+        # 一裁，宠物切状态时就会上下跳。
+        sw, sh = skin_image.size
+        box_w = width * scale
+        factor = min(box_w / sw, pet_h / sh)
+        nw, nh = max(1, int(sw * factor)), max(1, int(sh * factor))
+        frame = skin_image.resize((nw, nh), Image.LANCZOS)
+        pet.paste(frame, ((box_w - nw) // 2, (pet_h - nh) // 2), frame)
+    big.paste(pet, (0, band_px), pet)
 
     img = big.resize((width, height), Image.LANCZOS)
     if overlay is not None:
