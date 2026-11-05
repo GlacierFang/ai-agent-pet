@@ -106,11 +106,11 @@ py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin
 
 **Windows 上多两件事**：
 
-- **串口驱动** —— 这块改版克隆板的桥接芯片是 **CH343p**（沁恒），
-  驱动 <https://www.wch.cn/downloads/CH343SER_EXE.html>；
-  不认就换 <https://www.wch.cn/downloads/CH34X_EXE.html>（CH34x 全家桶）；
-  官方原版 DevKitC-1 是 CP210x，驱动
-  <https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers>
+- **串口驱动** —— 官方 DevKitC-1 的桥接芯片是 CP210x，驱动
+  <https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers>；
+  改版克隆板常见 CH343 / CH340（沁恒），驱动
+  <https://www.wch.cn/downloads/CH343SER_EXE.html>，
+  不认就装 <https://www.wch.cn/downloads/CH34X_EXE.html>（CH34x 全系列）
 - **COM 口号** —— 「设备管理器 → 端口(COM 和 LPT)」，或
   `py -m serial.tools.list_ports`
 
@@ -118,7 +118,7 @@ py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin
 > v4 还是 `write_flash`（下划线）。先 `python -m esptool version` 看版本。
 > 压缩默认开着，**不需要 `-z`**。
 >
-> ⚠️ **接哪个口**：用 **USB 转串口那个口**（元件面朝自己、天线朝上时是**右边**那个 Type-C），
+> ⚠️ **接哪个口**：用 **USB 转串口那个口**（官方板丝印 `UART`），
 > 不是 ESP32-S3 原生 USB 口 —— 原生 USB 复位后会重新枚举，串口会掉。
 
 ### 方式 2：idf.py
@@ -127,16 +127,15 @@ py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin
 idf.py -p /dev/ttyUSB0 flash
 ```
 
-> ⚠️ **串口名**：CH343p 在 Linux 下是 `/dev/ttyUSB*`（多半 `ttyUSB0`），
-> 不是 `/dev/ttyACM*`（那是 ESP32-S3 原生 USB CDC 模式）。
+> ⚠️ **串口名**：USB 转串口芯片（CP210x / CH34x）在 Linux 下都是 `/dev/ttyUSB*`（多半 `ttyUSB0`），
+> `/dev/ttyACM*` 那是 ESP32-S3 原生 USB CDC 模式 —— 插原生 USB 口才是这个。
 > 插上板子先看 `ls /dev/ttyUSB*` 确认。
 
 ### 方式 3：UF2（拖进 U 盘，零驱动）
 
 按住 BOOT → 插 USB → 出现 U 盘 → 把 `uf2.bin` 拖进去。
 
-> ⚠️ **UF2 必须插原生 USB 口**（元件面朝自己、天线朝上时是**左边**那个 Type-C，
-> 丝印「ESP32-S3 直通 Type-C USB&OTG」）。插右边的 USB 转串口口**不会**出现 U 盘。
+> ⚠️ **UF2 必须插原生 USB 口**（官方板丝印 `USB`）。插 USB 转串口口**不会**出现 U 盘。
 
 > 🔴 **UF2 的 family id 与基址需要实机确认** —— CI 里用的 `esp32s3` / `0x0` 是常见写法，
 > 拖进去不认的话先确认芯片型号再改。
