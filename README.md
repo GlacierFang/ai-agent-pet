@@ -4,20 +4,25 @@
 
 一块 ESP32-S3 屏摆在桌上。AI agent 干活的时候它在旁边打工人，等你批准的时候它举起牌子。
 
+![设备屏上的六种表情](images/screen-states.png)
+
+*屏上就是这些画面 —— 由服务端用 Pillow 渲染成 240×320 的 JPEG 推给设备，
+不是预先烧进固件的静态图。*
+
+**三件事，这个项目替你扛了**：
+
+- **数据不上云** —— 没有账号、没有登录、没有多租户。你的会话只留在你自己机器上的 petd 里
+- **加功能不用刷固件** —— 屏幕只是个哑终端，业务逻辑全在服务端。改一行 Python、重启 petd 就生效
+- **没有硬件也能先跑通** —— 仓库自带模拟设备，第一次试玩不用先焊板子
+
+---
+
+## 现在做到哪一步了
+
 > 🟢 **服务端已落地并实测**（2026-11-04）。petd 订阅 OpenClaw gateway，把会话状态映射成宠物的表情，用 Pillow 渲染成 240×320 的 JPEG 推给设备。**310 项单测全绿**，CI 覆盖 Python 3.10 / 3.11 / 3.12。
 >
 > 🟡 **固件源码已在 CI 里真编译通过**（ESP-IDF v5.5），产出 `petd.bin` / `merged-binary.bin` / `uf2.bin`。但**还没在实机上验证过** —— 零件未下单，到货、烧录、上电、看到画面都还是未知数。
 > 本机是 arm64 且装不了 ESP-IDF，所以编译验证全部交给 GitHub Actions。
->
-> 🔴 **设备端是哑终端**：固件只做「收帧显示 + 按键上报」，业务逻辑全在服务端。
-
-| 闲置 | 干活 | 等你确认 | 刚完成 | 出错 | 睡着了 |
-|---|---|---|---|---|---|
-| <img src="skins/default/idle.png" width="110" alt="闲置"> | <img src="skins/default/working.png" width="110" alt="埋头干活"> | <img src="skins/default/waiting.png" width="110" alt="举牌子，等你确认"> | <img src="skins/default/done.png" width="110" alt="晃一下，刚完成"> | <img src="skins/default/error.png" width="110" alt="愣住，出错了"> | <img src="skins/default/sleeping.png" width="110" alt="睡着了"> |
-
-*仓库自带的默认宠物（`skins/default/`）—— 六态各一张 240×320 PNG。屏上任何一刻都可能是其中一态，所以六张缺一不可。*
-
----
 
 ## 为什么
 
@@ -28,7 +33,7 @@ agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是�
 - 任务完成时**晃一下**
 - 出错时**愣住**
 
-外加一个旋转编码器：转它翻内容卡，按住并旋转切信息密度，长按强制刷新。
+外加一个旋转编码器：转它翻内容卡，按住并旋转切信息密度，长按强制刷新，短按摇个骰子。
 
 ## 三个硬约束（决定了整个架构）
 
@@ -54,6 +59,10 @@ agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是�
 
 ## 快速开始
 
+### 没有硬件（先看看它长什么样）
+
+petd 后面能跟一个模拟设备 —— 渲染出来的画面、旋钮手势、后台预览全是真跑出来的，只有那块屏是假的。
+
 ```bash
 git clone https://github.com/GlacierFang/ai-agent-pet.git
 cd ai-agent-pet
@@ -65,19 +74,21 @@ export PETD_GATEWAY_TOKEN=xxxx
 python3 -m petd --port 18860
 ```
 
-打开 <http://127.0.0.1:18860/admin/> 看后台控制台。
-
-> 💡 **第一次打开会先让你设一个后台口令**（只存 scrypt 哈希）。已经设过的话就是登录框。
-> 想要完全敞开（仅限开发自跑）：`PETD_ADMIN_AUTH=off`。
-> 详见 [部署手册](docs/部署手册.md)。
-
-**没有硬件也能跑通整条链路**：
+另开一个终端，把模拟设备接上去：
 
 ```bash
 python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 ```
 
-完整流程见 [部署手册](docs/部署手册.md)。
+打开 <http://127.0.0.1:18860/admin/> 看后台控制台。
+
+> 💡 **第一次打开会先让你设一个后台口令**（只存 scrypt 哈希）。已经设过的话就是登录框。
+> 想要完全敞开（仅限开发自跑）：`PETD_ADMIN_AUTH=off`。
+
+### 真机（自己焊一块）
+
+接线 → 烧录固件 → 设备连 Wi-Fi → 设备找到 petd → 看到宠物。
+这五步见 [部署手册](docs/部署手册.md)。
 
 ## 状态语义速查
 
@@ -105,6 +116,17 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 - **宠物层**：宠物脸 + 一行状态 + 跟的是哪个会话
 - **内容层**：一张 feature 卡片，闲置时轮播
 
+内容卡长这样：
+
+![一张内容卡](images/screen-card.png)
+
+仓库自带的默认宠物在 `skins/default/` —— 六态各一张 240×320 PNG，
+屏上任何一刻都可能是其中一态，所以六张缺一不可：
+
+| 闲置 | 干活 | 等你确认 | 刚完成 | 出错 | 睡着了 |
+|---|---|---|---|---|---|
+| <img src="skins/default/idle.png" width="110" alt="闲置"> | <img src="skins/default/working.png" width="110" alt="埋头干活"> | <img src="skins/default/waiting.png" width="110" alt="举牌子，等你确认"> | <img src="skins/default/done.png" width="110" alt="晃一下，刚完成"> | <img src="skins/default/error.png" width="110" alt="愣住，出错了"> | <img src="skins/default/sleeping.png" width="110" alt="睡着了"> |
+
 上面还飘着一层**一次性覆盖物**（骰子、功德飘字）—— 它盖住整屏或盖在脸上，
 但不改宠物在干什么：骰子停了自动让路，飘字自己淡出。
 
@@ -130,6 +152,9 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 
 - **赛博骰子** —— 短按旋钮，整屏变骰子，滚 1.5 秒出结果，再按一下收起。
   宠物忙着或者睡着了不弹：有活先干活，睡觉别吵醒。
+
+  ![赛博骰子](images/screen-dice.png)
+
 - **功德箱** —— agent 每次真把活干完，飘一句「功德 +1」和一句程序员玄学短句，
   数字常驻屏角。计数落在 `config.json` 里，重启不清零。
 
@@ -165,6 +190,7 @@ KY-040 旋转编码器。**手势语义表在服务端**，设备只报原始测
 | 宠物库 | 一只宠物一张卡，可新建、换六态图、设为当前 |
 | 宠物设定 | 功能勾选 + 做事的节奏（停留时长、信息密度、睡觉时段） |
 | 连接与诊断 | 连接状态、原始遥测、连接配置、诊断日志、旋钮手势 |
+| 文档 | 仓库里的文档直接在控制台里读 |
 | 使用说明 | 说明书：怎么用旋钮、屏上会看到什么、设备怎么装、后台能改什么 |
 
 **没有账号、没有登录、没有多租户、没有云端** —— 一台硬件对一个 petd，petd 对你自己机器上的 OpenClaw gateway。你 clone 下来自己编译自己跑。

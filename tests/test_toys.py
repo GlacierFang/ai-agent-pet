@@ -289,7 +289,7 @@ def test_toys_view_reports_press_mapping(client):
 def test_toys_are_real_features():
     """功德箱和赛博骰子是功能清单里的两项 —— 不是另开一节。
 
-    冰河大人点名过：它们该作为「功能」出现，别自成一类。
+    设计约束：它们该作为「功能」出现，别自成一类。
     """
     names = [f.name for f in feature_mod.all_features()]
     assert "merit" in names

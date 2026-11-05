@@ -30,10 +30,10 @@ PALETTE = {
 DENSITY_FACE_H = [140, 200, 280]
 
 STATE_CN = {
-    "idle": "空闲",
-    "working": "忙",
+    "idle": "闲置",
+    "working": "干活",
     "waiting": "等你确认",
-    "done": "完成",
+    "done": "刚完成",
     "error": "出错",
     "sleeping": "睡着了",
 }
