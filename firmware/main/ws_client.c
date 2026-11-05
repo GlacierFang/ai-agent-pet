@@ -26,23 +26,29 @@ static uint8_t *s_rx_buf[RX_BUF_COUNT];
 static size_t  s_rx_len[RX_BUF_COUNT];
 static int     s_rx_cur;
 
-/* 已收完的帧（存 buffer 下标） */
+/* 已收完的帧队列 */
 static QueueHandle_t s_frame_q;
 
 /* WS 收包缓冲大小。32KB ≥ 协议上限（单帧 32KB），一帧一次收完。 */
 #define PETD_WS_BUFFER_BYTES (32 * 1024)
 
-/* 文本消息队列 */
+/* 文本消息最长长度。服务端的文本消息都很短：
+   welcome / frame 预告 / 各种指令。 */
 #define TEXT_MSG_LEN 512
-typedef struct { char text[TEXT_MSG_LEN]; } text_msg_t;
-static QueueHandle_t s_text_q;
 
 static esp_websocket_client_handle_t s_ws;
 static volatile bool s_connected;
 static volatile uint32_t s_last_decode_ms;
 
-/* 当前帧 id（文本预告里带来的），解码完成后回 frameAck */
-static volatile int s_cur_frame_id;
+/* 文本预告里带来的帧 id，等下一个 binary 帧收完时绑定进去。
+   服务端协议固定是「一条文本预告 + 紧跟一条 binary」，
+   WebSocket 保证消息顺序，所以文本一定先到 —— 这里暂存是安全的。 */
+static volatile int s_pending_frame_id;
+
+/* 已收完的一帧：buffer 下标 + 这一帧自己的 id。
+   id 必须跟着帧走 —— 用全局变量的话，两帧一前一后解码时
+   回的 ACK 可能对不上服务端正在等的那一帧。 */
+typedef struct { int idx; int frame_id; } frame_item_t;
 
 
 static void send_hello(void)
@@ -66,10 +72,18 @@ static void send_hello(void)
 }
 
 
-/* 处理一条文本消息（跑在 frame 任务里，不在 WS 回调里） */
-static void handle_text(const char *text)
+/* 处理一条文本消息。
+   跑在 WS 客户端自己的任务上下文里 —— 只做解析和赋值，不做耗时操作。
+   这里必须同步处理：帧 id 要在 binary 到达**之前**取出来，
+   两者靠同一条回调的先后顺序配对，不能靠另一个任务去排队消费。 */
+static void handle_text(const char *text, size_t len)
 {
-    cJSON *root = cJSON_Parse(text);
+    char buf[TEXT_MSG_LEN];
+    size_t n = len < (TEXT_MSG_LEN - 1) ? len : (TEXT_MSG_LEN - 1);
+    memcpy(buf, text, n);
+    buf[n] = 0;
+
+    cJSON *root = cJSON_Parse(buf);
     if (!root) {
         ESP_LOGW(TAG, "bad json");
         return;
@@ -92,9 +106,10 @@ static void handle_text(const char *text)
         }
         ESP_LOGI(TAG, "welcome received");
     } else if (!strcmp(t, PETD_T_FRAME)) {
+        /* 帧预告：只取 id，等随后的 binary 帧收完时绑定 */
         cJSON *id = cJSON_GetObjectItem(root, "id");
         if (cJSON_IsNumber(id)) {
-            s_cur_frame_id = id->valueint;
+            s_pending_frame_id = id->valueint;
         }
     } else if (!strcmp(t, PETD_T_SET_DENSITY)) {
         cJSON *d = cJSON_GetObjectItem(root, "level");
@@ -120,32 +135,54 @@ static void frame_task(void *arg)
 {
     (void)arg;
     while (1) {
-        int idx = -1;
-        if (xQueueReceive(s_frame_q, &idx, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        frame_item_t item;
+        if (xQueueReceive(s_frame_q, &item, pdMS_TO_TICKS(1000)) != pdTRUE) {
             continue;
         }
+        int idx = item.idx;
         uint32_t ms = 0;
         esp_err_t err = display_draw_jpeg(s_rx_buf[idx], s_rx_len[idx], &ms);
         if (err == ESP_OK) {
             s_last_decode_ms = ms;
-            if (s_cur_frame_id > 0) {
-                char ack[64];
-                int n = snprintf(ack, sizeof(ack),
-                    "{\"type\":\"frameAck\",\"id\":%d}", s_cur_frame_id);
-                if (n > 0) {
-                    esp_websocket_client_send_text(s_ws, ack, n, pdMS_TO_TICKS(1000));
-                }
-            }
         } else {
             ESP_LOGE(TAG, "draw failed: %s", esp_err_to_name(err));
+        }
+
+        /* 解码失败也必须回 ACK —— 服务端收到 ACK 才把 inflight 减一，
+           不回的话 inflight 会顶到上限、之后再也不推帧（推帧彻底停死）。 */
+        if (item.frame_id > 0) {
+            char ack[64];
+            int n = snprintf(ack, sizeof(ack),
+                "{\"type\":\"frameAck\",\"id\":%d}", item.frame_id);
+            if (n > 0) {
+                /* esp_websocket_client_send_text 返回**已发送字节数**，失败是 -1。
+                   之前写成了「== 0 算成功」，恒为失败。 */
+                int sent = esp_websocket_client_send_text(s_ws, ack, n, pdMS_TO_TICKS(1000));
+                if (sent != n) {
+                    ESP_LOGW(TAG, "frameAck not sent: %d/%d", sent, n);
+                }
+            }
         }
         s_rx_len[idx] = 0;
     }
 }
 
 
+/* 断线时清掉半截的收帧状态。
+   不清的话：重连后残留的旧数据会被当成新帧的一部分，
+   文本预告带来的 id 也可能对不上。 */
+static void reset_rx_state(void)
+{
+    for (int i = 0; i < RX_BUF_COUNT; i++) {
+        s_rx_len[i] = 0;
+    }
+    s_rx_cur = 0;
+    s_pending_frame_id = 0;
+}
+
+
 /* WS 事件回调 —— 跑在 esp_websocket_client 自己的任务上下文。
-   **这里只做入队，不做任何耗时操作。** */
+   **这里只做入队和解析，不做任何耗时操作。** */
 static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
                               void *event_data)
 {
@@ -161,43 +198,55 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
 
     case WEBSOCKET_EVENT_DISCONNECTED:
         s_connected = false;
+        reset_rx_state();
         ESP_LOGW(TAG, "disconnected");
         break;
 
     case WEBSOCKET_EVENT_CLOSED:
         s_connected = false;
+        reset_rx_state();
         ESP_LOGW(TAG, "closed");
         break;
 
     case WEBSOCKET_EVENT_DATA:
         if (ev->op_code == 0x01) {   /* text */
-            text_msg_t m;
-            size_t n = ev->data_len < (TEXT_MSG_LEN - 1) ? ev->data_len : (TEXT_MSG_LEN - 1);
-            memcpy(m.text, ev->data_ptr, n);
-            m.text[n] = 0;
-            xQueueSend(s_text_q, &m, 0);
+            handle_text((const char *)ev->data_ptr, ev->data_len);
         } else if (ev->op_code == 0x02) {   /* binary */
-            uint8_t *buf = s_rx_buf[s_rx_cur];
-            size_t *len = &s_rx_len[s_rx_cur];
-            if (*len + ev->data_len > PETD_MAX_JPEG_BYTES) {
+            int idx = s_rx_cur;
+            uint8_t *buf = s_rx_buf[idx];
+            /* payload_offset 是这一条消息**内部**的偏移（驱动每条消息从 0 开始）。
+               用它做绝对写入位置：断线重连后残留的半截数据不会污染新帧，
+               收到分片也不用管「先来的是不是第一片」。 */
+            size_t offset = (size_t)ev->payload_offset;
+            if (offset == 0) {
+                /* 新消息从头开始，之前那半截作废 */
+                s_rx_len[idx] = 0;
+            }
+            if (offset + ev->data_len > PETD_MAX_JPEG_BYTES) {
                 ESP_LOGE(TAG, "frame too big");
-                *len = 0;
+                s_rx_len[idx] = 0;
+                s_rx_cur = (s_rx_cur + 1) % RX_BUF_COUNT;
                 break;
             }
-            memcpy(buf + *len, ev->data_ptr, ev->data_len);
-            *len += ev->data_len;
+            memcpy(buf + offset, ev->data_ptr, ev->data_len);
+            size_t total = offset + ev->data_len;
+            if (total > s_rx_len[idx]) {
+                s_rx_len[idx] = total;
+            }
             /* payload_offset + data_len >= payload_len → 一帧收完 */
-            if (ev->payload_offset + ev->data_len >= ev->payload_len) {
-                int idx = s_rx_cur;
+            if (total >= (size_t)ev->payload_len) {
+                frame_item_t item = { .idx = idx, .frame_id = s_pending_frame_id };
+                s_pending_frame_id = 0;
                 s_rx_cur = (s_rx_cur + 1) % RX_BUF_COUNT;
                 s_rx_len[s_rx_cur] = 0;
-                xQueueSend(s_frame_q, &idx, 0);
+                xQueueSend(s_frame_q, &item, 0);
             }
         }
         break;
 
     case WEBSOCKET_EVENT_ERROR:
         s_connected = false;
+        reset_rx_state();
         ESP_LOGE(TAG, "ws error");
         break;
 
@@ -219,9 +268,8 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
         s_rx_len[i] = 0;
     }
 
-    s_frame_q = xQueueCreate(4, sizeof(int));
-    s_text_q  = xQueueCreate(8, sizeof(text_msg_t));
-    ESP_ERROR_CHECK(s_frame_q && s_text_q ? ESP_OK : ESP_ERR_NO_MEM);
+    s_frame_q = xQueueCreate(4, sizeof(frame_item_t));
+    ESP_ERROR_CHECK(s_frame_q ? ESP_OK : ESP_ERR_NO_MEM);
 
     char uri[128];
     snprintf(uri, sizeof(uri), "ws://%s:%u%s", host, (unsigned)port, PETD_WS_PATH);
@@ -258,12 +306,22 @@ esp_err_t ws_client_start(void)
 }
 
 
+esp_err_t ws_client_stop(void)
+{
+    if (!s_ws) return ESP_ERR_INVALID_STATE;
+    s_connected = false;
+    reset_rx_state();
+    return esp_websocket_client_stop(s_ws);
+}
+
+
 esp_err_t ws_client_send_text(const char *text)
 {
     if (!s_connected || !text) return ESP_ERR_INVALID_STATE;
     size_t n = strlen(text);
     if (n == 0) return ESP_OK;
-    return esp_websocket_client_send_text(s_ws, text, (int)n, pdMS_TO_TICKS(1000)) == 0
+    /* 返回的是已发送字节数，失败是 -1 —— 不是「0 表示成功」。 */
+    return esp_websocket_client_send_text(s_ws, text, (int)n, pdMS_TO_TICKS(1000)) == (int)n
            ? ESP_OK : ESP_FAIL;
 }
 
@@ -286,7 +344,7 @@ esp_err_t ws_client_send_input(const knob_event_t *ev)
             ev->ms);
     }
     if (n <= 0) return ESP_FAIL;
-    return esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000)) == 0
+    return esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000)) == n
            ? ESP_OK : ESP_FAIL;
 }
 

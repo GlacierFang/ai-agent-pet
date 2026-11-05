@@ -17,6 +17,11 @@
 esp_err_t ws_client_init(const char *host, uint16_t port);
 esp_err_t ws_client_start(void);
 
+/* 停止 WS 客户端（连同自动重连）。进配网模式时用 ——
+   不停的话 petd 会继续推帧，把配网页画掉。
+   配网保存后设备会重启，重启后自然重连。 */
+esp_err_t ws_client_stop(void);
+
 /* 通用文本发送（status / log 等） */
 esp_err_t ws_client_send_text(const char *text);
 
