@@ -47,9 +47,13 @@ static const char *TAG = "display";
    一行块拆成 2 段事务，2 个 buffer → 最多 4 段在途，队列留 8 保险。 */
 #define DISP_FIFO_SZ      8
 
-/* SPI DMA 单次传输上限 4092 字节（描述符大小决定）。
-   一行块 16 行 = 7680 字节，一次发会报 ESP_ERR_INVALID_ARG，
-   所以拆成 2 段 8 行 = 3840 字节发。 */
+/* SPI 单次发送的字节数上限 —— 这是我们自己设的 max_transfer_sz，
+   不是硬件限制。ESP32-S3 单个 DMA 描述符能到 32KB（SPI_LL_DMA_MAX_BIT_LEN
+   = 1<<18），驱动支持链式描述符，所以 16 行 7680 字节一次发是可行的。
+   现在仍拆成 2 段 8 行 = 3840 字节，是为了让在途事务更短、
+   首帧延迟更小 —— 不是因为发不下。
+   合并成单次 7680 字节要同步改 max_transfer_sz 和这里的行数，
+   上机验证过再动。 */
 #define DISP_SPI_CHUNK_ROWS 8
 
 typedef struct {
@@ -109,13 +113,25 @@ static void wait_buffer_free(uint8_t idx)
 
 static void drain_all(void)
 {
-    while (s_seen_done < s_done_count) {
-        uint8_t done = s_fifo[s_fifo_head % DISP_FIFO_SZ];
-        s_fifo_head++;
-        if (s_busy[done]) {
-            s_busy[done]--;
+    /* 等两个 buffer 的在途事务都归零。
+       不能只看 s_done_count —— 最后一次 flush 刚提交时 DMA 还没跑完，
+       完成计数还没涨，函数就直接返回，下一帧会写进上一帧
+       还在被 DMA 读取的内存（画面花掉）。
+
+       也不能直接按 s_fifo 顺序减 s_busy：fifo 里排的是**已提交**
+       的事务，不是已完成的。必须等完成计数真的涨上来，
+       才能弹出对应的那一条来释放 buffer。 */
+    while (s_busy[0] || s_busy[1]) {
+        uint32_t d = s_done_count;
+        while (s_seen_done < d) {
+            uint8_t done = s_fifo[s_fifo_head % DISP_FIFO_SZ];
+            s_fifo_head++;
+            if (s_busy[done]) {
+                s_busy[done]--;
+            }
+            s_seen_done++;
         }
-        s_seen_done++;
+        taskYIELD();
     }
 }
 
@@ -124,8 +140,8 @@ static void flush_line_block(uint8_t idx, int y_start)
 {
     const uint16_t *base = s_lines[idx];
     /* x_end / y_end 是**开区间**（与 IDF 官方 tjpgd 示例一致）。
-       一行块 16 行 = 7680 字节 > SPI DMA 单次上限 4092，
-       拆成 2 段 8 行（3840 字节）发；两段记在同一个 buffer 的在途计数上。 */
+       一行块 16 行 = 7680 字节，按 DISP_SPI_CHUNK_ROWS 拆成 2 段 8 行
+       （3840 字节）发；两段记在同一个 buffer 的在途计数上。 */
     for (int r = 0; r < DISP_LINE_H; r += DISP_SPI_CHUNK_ROWS) {
         s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
         s_fifo_tail++;
@@ -145,8 +161,17 @@ static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t len)
 {
     decode_ctx_t *c = (decode_ctx_t *)jd->device;
     if (buf == NULL) {
+        /* 跳过未知段（APP0/JFIF/EXIF）。返回值必须等于 len ——
+           TJpgDec 拿它判断跳过是否完整。游标允许暂时越过末尾，
+           下面读取分支会挡住越界访问。 */
         c->jpeg_pos += len;
         return len;
+    }
+    /* 游标可能已经被跳过段推过头（损坏的 JPEG）。这里必须挡住：
+       少了这个判断，c->jpeg_size - c->jpeg_pos 会以 size_t 下溢成
+       一个巨值，memcpy 直接越界读 PSRAM。 */
+    if (c->jpeg_pos >= c->jpeg_size) {
+        return 0;
     }
     size_t remain = c->jpeg_size - c->jpeg_pos;
     if (remain > len) remain = len;
@@ -162,19 +187,14 @@ static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
 {
     decode_ctx_t *c = (decode_ctx_t *)jd->device;
     const uint16_t *src = (const uint16_t *)bitmap;
-    uint16_t *dst = s_lines[c->buf_idx];
     int rx = rect->right - rect->left + 1;
     int ry = rect->bottom - rect->top + 1;
 
-    for (int j = 0; j < ry; j++) {
-        uint16_t *drow = dst + j * DISP_WIDTH + rect->left;
-        const uint16_t *srow = src + j * rx;
-        for (int i = 0; i < rx; i++) {
-            drow[i] = srow[i];
-        }
-    }
-
-    /* rect->top 变化 = 进入下一个 MCU 行 = 上一组 16 行满了 */
+    /* rect->top 变化 = 进入下一个 MCU 行 = 上一组 16 行满了。
+       必须在拷贝**之前**换 buffer：反过来的话，当前这个 MCU
+       会被写进上一个行块的最后一块内存（它的左上角 16x16），
+       而那一块马上就要被发出去 —— 结果是每一行块的左侧 16 列
+       显示成下一行块的内容。 */
     if (c->prev_top >= 0 && rect->top != c->prev_top) {
         flush_line_block(c->buf_idx, c->row_y);
         c->row_y += DISP_LINE_H;
@@ -183,6 +203,16 @@ static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
         c->buf_idx = next;
     }
     c->prev_top = rect->top;
+
+    /* dst 要在换 buffer 之后取 —— 换之前取到的是旧 buffer。 */
+    uint16_t *dst = s_lines[c->buf_idx];
+    for (int j = 0; j < ry; j++) {
+        uint16_t *drow = dst + j * DISP_WIDTH + rect->left;
+        const uint16_t *srow = src + j * rx;
+        for (int i = 0; i < rx; i++) {
+            drow[i] = srow[i];
+        }
+    }
     return 1;   /* 非 0 = 继续解码 */
 }
 
@@ -195,7 +225,7 @@ esp_err_t display_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        /* 必须 >= 单次实际发送的 3840 字节，且 <= SPI DMA 上限 4092。 */
+        /* 必须 >= 单次实际发送的字节数（DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2）。 */
         .max_transfer_sz = DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
