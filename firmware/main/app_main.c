@@ -63,9 +63,9 @@ static const char *TAG = "pet";
 #define PIN_BOOT      0
 
 /* ---- 配网重入判定 ---- */
-/* 开机后 8 秒内长按旋钮 5 秒 → 重新配网。
-   用户装好后想改 WiFi，不能只能靠拆 flash —— 得给一条路。 */
-#define REENTRY_WINDOW_MS   8000
+/* 运行期长按旋钮 5 秒 → 重新配网。
+   用户装好后想改 WiFi，不能只能靠拆 flash —— 得给一条路。
+   开机瞬间想进配网用 BOOT 键，不用等开机黑屏。 */
 #define REENTRY_HOLD_MS     5000
 
 /* ---- 编译期兜底凭据（开发者路径）---- */
@@ -89,6 +89,10 @@ static const char *TAG = "pet";
 
 /* ---- 屏幕状态 ---- */
 static volatile prov_state_t s_screen_state = PROV_ST_IDLE;
+/* 配网模式标志。热点开着的时候这个必须压过 CONNECTED ——
+   STA 可能同时连上了（APSTA 模式），屏幕切到 LINKED 就看不到
+   热点名和密码了，重配流程直接废掉。 */
+static volatile bool s_setup_mode = false;
 static char s_ap_ssid[32];
 static char s_ap_pass[16];
 static volatile bool s_screen_dirty = true;
@@ -209,7 +213,7 @@ static void screen_task(void *arg)
             }
         } else if (s_screen_dirty) {
             s_screen_dirty = false;
-            if (s_screen_state == PROV_ST_CONNECTED) {
+            if (s_screen_state == PROV_ST_CONNECTED && !s_setup_mode) {
                 char ip[16];
                 provision_get_ip(ip, sizeof(ip));
                 draw_linked_screen(ip);
@@ -222,6 +226,47 @@ static void screen_task(void *arg)
 }
 
 
+/* 切回配网模式。运行期长按旋钮走这条路。
+   起热点 + 配网页。Wi-Fi 切到 APSTA：原来那条 STA 连接可以继续留着，
+   petd 那边仍能看到设备在线 —— 重配期间不用把后端也断掉。
+   provision_start_ap() 内部会处理「Wi-Fi 已经在跑」的情况。 */
+static void enter_setup_mode(void)
+{
+    ESP_LOGW(TAG, "entering setup mode");
+    /* 先停 WS —— 不停的话 petd 会继续推帧，把配网页盖掉。
+       配网保存后设备会重启，重启后自然重连。 */
+    ws_client_stop();
+    s_setup_mode = true;
+    s_screen_state = PROV_ST_AP;
+    s_screen_dirty = true;
+    s_selftest_pending = true;   /* 重进也亮一次自检色条 */
+    /* 这里不能用 ESP_ERROR_CHECK —— 它会 abort 整个系统，
+       而这个函数跑在旋钮任务里，abort 会让设备当场变砖。 */
+    esp_err_t err = provision_start_ap();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "start ap failed: %s", esp_err_to_name(err));
+    }
+}
+
+
+/* 等拿到 IP 再发起 WS 连接。
+   没有 IP 时 petd.local 的 mDNS 解析必然失败，WS 客户端只能靠
+   5 秒重连硬扛一轮 —— 白等，不如等 IP 到了直接连。 */
+static void connect_task(void *arg)
+{
+    (void)arg;
+    esp_err_t err = provision_wait_for_ip(20000);
+    if (err != ESP_OK) {
+        /* 超时也要连 —— 后面有自动重连兜底 */
+        ESP_LOGW(TAG, "no ip yet: %s", esp_err_to_name(err));
+    }
+    err = ws_client_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ws start failed: %s", esp_err_to_name(err));
+    }
+}
+
+
 /* 旋钮事件 → 上报 */
 static void knob_task(void *arg)
 {
@@ -229,6 +274,14 @@ static void knob_task(void *arg)
     knob_event_t ev;
     while (1) {
         if (knob_pop(&ev)) {
+            /* 长按 5 秒 → 重新进配网。
+               press 事件带的是按住时长，服务端手势阈值是 600ms，
+               这里用 5000ms，两者不冲突：600~5000ms 之间的长按
+               照常上报给服务端，不触发重配。 */
+            if (!strcmp(ev.ev, PETD_EV_PRESS) && ev.ms >= REENTRY_HOLD_MS) {
+                enter_setup_mode();
+                continue;
+            }
             if (ws_client_send_input(&ev) != ESP_OK) {
                 ESP_LOGD(TAG, "input dropped (not connected)");
             }
@@ -309,27 +362,6 @@ static bool boot_key_held(void)
 }
 
 
-/* 开机 8 秒内长按旋钮 5 秒 → 重新配网 */
-static bool knob_long_press_reentry(void)
-{
-    int64_t start = esp_timer_get_time() / 1000;
-    int64_t hold_from = -1;
-
-    while ((esp_timer_get_time() / 1000) - start < REENTRY_WINDOW_MS) {
-        if (knob_raw_pressed()) {
-            if (hold_from < 0) hold_from = esp_timer_get_time() / 1000;
-            else if ((esp_timer_get_time() / 1000) - hold_from >= REENTRY_HOLD_MS) {
-                return true;
-            }
-        } else {
-            hold_from = -1;
-        }
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
-    return false;
-}
-
-
 void app_main(void)
 {
     ESP_LOGI(TAG, "ai-agent-pet firmware %s starting", PETD_FW_VERSION);
@@ -355,15 +387,15 @@ void app_main(void)
 
     /* 判定要不要进配网模式：
        1. 开机按住 BOOT 键
-       2. 开机 8 秒内长按旋钮 5 秒
-       3. NVS 里没凭据（第一次用）
-       任一命中就进配网模式。 */
+       2. NVS 里没凭据（第一次用）
+       任一命中就进配网模式。
+       运行期想重配 → 长按旋钮 5 秒（见 knob_task）。
+
+       这里**不做**开机 8 秒等待 —— 那段死等让每次正常开机都黑屏 8 秒，
+       而且它挡在 screen_task 创建之前，屏上什么都看不到。 */
     bool force_setup = false;
     if (boot_key_held()) {
         ESP_LOGI(TAG, "BOOT key held -> setup mode");
-        force_setup = true;
-    } else if (knob_long_press_reentry()) {
-        ESP_LOGI(TAG, "knob held -> setup mode");
         force_setup = true;
     }
 
@@ -395,13 +427,13 @@ void app_main(void)
         /* 没凭据 → 配网模式 */
         ESP_LOGI(TAG, "no credentials, entering setup mode");
         s_screen_state = PROV_ST_AP;
+        s_setup_mode = true;
         s_screen_dirty = true;
         ESP_ERROR_CHECK(provision_start_ap());
-        /* 配网模式下也起 WS 客户端，旋钮事件在配网期间不会丢 */
-        ESP_ERROR_CHECK(ws_client_init(PETD_HOST, PETD_PORT));
-        ESP_ERROR_CHECK(ws_client_start());
-        xTaskCreate(knob_task, "knob_rpt", 3072, NULL, 4, NULL);
-        xTaskCreate(status_task, "status", 3072, NULL, 3, NULL);
+        /* 配网模式**不连 petd** —— 此时没有可用的服务端地址
+           （host 还没填），起 WS 只会一直 mDNS 解析失败 + 5 秒重连，
+           刷一屏无意义的报错。旋钮和 status 任务也不起：
+           它们唯一的投递对象就是 WS。 */
         ESP_LOGI(TAG, "setup mode ready");
         return;
     }
@@ -414,7 +446,8 @@ void app_main(void)
     ESP_ERROR_CHECK(provision_start_sta(creds.ssid, creds.pass));
 
     ESP_ERROR_CHECK(ws_client_init(host, PETD_PORT));
-    ESP_ERROR_CHECK(ws_client_start());
+    /* 连接放到独立任务里，等拿到 IP 再发起 */
+    xTaskCreate(connect_task, "connect", 3072, NULL, 4, NULL);
 
     xTaskCreate(knob_task, "knob_rpt", 3072, NULL, 4, NULL);
     xTaskCreate(status_task, "status", 3072, NULL, 3, NULL);
