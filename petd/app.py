@@ -924,7 +924,7 @@ class PetApp:
         }
 
     def _provisioning_view(self):
-        """配网能力说明。等固件 v0.2.0 落地后，supported 改由固件 hello/status
+        """配网能力说明。等固件 v0.3.0 落地后，supported 改由固件 hello/status
         报文里的字段决定（petd 侧已经预留了 provisioned）。"""
         return {
             "supported": True,

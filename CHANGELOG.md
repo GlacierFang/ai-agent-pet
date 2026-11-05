@@ -46,6 +46,7 @@
 
 - **SoftAP 配网** —— 设备自带 `petd-setup-XXXX` 热点与中文配网页 `http://192.168.4.1`，凭据存 NVS
 - **点阵字库** —— 5×7 ASCII，仅覆盖配网引导屏所需字符。设备端仍不含中文字库
+- **Release `fw-v0.3.0`** —— 修掉配网引导屏索引错位、颜色反相反了，补上首屏自检色条。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 
 ### Changed
 

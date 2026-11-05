@@ -297,7 +297,7 @@ var T = {
     title: '把设备装上',
     unavailable: '暂时读不到设备状态',
     guide: [
-      '把固件刷进设备：从 Releases 下 fw-v0.2.0 的 merged-binary.bin，用 esptool 写进 ESP32-S3 开发板（<code>py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin</code>，Linux 把 COM5 换成 /dev/ttyACM0）。',
+      '把固件刷进设备：从 Releases 下 fw-v0.3.0 的 merged-binary.bin，用 esptool 写进 ESP32-S3 开发板（<code>py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin</code>，Linux 把 COM5 换成 /dev/ttyACM0）。',
       '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。',
       '在电脑上把 petd 跑起来（<code>python -m petd</code>），它会监听设备并接收画面。',
       '设备连上后打开后台页面，「我的宠物」里能看到设备屏幕上的画面。'
@@ -347,7 +347,7 @@ var T = {
       '<b>连接与诊断</b> —— 出问题了看那儿。'
     ],
     installSteps: [
-      { title: '刷固件', body: '从 Releases 下 fw-v0.2.0 的 merged-binary.bin，用 esptool 写进 ESP32-S3 开发板：<code>py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin</code>（Linux 换成 <code>/dev/ttyACM0</code>）。<b>烧录时只接 PC，不接充电头</b>。' },
+      { title: '刷固件', body: '从 Releases 下 fw-v0.3.0 的 merged-binary.bin，用 esptool 写进 ESP32-S3 开发板：<code>py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin</code>（Linux 换成 <code>/dev/ttyACM0</code>）。<b>烧录时只接 PC，不接充电头</b>。' },
       { title: '配网', body: '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。' },
       { title: '连上这台电脑', body: '设备和这台电脑要在同一个网段（mDNS 不跨路由器）。地址留空就是走 petd.local 自动找；也可以填下面这个 IP。' },
       { title: '看它动起来', body: '打开你的 AI 助手，让它说句话，宠物就醒了。' }
