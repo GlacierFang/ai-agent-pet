@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+### Added
+
+**Windows 用户终于有刷机说明了**
+
+- **部署手册加 Windows 烧录段** —— 之前全仓库只有 `/dev/ttyACM0` 和 `python3`，
+  Windows 用户照着敲是敲不通的。现在 Linux / Windows 各给一条完整命令
+- **补上 Windows 特有的两个坑** —— 串口驱动（CP210x，改版板可能是 CH343 / CH340）
+  和 COM 口号怎么查（设备管理器、`py -m serial.tools.list_ports`）
+- **说清该插哪个 USB 口** —— 用 **USB-to-UART 口**（桥接芯片那个），
+  不是 ESP32-S3 原生 USB 口
+- **修掉一条过时的命令** —— esptool v5 把子命令改成连字符（`write-flash`），
+  v4 还是下划线（`write_flash`）；文档现在先教人 `version` 看版本。
+  压缩默认就是开的，**去掉多余的 `-z`**
+- **后台「使用说明」同步更新** —— 装设备那两步给的还是老的 `esptool.py write_flash`
+
 ### Changed
 
 **文档整体梳理 —— 部署手册从 276 行砍到 193 行，路径清楚多了**

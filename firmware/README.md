@@ -90,10 +90,34 @@ idf.py menuconfig   # Component config → petd
 
 ### 方式 1：esptool（不需要装 ESP-IDF）
 
+Linux：
+
 ```bash
-python3 -m esptool --chip esp32s3 --port /dev/ttyACM0 \
-  write_flash -z 0x0 merged-binary.bin
+python3 -m pip install esptool
+python3 -m esptool --chip esp32s3 --port /dev/ttyACM0 write-flash 0x0 merged-binary.bin
 ```
+
+Windows：
+
+```powershell
+py -m pip install esptool
+py -m esptool --chip esp32s3 --port COM5 write-flash 0x0 merged-binary.bin
+```
+
+**Windows 上多两件事**：
+
+- **串口驱动** —— 板载 USB-to-UART 桥接芯片，官方 DevKitC-1 是 CP210x，
+  驱动 <https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers>；
+  改版板可能是 CH343 / CH340
+- **COM 口号** —— 「设备管理器 → 端口(COM 和 LPT)」，或
+  `py -m serial.tools.list_ports`
+
+> ⚠️ **esptool v5 把命令名改成连字符**：`write-flash`。
+> v4 还是 `write_flash`（下划线）。先 `python -m esptool version` 看版本。
+> 压缩默认开着，**不需要 `-z`**。
+>
+> ⚠️ **接哪个口**：用 **USB-to-UART 口**（桥接芯片那个），不是 ESP32-S3 原生 USB 口 ——
+> 原生 USB 复位后会重新枚举，串口会掉。
 
 ### 方式 2：idf.py
 
