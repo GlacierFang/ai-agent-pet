@@ -114,6 +114,13 @@
       <div class="pet-grid" id="skin-list"></div>
       <div class="row"><span class="muted" id="skin-list-meta"></span></div>
     </section>
+
+    <section class="card">
+      <h2 data-i18n="bg:title">背景</h2>
+      <p class="note" data-i18n="bg:note">宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。</p>
+      <div class="pet-grid" id="bg-list"></div>
+      <div class="row"><span class="muted" id="bg-list-meta"></span></div>
+    </section>
   </section>
 
   <!-- ============ 宠物设定 ============ -->
@@ -245,6 +252,23 @@
       <button type="button" class="ghost" id="skin-modal-cancel" data-i18n="skins:cancel">取消</button>
       <button type="button" id="skin-modal-save" data-i18n="skins:save">完成</button>
       <span class="muted" id="skin-modal-meta"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 上传背景 -->
+<div class="modal hidden" id="bg-modal">
+  <div class="modal-box card">
+    <h2 data-i18n="bg:upload">上传背景</h2>
+    <label><span data-i18n="bg:name">名字</span>
+      <input type="text" id="bg-modal-name" placeholder="我的房间" data-i18n-placeholder="bg:namePlaceholder"></label>
+    <label><span data-i18n="bg:upload">背景图</span>
+      <input type="file" id="bg-modal-file" accept="image/png,image/jpeg,image/webp"></label>
+    <p class="note" data-i18n="bg:specNote">240×320 · PNG / JPEG / WebP 都收，会转成 PNG 存</p>
+    <div class="row">
+      <button type="button" class="ghost" id="bg-modal-cancel" data-i18n="skins:cancel">取消</button>
+      <button type="button" id="bg-modal-save" data-i18n="skins:save">完成</button>
+      <span class="muted" id="bg-modal-meta"></span>
     </div>
   </div>
 </div>

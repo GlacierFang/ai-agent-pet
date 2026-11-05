@@ -27,7 +27,11 @@ PALETTE = {
     "sleeping": {"bg": (18, 20, 32), "body": (108, 118, 172), "glow": (150, 160, 210)},
 }
 
-DENSITY_FACE_H = [140, 200, 280]
+# 宠物区高度（逻辑 px）—— 固定，不随密度变。
+#
+# 宠物大小不跟着密度缩放：背景和宠物是解耦的两件事，
+# 换一张背景不该让宠物跟着变大变小。密度只管下面放几行字。
+PET_FACE_H = 200
 
 STATE_CN = {
     "idle": "闲置",
@@ -99,6 +103,25 @@ def _gradient(img, top, bottom):
         t = y / max(1, h - 1)
         col = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
         d.line([(0, y), (w, y)], fill=col)
+
+
+def _scrim(img, top_y, bottom_y, max_alpha=215):
+    # 文字区铺一条由淡到浓的暗带。
+    # 文字压在背景图上得看得清 —— 用户自己画的背景可能是亮色。
+    # 顶端留一点底色（不然第一行状态词没对比度），往下逐渐加浓。
+    w, h = img.size
+    top_y = max(0, min(h, int(top_y)))
+    bottom_y = max(top_y, min(h, int(bottom_y)))
+    band_h = bottom_y - top_y
+    if band_h <= 0:
+        return img
+    ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    for y in range(top_y, bottom_y):
+        t = (y - top_y) / max(1, band_h - 1)
+        a = int(max_alpha * (0.5 + 0.5 * t))
+        od.line([(0, y), (w, y)], fill=(8, 10, 16, a))
+    return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
 
 CARD_BG_TOP = (24, 28, 44)
@@ -226,7 +249,7 @@ def render_card(cfg, card, skin_image=None, overlay=None):
 
 
 def render_frame(cfg, state, subtitle="", session_name="", density=1,
-                 skin_image=None, overlay=None, merit=0):
+                 skin_image=None, overlay=None, merit=0, background_image=None):
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
     quality = int(cfg.get("render", {}).get("quality", 85))
@@ -235,13 +258,23 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
     scale = 2
     big = Image.new("RGB", (width * scale, height * scale), (20, 22, 32))
     pal = PALETTE.get(state, PALETTE["idle"])
-    _gradient(big, tuple(min(255, c + 14) for c in pal["bg"]), pal["bg"])
+
+    # 背景 —— 铺满整屏。有背景图就用它，没有就退回状态色渐变。
+    has_bg = background_image is not None
+    if has_bg:
+        bg = background_image.convert("RGB").resize((width * scale, height * scale),
+                                                    Image.LANCZOS)
+        big.paste(bg, (0, 0))
+        # 状态色只留一层淡罩 —— 别把背景盖光
+        tint = Image.new("RGBA", big.size, pal["bg"] + (46,))
+        big = Image.alpha_composite(big.convert("RGBA"), tint).convert("RGB")
+    else:
+        _gradient(big, tuple(min(255, c + 14) for c in pal["bg"]), pal["bg"])
 
     density = max(0, min(2, int(density)))
-    face_h = DENSITY_FACE_H[density]
-    face_px = face_h * scale
+    face_px = PET_FACE_H * scale
 
-    # 表情区
+    # 宠物区 —— 高度固定，密度不影响它
     pet = Image.new("RGBA", (width * scale, face_px), (0, 0, 0, 0))
     if skin_image is not None:
         # 皮肤图 —— 一态一张，等比缩放，不拉伸
@@ -255,7 +288,12 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
     big.paste(pet, (0, 0), pet)
 
     d = ImageDraw.Draw(big)
-    d.line([(0, face_px), (width * scale, face_px)], fill=pal["glow"] + (70,), width=2)
+    if not has_bg:
+        # 有背景图时分隔线太硬，靠底部暗带分开就行
+        d.line([(0, face_px), (width * scale, face_px)], fill=pal["glow"] + (70,), width=2)
+    else:
+        big = _scrim(big, face_px, height * scale)
+        d = ImageDraw.Draw(big)
 
     # 文字区
     ty = face_px + int(10 * scale)

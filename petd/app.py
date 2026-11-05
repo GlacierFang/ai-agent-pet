@@ -15,6 +15,7 @@ from . import chatter as chatter_mod
 from . import config as config_mod
 from . import album as album_mod
 from . import features as feature_mod
+from . import backgrounds as bg_mod
 from . import gestures as gestures_mod
 from . import render as render_mod
 from . import screen as screen_mod
@@ -51,6 +52,8 @@ class PetApp:
         self.gestures = gestures_mod.load()
         self.density = int(cfg.get("ui", {}).get("density", 1))
         self.skin = cfg.get("ui", {}).get("skin", "default")
+        # 背景 —— 和宠物形象解耦。换宠物不动背景，换背景不动宠物。
+        self.background = str(cfg.get("ui", {}).get("background") or "default")
         # 空闲时参与轮播的 feature。
         # 老配置里没有新功能的名字 —— 直接 normalize 会把它们悄悄关掉
         # （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
@@ -332,6 +335,16 @@ class PetApp:
         self._persist_config()
         await self.devices.send_json({"type": "setDensity", "level": level})
         self.log("info", "信息密度 -> %d" % level)
+
+    async def set_background(self, name):
+        """换背景。背景和宠物形象是解耦的两件事 —— 换背景不动宠物。"""
+        root = self.cfg.get("_repo_root", ".")
+        if not bg_mod.has_bg(root, name):
+            raise ValueError("没有这个背景")
+        self.background = name
+        self.cfg.setdefault("ui", {})["background"] = name
+        self._persist_config()
+        self.log("info", "背景 -> " + name)
 
     async def set_skin(self, name):
         root = self.cfg.get("_repo_root", ".")
@@ -624,10 +637,12 @@ class PetApp:
             sub = self._subtitle()
             name = self._session_name()
             skin_img = skins_mod.load_image(root, self.skin, face)
+            bg_img = bg_mod.load_image(root, self.background)
             jpeg = render_mod.render_frame(self.cfg, face, sub, name,
                                            density=self.density, skin_image=skin_img,
                                            overlay=overlay,
-                                           merit=self.merit.value if self.merit_on() else 0)
+                                           merit=self.merit.value if self.merit_on() else 0,
+                                           background_image=bg_img)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg
@@ -765,6 +780,7 @@ class PetApp:
             "pet": {"state": self.engine.state, "since": int(self.engine.since),
                     "stateCn": state_mod.STATE_CN.get(self.engine.state, self.engine.state),
                     "density": self.density, "skin": self.skin,
+                    "background": self.background,
                     "sessions": len(self.engine.sessions),
                     "selected": self.engine.selected_key,
                     "attribution": self.engine.attribution,

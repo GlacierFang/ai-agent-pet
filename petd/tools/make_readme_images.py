@@ -12,7 +12,7 @@ import pathlib
 
 from PIL import Image
 
-from .. import render, skins
+from .. import backgrounds, render, skins
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "images"
@@ -60,6 +60,14 @@ def main():
 
     _img(render.render_dice(cfg, value=6, rolling=False, title="赛博骰子")).save(
         OUT / "screen-dice.png")
+
+    # 宠物住在背景上 —— 背景是独立的一张图
+    bg = backgrounds.load_image(str(ROOT), "default")
+    if bg is not None:
+        skin = skins.load_image(str(ROOT), "default", "idle")
+        _img(render.render_frame(cfg, "working", "正在处理", "", density=1,
+                                 skin_image=skin, background_image=bg)).save(
+            OUT / "screen-bg.png")
 
     for p in sorted(OUT.glob("*.png")):
         print("%-26s %7d bytes" % (p.name, p.stat().st_size))

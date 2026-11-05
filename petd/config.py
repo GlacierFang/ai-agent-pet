@@ -41,6 +41,9 @@ def defaults():
         "frame": {"idleFps": 1, "activeFps": 10, "maxInFlight": 2},
         "ui": {
             "skin": "default",
+            # 背景图 —— 和宠物形象解耦。换宠物不影响背景，换背景不影响宠物。
+            # 仓库自带 backgrounds/default.png；用户自己的放 petd/data/backgrounds/。
+            "background": "default",
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
             "features": ["sessions", "notify", "recent_done", "merit", "dice",
