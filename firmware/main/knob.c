@@ -22,6 +22,9 @@ static int s_last_enc;
 static int s_last_sw;
 static int64_t s_sw_down_ms;
 static bool s_sw_down;
+/* 按住期间转过旋钮。松开时不能再报一次 press ——
+   服务端把 ms < 600 的 press 当短按，会直接触发骰子。 */
+static bool s_sw_rotated;
 
 /* 旋转聚合窗口 */
 static int   s_pend_steps;
@@ -53,6 +56,7 @@ static void on_enc_edge(bool sw_down)
 #endif
     if (sw_down) {
         /* 按住期间旋转 —— 单独上报，不进聚合窗口 */
+        s_sw_rotated = true;
         emit(PETD_EV_ROT_PRESS, dir, 1, 0);
         return;
     }
@@ -63,7 +67,10 @@ static void on_enc_edge(bool sw_down)
     }
     if (s_pend_steps == 0) {
         s_pend_dir = dir;
-        s_pend_since = esp_timer_get_time();
+        /* 必须是**毫秒**。之前这里写的是 esp_timer_get_time()（微秒），
+           而下面的窗口判断用的是毫秒 —— 两者相减是个大负数，
+           聚合窗口永远不到期，旋转停下后步数发不出去。 */
+        s_pend_since = esp_timer_get_time() / 1000;
     }
     s_pend_steps++;
 }
@@ -114,6 +121,7 @@ static void knob_task(void *arg)
             /* KY-040 的 SW 按下接地 */
             s_sw_down = true;
             s_sw_down_ms = now;
+            s_sw_rotated = false;
             /* 按下时如果还有待发的旋转，先发掉 */
             if (s_pend_steps != 0) {
                 emit(PETD_EV_ROT, s_pend_dir, s_pend_steps, 0);
@@ -122,7 +130,13 @@ static void knob_task(void *arg)
         } else if (sw == 1 && s_sw_down) {
             s_sw_down = false;
             int held = (int)(now - s_sw_down_ms);
-            emit(PETD_EV_PRESS, 0, 0, held);
+            if (s_sw_rotated) {
+                /* 按住期间转过了 —— 只报 rot_press，松手不再补报 press。
+                   否则「按住转一下就松手」会被服务端当成短按。 */
+                s_sw_rotated = false;
+            } else {
+                emit(PETD_EV_PRESS, 0, 0, held);
+            }
         }
     }
 }
