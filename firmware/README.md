@@ -165,7 +165,7 @@ storage    0x620000    1MB
 | 项 | 怎么测 | 期望 |
 |---|---|---|
 | 画面方向 | 看第一帧 | 竖屏 240×320，不旋转 |
-| 颜色发白发灰 | 看第一帧 | 若像负片 → 改 `display.c` 的 `LCD_INVERT_COLOR` |
+| 颜色发白发灰 | 看第一帧 | 默认 `LCD_INVERT_COLOR=false`（0x20）；若像负片 → 改 `true` |
 | 红蓝互换 | 看第一帧 | 改 `LCD_RGB_ORDER` 或 `LCD_DATA_ENDIAN`，见 `docs/故障排查.md` |
 | 旋钮方向 | 往右转 | 若方向反 → `KNOB_DIR_INVERT` 改 1 |
 | 每圈步数 | 慢转一整圈数步 | 假设 20，实测后校准 |

@@ -33,8 +33,11 @@ static const char *TAG = "display";
 /* 面板色彩参数 —— 换屏时只改这三行。
    控制器是 ST7789，换面板（TN ↔ IPS）不用换驱动，改这三个就行。
    症状对照见 docs/故障排查.md「换了屏之后颜色不对」。 */
-/* 颜色反相。屏上颜色发白发灰、像负片，就翻它。 */
-#define LCD_INVERT_COLOR   true
+/* 颜色反相。默认 false = 发 0x20 (INVOFF)。
+   依据：模组厂商给这块屏的初始化示例（GMT024-8p10p-SPI-ST7789.c）
+   末尾发的就是 0x20，而不是 0x21 —— 那是这块屏实际点亮验证过的序列。
+   若屏上颜色发白发灰、像负片，把它改成 true（0x21 / INVON）。 */
+#define LCD_INVERT_COLOR   false
 /* 红蓝互换就改 LCD_RGB_ELEMENT_ORDER_BGR。 */
 #define LCD_RGB_ORDER      LCD_RGB_ELEMENT_ORDER_RGB
 /* 字节序。红蓝互换且 BGR 也改了还不对，就换这个。 */
