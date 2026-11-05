@@ -21,10 +21,12 @@
 
 #include "esp_err.h"
 
-/* ---- 引脚（硬件已定案）---- */
+/* ---- 引脚（硬件已定案）----
+   模块丝印是 GND / + / SW / DT / CLK —— 第五针印的是 CLK 不是 ENC，
+   同一个信号（编码器 A 相）。接线认丝印，见 docs/硬件指南.md。 */
 #define PIN_KNOB_SW     4
 #define PIN_KNOB_DT     5
-#define PIN_KNOB_ENC    6
+#define PIN_KNOB_ENC    6   /* 丝印 CLK */
 
 /* 方向反了就把它改成 1 */
 #define KNOB_DIR_INVERT 0
