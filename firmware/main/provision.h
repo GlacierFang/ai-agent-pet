@@ -52,6 +52,11 @@ esp_err_t provision_start_ap(void);
 /* 以 STA 模式连指定 Wi-Fi。 */
 esp_err_t provision_start_sta(const char *ssid, const char *pass);
 
+/* 等 STA 拿到 IP（超时返回 ESP_ERR_TIMEOUT）。
+   连 petd 之前应该先等它 —— 没 IP 时 mDNS 解析必然失败，
+   WS 客户端只能靠 5 秒重连硬扛。 */
+esp_err_t provision_wait_for_ip(uint32_t timeout_ms);
+
 /* 热点名（petd-setup-XXXX）和配网密码（屏幕上显示的就是它）。 */
 void provision_get_ap_ssid(char *buf, size_t len);
 void provision_get_ap_pass(char *buf, size_t len);

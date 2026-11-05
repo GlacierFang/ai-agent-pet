@@ -4,7 +4,9 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -32,13 +34,28 @@ static const char *TAG = "prov";
    密码错的情况下一直重试没有意义，用户看到 NO WIFI 会自己想办法。 */
 #define STA_MAX_RETRY   30
 
+/* Wi-Fi 事件位：拿到 IP 时置位，供 provision_wait_for_ip() 等待。
+   自己定义而不用 BIT0 —— 省掉一个头文件依赖。 */
+#define WIFI_EVENT_BIT    (1 << 0)
+
+/* 重连间隔 2 秒。用一次性定时器实现 ——
+   不能在 Wi-Fi 事件回调里 vTaskDelay：默认事件循环是单任务，
+   阻塞 2 秒会把 GOT_IP 等其它事件一起拖住。 */
+#define STA_RETRY_DELAY_US (2 * 1000 * 1000)
+
 static prov_state_cb_t s_cb;
 static prov_state_t    s_state = PROV_ST_IDLE;
 static int             s_fail_count;
 static bool            s_has_creds;
 static bool            s_ap_started;
+/* esp_wifi_start() 成功过没有。用来判断能不能再调 start ——
+   重复 start 会返回错误，而 ESP_ERROR_CHECK 会直接 abort。 */
+static bool            s_wifi_started;
 static char            s_ip[16];
 static httpd_handle_t  s_http;
+static EventGroupHandle_t s_wifi_events;
+static esp_timer_handle_t s_retry_timer;
+static esp_timer_handle_t s_ap_timer;
 
 
 /* ---------------- NVS 凭据 ---------------- */
@@ -337,12 +354,32 @@ static esp_err_t save_handler(httpd_req_t *req)
 }
 
 
+/* Captive Portal 探测请求的处理器。
+   手机连上热点后，系统会先请求一个探测地址；拿不到预期响应就弹
+   「此网络无法访问互联网」，用户还以为设备坏了。把探测请求重定向到
+   配网页，手机系统就会跟着跳转、弹出配网页面。
+
+   探测地址（Android / iOS / 桌面各用不同的）：
+     /generate_204  /gen_204  /ncsi.txt  /connecttest.txt
+     /hotspot-detect.html  /canonical.html  /success.txt
+     /library/test/success.html
+   少注册一个就可能有一类系统弹不出页面 —— 所以全都注册。 */
+static esp_err_t captive_handler(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://" AP_IP "/");
+    httpd_resp_sendstr(req, "");
+    return ESP_OK;
+}
+
+
 static esp_err_t http_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port += 1;   /* 避开默认 32768，跟别的服务不撞 */
-    cfg.max_uri_handlers = 8;
+    /* 3 个正常路由 + 8 个 Captive Portal 探测路由 = 11，留到 16。 */
+    cfg.max_uri_handlers = 16;
     cfg.lru_purge_enable = true;
 
     esp_err_t err = httpd_start(&s_http, &cfg);
@@ -360,11 +397,78 @@ static esp_err_t http_start(void)
     httpd_register_uri_handler(s_http, &u_root);
     httpd_register_uri_handler(s_http, &u_save);
     httpd_register_uri_handler(s_http, &u_status);
+
+    /* Captive Portal 探测路由 */
+    static const char *const captive_uris[] = {
+        "/generate_204", "/gen_204", "/ncsi.txt", "/connecttest.txt",
+        "/hotspot-detect.html", "/canonical.html", "/success.txt",
+        "/library/test/success.html",
+    };
+    for (size_t i = 0; i < sizeof(captive_uris) / sizeof(captive_uris[0]); i++) {
+        httpd_uri_t u_captive = {
+            .uri = captive_uris[i], .method = HTTP_GET,
+            .handler = captive_handler, .user_ctx = NULL,
+        };
+        httpd_register_uri_handler(s_http, &u_captive);
+    }
     return ESP_OK;
 }
 
 
 /* ---------------- Wi-Fi 事件 ---------------- */
+
+/* 重连定时器回调。跑在 esp_timer 任务上下文 —— 只发一条连接命令。 */
+static void sta_retry_cb(void *arg)
+{
+    (void)arg;
+    if (s_wifi_started) {
+        esp_wifi_connect();
+    }
+}
+
+
+/* 安排一次延迟重连。 */
+static void schedule_sta_retry(void)
+{
+    if (!s_retry_timer) {
+        esp_timer_create_args_t args = {
+            .callback = sta_retry_cb,
+            .name = "wifi_retry",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&args, &s_retry_timer));
+    }
+    esp_timer_stop(s_retry_timer);
+    esp_timer_start_once(s_retry_timer, STA_RETRY_DELAY_US);
+}
+
+
+/* 退到配网模式的定时器回调。
+   必须在定时器上下文做，不能在 Wi-Fi 事件回调里直接调
+   provision_start_ap() —— 那里面会 esp_wifi_stop()，
+   而事件回调正跑在 Wi-Fi 驱动派发事件的那个任务上，等自己停会卡死。 */
+static void ap_fallback_cb(void *arg)
+{
+    (void)arg;
+    esp_err_t err = provision_start_ap();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "fallback to ap failed: %s", esp_err_to_name(err));
+    }
+}
+
+
+static void schedule_ap_fallback(void)
+{
+    if (!s_ap_timer) {
+        esp_timer_create_args_t args = {
+            .callback = ap_fallback_cb,
+            .name = "wifi_ap_fb",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&args, &s_ap_timer));
+    }
+    esp_timer_stop(s_ap_timer);
+    esp_timer_start_once(s_ap_timer, 0);
+}
+
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -378,12 +482,17 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         /* 连不上就是 NO WIFI，屏幕要明确告诉用户，不能默默重连 */
         set_state(PROV_ST_FAILED, "no wifi");
         if (s_fail_count < STA_MAX_RETRY) {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            esp_wifi_connect();
+            /* 不能在这里 vTaskDelay —— 默认事件循环只有一个任务，
+               阻塞 2 秒会把 GOT_IP 等其它事件一起拖住。 */
+            schedule_sta_retry();
         } else {
             ESP_LOGE(TAG, "too many failures, falling back to AP setup");
             s_fail_count = 0;
-            provision_start_ap();
+            /* 走定时器，不在事件回调里直接切 Wi-Fi。
+               这条路径以前用 ESP_ERROR_CHECK 包着 provision_start_ap()，
+               一旦出错就 abort → 重启 → 再失败 → 再重启，
+               设备永远出不来配网页。 */
+            schedule_ap_fallback();
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
@@ -391,6 +500,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_fail_count = 0;
         ESP_LOGI(TAG, "got ip %s", s_ip);
         set_state(PROV_ST_CONNECTED, s_ip);
+        if (s_wifi_events) {
+            xEventGroupSetBits(s_wifi_events, WIFI_EVENT_BIT);
+        }
     }
 }
 
@@ -401,6 +513,9 @@ esp_err_t provision_init(prov_state_cb_t cb)
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    s_wifi_events = xEventGroupCreate();
+    ESP_ERROR_CHECK(s_wifi_events ? ESP_OK : ESP_ERR_NO_MEM);
 
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
@@ -437,10 +552,38 @@ esp_err_t provision_start_ap(void)
     wc.ap.max_connection = AP_MAX_CONN;
     wc.ap.authmode = WIFI_AUTH_WPA2_PSK;
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wc));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    /* Wi-Fi 可能已经在跑 —— 从「连不上退配网」这条路进来时就是。
+       直接再调 esp_wifi_start() 会返回错误，ESP_ERROR_CHECK 会 abort，
+       结果是「连不上 → 退配网 → abort → 重启 → 再连不上」的无限重启，
+       设备永远出不来配网页。所以先停、再起，全程自己处理错误。 */
+    if (s_wifi_started) {
+        esp_err_t err = esp_wifi_stop();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "wifi stop failed: %s", esp_err_to_name(err));
+            return err;
+        }
+        s_wifi_started = false;
+    }
 
-    esp_err_t err = http_start();
+    /* AP + STA 共存：原来那条 STA 连接可以留着，重配期间后端仍看得到设备 */
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "set mode failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_wifi_set_config(WIFI_IF_AP, &wc);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "set ap config failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "wifi start failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    s_wifi_started = true;
+
+    err = http_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "http server start failed: %s", esp_err_to_name(err));
         return err;
@@ -461,7 +604,18 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
     memset(&wc, 0, sizeof(wc));
     strncpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid) - 1);
     strncpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password) - 1);
-    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    /* 认证阈值 = 「最弱可接受的加密级别」。
+       IDF v5.5 的顺序：
+         OPEN(0) < WEP(1) < WPA_PSK(2) < WPA2_PSK(3) < WPA_WPA2_PSK(4) < ... < WPA3_PSK(6)
+       设成 WPA2_PSK(3) 时 WPA3(6) 也能连（数值更大 = 更强）。
+       但无密码的热点是 OPEN(0)，比 3 弱 —— 用 WPA2_PSK 会直接连不上。
+       所以按有没有密码分开设。
+       注意别用 WPA_WPA2_PSK(4)：那反而会拒掉纯 WPA2 的路由器。 */
+    if (pass && pass[0]) {
+        wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    } else {
+        wc.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    }
 
     s_fail_count = 0;
     set_state(PROV_ST_CONNECTING, ssid);
@@ -469,11 +623,28 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
     if (!s_ap_started) {
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
-        ESP_ERROR_CHECK(esp_wifi_start());
+        if (!s_wifi_started) {
+            esp_err_t err = esp_wifi_start();
+            if (err != ESP_OK) return err;
+            s_wifi_started = true;
+        }
     } else {
         /* 已经在 APSTA 模式了，只换 STA 配置 */
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
         esp_wifi_connect();
     }
     return ESP_OK;
+}
+
+
+esp_err_t provision_wait_for_ip(uint32_t timeout_ms)
+{
+    if (!s_wifi_events) return ESP_ERR_INVALID_STATE;
+    /* 先清掉陈旧的位 —— 上一条连接拿到过 IP 时置的位还在的话，
+       这次等待会立刻返回，等于没等。 */
+    xEventGroupClearBits(s_wifi_events, WIFI_EVENT_BIT);
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_events, WIFI_EVENT_BIT,
+                                           pdFALSE, pdFALSE,
+                                           pdMS_TO_TICKS(timeout_ms));
+    return (bits & WIFI_EVENT_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
 }
