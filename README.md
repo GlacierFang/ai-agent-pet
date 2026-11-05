@@ -4,7 +4,7 @@
 
 一块 ESP32-S3 屏摆在桌上。AI agent 干活的时候它在旁边打工人，等你批准的时候它举起牌子。
 
-> 🟢 **服务端已落地并实测**（2026-11-04）。petd 订阅 OpenClaw gateway，把会话状态映射成宠物的表情，用 Pillow 渲染成 240×320 的 JPEG 推给设备。**230 项单测全绿**，CI 覆盖 Python 3.10 / 3.11 / 3.12。
+> 🟢 **服务端已落地并实测**（2026-11-04）。petd 订阅 OpenClaw gateway，把会话状态映射成宠物的表情，用 Pillow 渲染成 240×320 的 JPEG 推给设备。**310 项单测全绿**，CI 覆盖 Python 3.10 / 3.11 / 3.12。
 >
 > 🟡 **固件源码已在 CI 里真编译通过**（ESP-IDF v5.5），产出 `petd.bin` / `merged-binary.bin` / `uf2.bin`。但**还没在实机上验证过** —— 零件未下单，到货、烧录、上电、看到画面都还是未知数。
 > 本机是 arm64 且装不了 ESP-IDF，所以编译验证全部交给 GitHub Actions。
@@ -59,7 +59,7 @@ git clone https://github.com/GlacierFang/ai-agent-pet.git
 cd ai-agent-pet
 pip install -r requirements.txt
 
-# 告诉 petd 你的 gateway token（读 ~/.openclaw/openclaw.json 的 gateway.auth.token）
+# 告诉 petd 你的 gateway token（从 ~/.openclaw/openclaw.json 的 gateway.auth.token 取）
 export PETD_GATEWAY_TOKEN=xxxx
 
 python3 -m petd --port 18860
@@ -69,7 +69,7 @@ python3 -m petd --port 18860
 
 > 💡 **第一次打开会先让你设一个后台口令**（只存 scrypt 哈希）。已经设过的话就是登录框。
 > 想要完全敞开（仅限开发自跑）：`PETD_ADMIN_AUTH=off`。
-> 详见 [部署手册](docs/部署手册.md#7b--口令)。
+> 详见 [部署手册](docs/部署手册.md)。
 
 **没有硬件也能跑通整条链路**：
 
@@ -184,10 +184,23 @@ KY-040 旋转编码器。**手势语义表在服务端**，设备只报原始测
 
 ## 文档
 
+**你要干什么 → 看哪篇**：
+
+| 你想做的事 | 看哪篇 |
+|---|---|
+| 从零跑起来 | [部署手册](docs/部署手册.md) —— 七步走完 |
+| 买零件、接线 | [硬件指南](docs/硬件指南.md) |
+| 出问题了 | [故障排查](docs/故障排查.md) |
+| 让它开机自启 | [deploy/README.md](deploy/README.md) |
+| 挂到域名 / 反代后面 | [后台控制台](docs/后台控制台.md) |
+
+**全部文档**：
+
 | 文档 | 内容 |
 |---|---|
-| [部署手册](docs/部署手册.md) | 从零到跑起来：买什么 → 接线 → 编译 → 看到宠物动 |
+| [部署手册](docs/部署手册.md) | 七步：拿到代码 → 起 petd → 接线 → 烧录 → 配网 → 找到 petd → 看到宠物 |
 | [硬件指南](docs/硬件指南.md) | BOM、接线、安全规则、到货必测项 |
+| [故障排查](docs/故障排查.md) | 连不上 / 黑屏 / 花屏 / 状态不动 |
 | [状态语义](docs/状态语义.md) | gateway 字段 → 宠物状态的完整规则 |
 | [旋钮](docs/旋钮.md) | 手势、`gestures.json` 格式、页面模型 |
 | [协议](docs/协议.md) | 设备 ↔ petd 线上协议（握手、帧格式、旋钮事件、错误码） |
@@ -195,7 +208,6 @@ KY-040 旋转编码器。**手势语义表在服务端**，设备只报原始测
 | [feature 开发](docs/feature开发.md) | 怎么加一个新内容卡 |
 | [美术规范](docs/美术规范.md) | 尺寸、帧数、命名、密度档位 |
 | [固件构建](docs/固件构建.md) | ESP-IDF 环境、构建、烧录、配网 |
-| [故障排查](docs/故障排查.md) | 连不上 / 黑屏 / 花屏 |
 | [开源路线](docs/开源路线.md) | 仓库结构、命名、发布清单、合规判断 |
 | [固件 README](firmware/README.md) | 固件结构、TJpgDec 实测数据、烧录方式、待上机确认清单 |
 | [更新日志](CHANGELOG.md) | 每个版本改了什么 |

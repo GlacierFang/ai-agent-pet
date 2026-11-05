@@ -34,8 +34,8 @@ journalctl --user -u petd -f
 
 ## 注意
 
-- 服务监听 `0.0.0.0`（局域网）。**后台默认不设口令** —— 只在你信任的局域网里用；
-  要放到公网就设 `PETD_ADMIN_PASSWORD`（见 `~/.config/petd/petd.env`），后台会要求口令。
+- 服务监听 `0.0.0.0`（局域网）。**后台第一次打开会让你设一个口令**（只存 scrypt 哈希）。
+  设之前后台是锁着的。自动部署想直接指定口令，就设 `PETD_ADMIN_PASSWORD`（见 `~/.config/petd/petd.env`）。
 - **只能跑一个实例**。两个用同样 `client.id=gateway-client` 的 petd 会互相顶掉，
   后启动的那个会被网关拒为 `NOT_PAIRED` / `DEVICE_IDENTITY_REQUIRED`。
   换实例前先 `systemctl --user stop petd`。
