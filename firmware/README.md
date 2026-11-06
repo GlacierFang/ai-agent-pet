@@ -32,7 +32,7 @@ firmware/
 
 ## TJpgDec 实测数据
 
-2026-11-03 在本机（aarch64）编译 TJpgDec R0.03，喂 petd 真实输出的 JPEG 实测：
+在 aarch64 机器上编译 TJpgDec R0.03，喂 petd 真实输出的 JPEG 实测：
 
 | 项 | 实测值 |
 |---|---|

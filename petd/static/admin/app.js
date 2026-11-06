@@ -83,7 +83,7 @@ var T = {
     sleeping: '睡着了'
   },
 
-  /* 宠物/会话状态徽章的词 —— 沿用原来那套说法，别随便改口。 */
+  /* 宠物/会话状态徽章的词 —— 各处保持一致，别随便改口。 */
   stateHero: {
     idle: '闲着',
     working: '在忙',
@@ -475,7 +475,7 @@ var STATE_KIND = {
 /* ---------------- 文案落地 ---------------- */
 
 /* 把 HTML 里 data-i18n 标记的静态文字换成字典里的内容。
-   data-i18n-html 只给字典里我们自己写的固定文案用（不含用户输入）。 */
+   data-i18n-html 只给字典里写死的固定文案用（不含用户输入）。 */
 function applyI18n() {
   var nodes = document.querySelectorAll('[data-i18n]');
   for (var i = 0; i < nodes.length; i++) {
@@ -707,7 +707,7 @@ function loadSessions() {
 /* ---------------- 口令页的操作指引 ---------------- */
 
 /* 静态的四步上手说明 —— 刷固件那步没法自动检测，只能写死。
-   内容来自我们自己的字典（不含用户输入），所以可以直接 innerHTML。 */
+   内容来自写死的字典（不含用户输入），所以可以直接 innerHTML。 */
 function renderGuide(boxId) {
   var ol = el(boxId || 'gate-guide');
   if (!ol) return;

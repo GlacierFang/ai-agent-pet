@@ -1,6 +1,6 @@
 # 参与贡献
 
-> 项目名 `ai-agent-pet`（GitHub 仓库名，2026-11-03 定）。
+> 项目名 `ai-agent-pet`（GitHub 仓库名）。
 
 ## 两条线分开授权
 
