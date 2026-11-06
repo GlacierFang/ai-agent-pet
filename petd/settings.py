@@ -18,7 +18,7 @@ from . import features as feature_mod
 DENSITY_LABELS = {0: "简洁", 1: "标准", 2: "详细"}
 
 DENSITY_DESCS = {
-    0: "只有宠物脸",
+    0: "只有宠物形象",
     1: "加一行状态说明",
     2: "再加会话名",
 }
@@ -127,7 +127,7 @@ def _dwell_item(pet):
 
 def _hold_item(pet):
     return {"id": "hold", "name": "干完留多久",
-            "desc": "活干完，宠物脸在屏上多留多久",
+            "desc": "活干完，宠物形象在屏上多留多久",
             "value": int(pet.message_hold_sec),
             "type": "number", "unit": "秒", "min": 0}
 

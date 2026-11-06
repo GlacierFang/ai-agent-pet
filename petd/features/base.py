@@ -44,7 +44,7 @@ class Feature:
             rows    列表行 [{"left": ..., "right": ..., "accent": ...}]
             photo   整屏照片的路径 —— 有它就走「整屏一张图」的路子
             counter 照片计数（角标）
-            state   用宠物哪一态的表情
+            state   用宠物哪一态
                     （idle / working / waiting / done / error / sleeping）
             source  底部小字 —— 这条内容从哪来
         """

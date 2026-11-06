@@ -1,15 +1,15 @@
-"""屏上仲裁：宠物脸 ↔ feature 卡片。
+"""屏上仲裁：宠物形象 ↔ feature 卡片。
 
 屏上永远只有一样东西 —— 不是上下分区，是整屏切换。
 
 一条时间线：
 
     OpenClaw 在干活（working / waiting / error）
-        → 宠物脸整屏接管，直接打断当前 feature 卡
+        → 宠物形象整屏接管，直接打断当前 feature 卡
     工作结束（done / idle）
-        → 保留 N 秒（用户可调）宠物脸还在
+        → 保留 N 秒（用户可调）宠物形象还在
         → feature 卡片接管，轮播，每张住 M 秒（用户可调）
-        → 所有 feature 都没话说 → 回宠物脸挂着
+        → 所有 feature 都没话说 → 回宠物形象挂着
     夜间时段
         → 到了睡觉时段就睡；OpenClaw 干活就醒着干活，干完再睡
 
@@ -104,7 +104,7 @@ class ScreenDirector:
 
         card, feature = self._pick(now, state, ctx, features)
         if card is None:
-            # 没内容 —— 回消息层挂着宠物的脸
+            # 没内容 —— 回消息层挂着宠物形象
             self.layer = MESSAGE_LAYER
             self.feature = None
             self._face = "idle"

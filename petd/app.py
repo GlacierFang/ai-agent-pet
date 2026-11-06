@@ -86,7 +86,7 @@ class PetApp:
         self._poll_event = threading.Event()
         self._gateway = None
         self._picked = None
-        # 屏上仲裁：宠物脸 ↔ feature 卡片
+        # 屏上仲裁：宠物形象 ↔ feature 卡片
         self.director = screen_mod.ScreenDirector(self.rules)
         self.chatter = chatter_mod.Chatter()
         # 屏上的玩具 —— 骰子（一次性覆盖层）和功德计数器。
@@ -599,7 +599,7 @@ class PetApp:
         # 骰子、卡片在夜里不会出现（导演先判睡觉），所以只有
         # render_frame 和 render_dice 需要接这个参数。
 
-        # 骰子占屏 —— 一次性覆盖层。这时没有宠物脸。
+        # 骰子占屏 —— 一次性覆盖层。这时没有宠物形象。
         if not self.dice_on():
             # 功能被关掉了 —— 屏上不该还有骰子
             self.dice.dismiss()
@@ -614,7 +614,7 @@ class PetApp:
             self.last_jpeg_ts = time.time()
             return jpeg
 
-        # 飘字层 —— 功德 +1 之类，盖在宠物脸上飘过去
+        # 飘字层 —— 功德 +1 之类，盖在宠物形象上飘过去
         overlay = None
         bubble = self.merit.bubble(now) if self.merit_on() else None
         if bubble:
@@ -628,7 +628,7 @@ class PetApp:
                                     self._features(), night=self.is_night(now))
         if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
-            # 照片卡 —— 整屏一张图，没有宠物脸，也没有飘字。
+            # 照片卡 —— 整屏一张图，没有宠物形象，也没有飘字。
             # 照片上飘一行字太乱，压住。
             photo = str(card.get("photo") or "")
             if photo:

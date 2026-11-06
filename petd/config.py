@@ -52,7 +52,7 @@ def defaults():
             # 这个值要跟 petd/features/__init__.py 的 FEATURES_VERSION 对上。
             "featuresVersion": 3,
             "cardDwellSec": 8,      # 每张卡停留秒数
-            "messageHoldSec": 3,    # 工作结束后宠物脸多留几秒
+            "messageHoldSec": 3,    # 工作结束后宠物形象多留几秒
             "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）
             "sleepEnd": DEFAULT_SLEEP_END,
             "sleepEnabled": True,    # 夜里要不要睡

@@ -1,10 +1,10 @@
 # ai-agent-pet
 
-**给 AI agent 装一张脸。**
+**桌上的宠物，替你盯着 AI agent。**
 
 一块 ESP32-S3 屏摆在桌上。AI agent 干活的时候它在旁边打工人，等你批准的时候它举起牌子。
 
-![设备屏上的六种表情](images/screen-states.png)
+![设备屏上的六种状态](images/screen-states.png)
 
 *屏上就是这些画面 —— 由服务端用 Pillow 渲染成 240×320 的 JPEG 推给设备，
 不是预先烧进固件的静态图。*
@@ -19,13 +19,13 @@
 
 ## 现在做到哪一步了
 
-> 🟢 **服务端已落地并实测**。petd 订阅 OpenClaw gateway，把会话状态映射成宠物的表情，用 Pillow 渲染成 240×320 的 JPEG 推给设备。单测全绿，CI 覆盖 Python 3.10 / 3.11 / 3.12。
+> 🟢 **服务端已落地并实测**。petd 订阅 OpenClaw gateway，把会话状态映射成宠物的六种状态，用 Pillow 渲染成 240×320 的 JPEG 推给设备。单测全绿，CI 覆盖 Python 3.10 / 3.11 / 3.12。
 >
 > 🟡 **固件源码已在 CI 里真编译通过**（ESP-IDF v5.5），产出 `petd.bin` / `merged-binary.bin` / `uf2.bin`。但**还没在实机上验证过** —— 到货、烧录、上电、看到画面都还是未知数。
 
 ## 为什么
 
-agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是不是在等你点批准。这个项目把它的工作状态摆成一张脸：
+agent 在干活时是个黑盒。你不知道它在跑什么、卡在哪、是不是在等你点批准。这个项目把它的工作状态摆在桌上：
 
 - 跑工具时**埋头干活**
 - 等你审批时**举起牌子**（最醒目的一个状态）
@@ -112,7 +112,7 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 
 **整屏互斥 —— 屏上永远只有一样东西**，两个层不会叠在一起：
 
-- **宠物层**：宠物脸 + 一行状态 + 跟的是哪个会话
+- **宠物层**：宠物形象 + 一行状态 + 跟的是哪个会话
 - **内容层**：一张 feature 卡片，闲置时轮播
 
 内容卡长这样：
@@ -126,7 +126,7 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 |---|---|---|---|---|---|
 | <img src="skins/default/idle.png" width="110" alt="闲置"> | <img src="skins/default/working.png" width="110" alt="埋头干活"> | <img src="skins/default/waiting.png" width="110" alt="举牌子，等你确认"> | <img src="skins/default/done.png" width="110" alt="晃一下，刚完成"> | <img src="skins/default/error.png" width="110" alt="愣住，出错了"> | <img src="skins/default/sleeping.png" width="110" alt="睡着了"> |
 
-上面还飘着一层**一次性覆盖物**（骰子、功德飘字）—— 它盖住整屏或盖在脸上，
+上面还飘着一层**一次性覆盖物**（骰子、功德飘字）—— 它盖住整屏或盖在宠物身上，
 但不改宠物在干什么：骰子停了自动让路，飘字自己淡出。
 
 宠物住在一张**背景**上 —— 独立于宠物形象，自己也能换、自己也能传：
@@ -169,7 +169,7 @@ python3 petd/tools/mock_device.py --host 127.0.0.1 --port 18860
 就换下一张照片。
 
 - 最多 10 张，在后台「宠物设定 → 功能 → 相册」里传（JPG / PNG / WebP）
-- 照片卡**整屏是照片** —— 没有宠物脸、没有文字，只有右下角「第几张 / 共几张」
+- 照片卡**整屏是照片** —— 没有宠物形象、没有文字，只有右下角「第几张 / 共几张」
 - 照片在服务端烧进 JPEG 帧，固件不用改
 
 ## 旋钮

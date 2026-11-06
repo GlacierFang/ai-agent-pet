@@ -186,7 +186,7 @@ def render_card(cfg, card, skin_image=None, overlay=None):
         big    超大字（时间、温度）
         body   短句，最多三行
         rows   列表行 [{"left", "right", "accent"}]
-        state  宠物表情
+        state  宠物状态
         source 底部小字
     """
     width = int(cfg.get("render", {}).get("width", 240))
@@ -447,7 +447,7 @@ DICE_DOTS = {
 
 
 def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=None):
-    """整屏骰子。宠物脸不画 —— 骰子占屏时没有脸。
+    """整屏骰子。宠物形象不画 —— 骰子占屏时没有宠物。
 
     value 在 1..6；rolling 时画面上的点数每帧都在换，出结果后定住。
     """
@@ -497,7 +497,7 @@ def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=Non
 
 
 def bubble_overlay(cfg, text, phrase="", alpha=1.0):
-    """飘字层 —— 功德 +1 之类，盖在宠物脸上飘过去。
+    """飘字层 —— 功德 +1 之类，盖在宠物形象上飘过去。
 
     这层不改变宠物在干什么 —— 它只是飘过去一行字。
     返回 RGBA 图，由调用方贴到整帧上（自己编码 JPEG 会掉一次画质）。
@@ -513,7 +513,7 @@ def bubble_overlay(cfg, text, phrase="", alpha=1.0):
     main = tuple(int(c * a + 255 * (1 - a)) for c in (245, 86, 47))
     sub = tuple(int(c * a + 255 * (1 - a)) for c in (220, 226, 240))
 
-    # 飘字压在宠物脸上 —— 不垫底色的话，橙色字叠在橙色宠物身上看不清。
+    # 飘字压在宠物身上 —— 不垫底色的话，橙色字叠在橙色宠物身上看不清。
     # 垫一条半透明深色带，字才读得出来。
     y = int(height * scale * 0.07)
     band_h = int(46 * scale) if phrase else int(34 * scale)
@@ -573,7 +573,7 @@ def _photo_scaled(path, tw, th):
 
 def render_photo_card(cfg, path, counter=""):
 
-    """整屏照片。没有宠物脸 —— 照片就是屏上全部的东西。
+    """整屏照片。没有宠物形象 —— 照片就是屏上全部的东西。
 
     等比裁切铺满（cover）：宁可裁掉边，也不留黑边、也不压扁。
     照片读不出来就返回 None —— 让调用方退回普通卡片，别让屏上开天窗。

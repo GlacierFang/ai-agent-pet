@@ -1,6 +1,6 @@
 """屏上仲裁与 feature 插件的测试。
 
-屏上永远只有一样东西 —— 宠物脸和 feature 卡片整屏互斥。
+屏上永远只有一样东西 —— 宠物形象和 feature 卡片整屏互斥。
 这些测试钉住几件事：谁抢屏、轮播怎么转、feature 怎么出内容。
 """
 
@@ -76,7 +76,7 @@ def test_working_interrupts_a_showing_card():
 
 
 def test_idle_without_feature_falls_back_to_pet():
-    """没有内容可显示 —— 回消息层挂着宠物的脸，屏上永远有它。"""
+    """没有内容可显示 —— 回消息层挂着宠物形象，屏上永远有它。"""
     d = screen_mod.ScreenDirector()
     view = d.update(1000.0, "idle", {}, [])
     assert view["layer"] == screen_mod.MESSAGE_LAYER
@@ -85,7 +85,7 @@ def test_idle_without_feature_falls_back_to_pet():
 
 # ---------- 工作结束后的保留 ----------
 def test_message_holds_before_yielding():
-    """活干完 —— 宠物脸先留一会儿，再让位给卡片。"""
+    """活干完 —— 宠物形象先留一会儿，再让位给卡片。"""
     d = screen_mod.ScreenDirector(hold_ms=3000)
     feats = [FakeFeature()]
     d.update(1000.0, "working", {}, feats)
@@ -105,7 +105,7 @@ def test_hold_zero_yields_immediately():
 
 
 def test_done_shows_done_face():
-    """刚干完 —— 屏上是「已完成」的表情。"""
+    """刚干完 —— 屏上是「已完成」的状态。"""
     d = screen_mod.ScreenDirector(hold_ms=3000)
     d.update(1000.0, "working", {}, [FakeFeature()])
     view = d.update(1001.0, "done", {}, [FakeFeature()])

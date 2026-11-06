@@ -169,7 +169,7 @@ def test_render_dice_rolling_produces_valid_jpeg():
 
 
 def test_bubble_overlay_is_rgba():
-    """飘字层是 RGBA 图 —— 它要盖在宠物脸上，不能自己编码 JPEG。"""
+    """飘字层是 RGBA 图 —— 它要盖在宠物形象上，不能自己编码 JPEG。"""
     cfg = config.load()
     ov = render_mod.bubble_overlay(cfg, "功德 +1", "阿弥陀佛")
     assert ov.mode == "RGBA"
