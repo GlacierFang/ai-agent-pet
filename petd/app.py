@@ -32,7 +32,11 @@ ACTIVE_STATES = ("working", "waiting", "error", "done")
 
 # 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
 # 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
-SETUP_STATE_PATH = config_mod.DATA_DIR / "setup_state.json"
+#
+# 路径在**调用时**取 DATA_DIR，不在 import 时绑死：
+# 模块级常量会绕过 conftest 的隔离，测试里的假设备号会写进实机那份文件。
+def _setup_state_path():
+    return config_mod.DATA_DIR / "setup_state.json"
 
 STATE_SUBTITLE = {
     "idle": "", "working": "正在处理", "waiting": "等你确认",
@@ -816,16 +820,17 @@ class PetApp:
     def _load_setup_state(self):
         """读落盘的状态。读不了就当没有 —— 引导页不该因为一个文件挂掉。"""
         try:
-            blob = json.loads(SETUP_STATE_PATH.read_text(encoding="utf-8"))
+            blob = json.loads(_setup_state_path().read_text(encoding="utf-8"))
         except Exception:
             return {}
         return blob if isinstance(blob, dict) else {}
 
     def _save_setup_state(self, blob):
+        path = _setup_state_path()
         try:
-            SETUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            SETUP_STATE_PATH.write_text(json.dumps(blob, ensure_ascii=False, indent=2),
-                                        encoding="utf-8")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(blob, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
         except Exception as exc:
             self.log("error", "保存引导状态失败: %s" % exc)
 

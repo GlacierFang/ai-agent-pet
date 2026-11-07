@@ -17,8 +17,14 @@ from petd.server import create_app  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def tmp_setup_state(tmp_path, monkeypatch):
-    """引导状态写到临时目录，别污染仓库里的 petd/data/。"""
-    monkeypatch.setattr(app_mod, "SETUP_STATE_PATH", tmp_path / "setup_state.json")
+    """引导状态写到临时目录，别污染仓库里的 petd/data/。
+
+    patch 的是取路径的那个函数，不是路径本身 —— 路径在调用时才取
+    config.DATA_DIR，绑在模块级常量上会绕过 conftest 的隔离，
+    测试里的假设备号会写进实机那份文件。
+    """
+    monkeypatch.setattr(app_mod, "_setup_state_path",
+                        lambda: tmp_path / "setup_state.json")
     yield
 
 
