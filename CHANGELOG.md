@@ -56,6 +56,16 @@
 - **Release `fw-v0.4.0`** —— 修掉 3 处阻断级问题：画面每行块左侧 16 列错位、推帧推两帧就停死、配网回退时设备反复重启。另修旋钮聚合窗口失效与误报短按、开机黑屏 8 秒、无密码热点连不上、事件回调阻塞。加 Captive Portal 探测重定向。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 - **Release `fw-v0.4.1`** —— 修掉 4 个问题：显示管线零锁（两个任务并发刷屏会花屏）、进配网后回不来（Wi-Fi 被停掉，设备失联）、等 IP 的信号会吞掉已到达的通知、配网模式会把宠物帧盖到配网页上。另修配网引导屏画不出字：屏幕上一行字只剩最后一个字符（每画一个字符就把整行清黑一次），点阵字库补上小写字母（热点名 petd-setup-XXXX 的小写原本全是空白，手机 Wi-Fi 列表里对不上）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 - **Release `fw-v0.4.2`** —— 配网页上点「扫描附近的 Wi-Fi」就能列出周围热点（按信号强度降序，加密的标 LOCKED），点一下就把 SSID 填进输入框，不用手打路由器名字。连不上时直接说原因（密码错 / 没找到热点 / 连不上 / 认证过期），不用对着「NO WIFI」猜。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
+- **Release `fw-v0.4.3`** —— 修掉三个配网阻断级问题（都在 `fw-v0.4.2` 上实测到）：
+  - **扫描永远扫不出热点** —— 配网页开着的时候 STA 一直在「正在连接」，驱动会让 `esp_wifi_scan_start()` 直接返回 `ESP_ERR_WIFI_STATE`（IDF 文档：connecting 优先于 scan，重试也救不回来，只有让 STA 别连才行）。配网模式下不再让 STA 追着连
+  - **一进扫描就连不上 `192.168.4.1`** —— 扫描前主动断开 STA + 全信道前台扫描会让射频离开 home channel，AP+STA 下手机的连接被拉走。改成不碰 STA + `coex_background_scan`（每扫完一个信道回一次 home channel）
+  - **屏幕在 CONNECTING / NO WIFI 之间每 2 秒刷一次** —— 那不是渲染 bug，是失败重试循环在打转（每次失败都整屏 clear 重画）。配网模式下不再追着连，也不再记失败
+  - 扫描改成非阻塞（`block=false`）+ `WIFI_EVENT_SCAN_DONE` 事件取结果。阻塞式扫描占住 httpd 的 worker，手机那一下请求会超时，浏览器只显示「扫描失败」
+  - 扫描失败把真实原因带给网页（`error` 字段），「扫不了」和「附近没热点」不再长得一模一样
+  - 加连接超时看门狗：既没连上也没断开的话，状态不会永远停在 CONNECTING
+  - 配网路径上的 `ESP_ERROR_CHECK` 换成记日志不 abort —— 原来一出错就 abort → 重启 → 再失败 → 再重启，设备永远出不来配网页
+  - 退出配网模式时把 STA 连接接回去（配网期间为了能扫描停掉了它）
+  - 资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 
 ### Changed
 
