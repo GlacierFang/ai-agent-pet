@@ -56,12 +56,22 @@ static httpd_handle_t  s_http;
 static SemaphoreHandle_t s_ip_sem;
 static esp_timer_handle_t s_retry_timer;
 static esp_timer_handle_t s_ap_timer;
-/* 扫描期间会主动断开 STA。用它把住 —— 断开事件照常来，
-   但那不是「连不上」，不能进失败计数、也不能记成连接失败。 */
-static bool            s_scanning;
-/* 断开事件计数器。扫描时用来确认「这次主动断开的事件确实到了」——
-   事件晚到的话会被当成真失败，设备就掉线了。 */
-static uint32_t        s_disconnect_seq;
+static esp_timer_handle_t s_connect_timer;
+/* 配网模式（热点开着）标志。为真时 STA 不再自动重连。
+   原因：热点开着的时候 STA 一直「正在连接」，驱动会让
+   esp_wifi_scan_start() 直接返回 ESP_ERR_WIFI_STATE ——
+   扫描永远扫不出东西（IDF 文档：connecting 优先于 scan，
+   重试也救不回来，只有让 STA 别连才行）。
+   顺带屏上也不再 CONNECTING / NO WIFI 每 2 秒来回跳。 */
+static bool            s_provisioning;
+/* 扫描是异步的：非阻塞启动，等 WIFI_EVENT_SCAN_DONE 事件取结果。
+   这个信号量就是「扫完了」的凭据。 */
+static SemaphoreHandle_t s_scan_sem;
+/* 扫描结果。事件里填好，HTTP handler 取走。 */
+static prov_ap_t       s_scan_aps[PROV_AP_MAX];
+static int             s_scan_count;
+/* 扫描失败的原因（短描述）。空串 = 没失败。 */
+static char            s_scan_error[48];
 /* 最近一次连接失败的原因（小写短语）。给配网页看「为什么连不上」。 */
 static char            s_last_error[32];
 
@@ -248,75 +258,78 @@ static int collect_aps(const wifi_ap_record_t *recs, int count,
 }
 
 
+/* 扫描失败的原因 → 网页上能看懂的话。 */
+static const char *scan_error_text(esp_err_t err)
+{
+    if (err == ESP_ERR_WIFI_STATE) return "wifi busy";
+    return esp_err_to_name(err);
+}
+
+
+const char *provision_scan_error(void)
+{
+    return s_scan_error;
+}
+
+
 int provision_scan_wifi(prov_ap_t *out, int max)
 {
     if (!out || max <= 0) return -1;
 
-    /* 扫之前连着没有？连着的话扫完要接回去。 */
-    bool was_connected = false;
-    wifi_ap_record_t cur;
-    if (esp_wifi_sta_get_ap_info(&cur) == ESP_OK) {
-        was_connected = true;
+    /* 排掉上一次的残留信号 —— 计数信号量不会自己清。 */
+    if (s_scan_sem) {
+        while (xSemaphoreTake(s_scan_sem, 0) == pdTRUE) { }
     }
+    s_scan_count = 0;
+    s_scan_error[0] = 0;
 
-    uint32_t seq_before = s_disconnect_seq;
+    /* 非阻塞启动，结果在 WIFI_EVENT_SCAN_DONE 事件里取。
 
-    s_scanning = true;
-    if (was_connected) {
-        /* 主动断开 —— 边连边扫会被驱动中止（ESP_ERR_WIFI_STATE）。
-           断开事件被 s_scanning 挡掉，不进失败计数。 */
-        esp_wifi_disconnect();
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+       为什么不能阻塞（block=true）：全信道主动扫描要好几秒，
+       阻塞期间 httpd 的 worker 被占住 —— 手机那一下 fetch('/scan')
+       会超时，浏览器就报「扫描失败」。设备上看跟「附近没热点」
+       一模一样，分不出是哪种。
 
-    /* config 传 NULL = 驱动默认：主动扫描、全信道、每信道最多 120ms。
-       ESP_ERR_WIFI_STATE 是「还在连接中」—— 等一下再试一次。 */
-    esp_err_t err = esp_wifi_scan_start(NULL, true);
-    if (err == ESP_ERR_WIFI_STATE) {
-        vTaskDelay(pdMS_TO_TICKS(300));
-        err = esp_wifi_scan_start(NULL, true);
-    }
+       coex_background_scan：热点开着（APSTA）时，扫完一个信道就回
+       home channel 一次。全信道前台扫描会让射频离开信道 1，
+       手机连 192.168.4.1 直接断 —— 这就是「一进扫描就连不上配网页」。 */
+    wifi_scan_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.show_hidden = false;
+    cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+    cfg.scan_time.active.min = 100;
+    cfg.scan_time.active.max = 120;
+    cfg.scan_time.passive = 360;
+    cfg.home_chan_dwell_time = 30;
+    cfg.coex_background_scan = true;
 
-    int n = 0;
-    if (err == ESP_OK) {
-        uint16_t count = 0;
-        if (esp_wifi_scan_get_ap_num(&count) == ESP_OK && count > 0) {
-            wifi_ap_record_t *recs = calloc(count, sizeof(wifi_ap_record_t));
-            if (!recs) {
-                esp_wifi_clear_ap_list();   /* 释放驱动里的列表 */
-            } else {
-                uint16_t want = count;
-                if (esp_wifi_scan_get_ap_records(&want, recs) == ESP_OK) {
-                    n = collect_aps(recs, want, out, max);
-                } else {
-                    esp_wifi_clear_ap_list();
-                }
-                free(recs);
-            }
-        } else {
-            esp_wifi_clear_ap_list();
-        }
-    }
-
-    /* 等驱动把这次主动断开的事件派发出来。
-       事件是异步的 —— 晚到一步就会被当成「连不上」记一次失败，
-       设备直接掉线。所以等它确实到了再解除 s_scanning。 */
-    if (was_connected) {
-        for (int i = 0; i < 50 && s_disconnect_seq == seq_before; i++) {
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-    }
-    s_scanning = false;
-
-    /* 接回去 —— 用户正靠这条网络用设备，不能因为扫个 Wi-Fi 就断网。 */
-    if (was_connected) {
-        esp_wifi_connect();
-    }
-
+    esp_err_t err = esp_wifi_scan_start(&cfg, false);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
+        /* ESP_ERR_WIFI_STATE = STA 正在连接，连接优先于扫描。
+           配网模式下 s_provisioning 会挡住重连，所以这里不该出现；
+           真出现了就把真实原因报给网页，别再显示「没扫到热点」。 */
+        strncpy(s_scan_error, scan_error_text(err), sizeof(s_scan_error) - 1);
+        s_scan_error[sizeof(s_scan_error) - 1] = 0;
+        ESP_LOGW(TAG, "scan start failed: %s", s_scan_error);
         return -1;
     }
+
+    /* 等扫描完成。驱动最多几秒。 */
+    if (!s_scan_sem || xSemaphoreTake(s_scan_sem, pdMS_TO_TICKS(10000)) != pdTRUE) {
+        strncpy(s_scan_error, "timeout", sizeof(s_scan_error) - 1);
+        s_scan_error[sizeof(s_scan_error) - 1] = 0;
+        ESP_LOGW(TAG, "scan timeout");
+        return -1;
+    }
+
+    if (s_scan_count <= 0) {
+        /* 没扫到 —— 不是错误，但网页要能跟「扫不了」区分开。 */
+        ESP_LOGI(TAG, "scan done: 0 aps");
+        return 0;
+    }
+
+    int n = s_scan_count < max ? s_scan_count : max;
+    memcpy(out, s_scan_aps, (size_t)n * sizeof(prov_ap_t));
     ESP_LOGI(TAG, "scan done: %d aps", n);
     return n;
 }
@@ -350,7 +363,7 @@ static const char SETUP_HTML[] =
     "<div class=\"tip\">"
     "1. 手机连上屏幕上显示的热点<br>"
     "2. 打开 <code>" AP_IP "</code><br>"
-    "3. 在下面填 Wi-Fi 名称和密码<br>"
+    "3. 填 Wi-Fi 名称和密码（可先点「扫描附近的 Wi-Fi」）<br>"
     "4. 点「保存并重启」，设备会重启"
     "</div>"
     "<form method=\"POST\" action=\"/save\">"
@@ -371,7 +384,7 @@ static const char SETUP_HTML[] =
     "function petdRenderAps(aps){"
     "var el=document.getElementById('apList');"
     "el.innerHTML='';"
-    "if(!aps||!aps.length){el.textContent='没扫到热点';return;}"
+    "if(!aps||!aps.length){el.textContent='附近没找到热点';return;}"
     "aps.forEach(function(ap){"
     "var b=document.createElement('button');"
     "b.type='button';"
@@ -384,10 +397,14 @@ static const char SETUP_HTML[] =
     "}"
     "document.getElementById('scanBtn').onclick=function(){"
     "var el=document.getElementById('apList');"
+    "var btn=document.getElementById('scanBtn');"
     "el.textContent='扫描中...';"
+    "btn.disabled=true;"
     "fetch('/scan').then(function(r){return r.json();}).then(function(d){"
+    "btn.disabled=false;"
+    "if(d.error){el.textContent='扫描失败：'+d.error;return;}"
     "petdRenderAps(d.aps);"
-    "}).catch(function(){el.textContent='扫描失败';});"
+    "}).catch(function(){btn.disabled=false;el.textContent='扫描失败：请求没回来';});"
     "};"
     "function petdPollStatus(){"
     "fetch('/status').then(function(r){return r.json();}).then(function(d){"
@@ -614,7 +631,14 @@ static esp_err_t scan_handler(httpd_req_t *req)
 
     httpd_resp_set_type(req, "application/json");
     if (n < 0) {
-        httpd_resp_sendstr(req, "{\"aps\":[],\"error\":\"scan failed\"}");
+        /* 把真实原因带给网页 —— 「扫不了」和「附近没热点」是两回事，
+           用户看到的必须是两个不同的提示。 */
+        char esc[96];
+        char msg[128];
+        json_escape(s_scan_error[0] ? s_scan_error : "scan failed",
+                    esc, sizeof(esc));
+        snprintf(msg, sizeof(msg), "{\"aps\":[],\"error\":\"%s\"}", esc);
+        httpd_resp_sendstr(req, msg);
         return ESP_OK;
     }
 
@@ -706,7 +730,8 @@ static esp_err_t http_start(void)
 static void sta_retry_cb(void *arg)
 {
     (void)arg;
-    if (s_wifi_started) {
+    /* 配网模式下不重连 —— 连上就等于占住射频，扫描会被驱动拒掉。 */
+    if (s_wifi_started && !s_provisioning) {
         esp_wifi_connect();
     }
 }
@@ -755,21 +780,77 @@ static void schedule_ap_fallback(void)
 }
 
 
+/* 连接超时看门狗。esp_wifi_connect() 之后如果既没连上也没断开，
+   状态会永远停在 CONNECTING —— 屏幕上看着像死了，什么都不发生。
+   超时就主动断一次，让正常的失败路径接管（记原因、计数、重试）。 */
+#define STA_CONNECT_TIMEOUT_US (20 * 1000 * 1000)
+
+static void connect_timeout_cb(void *arg)
+{
+    (void)arg;
+    if (s_state == PROV_ST_CONNECTING) {
+        ESP_LOGW(TAG, "connect timeout");
+        esp_wifi_disconnect();
+    }
+}
+
+static void connect_timeout_start(void)
+{
+    if (!s_connect_timer) {
+        esp_timer_create_args_t args = {
+            .callback = connect_timeout_cb,
+            .name = "wifi_conn_to",
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&args, &s_connect_timer));
+    }
+    esp_timer_stop(s_connect_timer);
+    esp_timer_start_once(s_connect_timer, STA_CONNECT_TIMEOUT_US);
+}
+
+
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        /* 配网模式下不让 STA 自己找网 —— 一连接就占住射频，
+           驱动会把扫描直接拒掉（ESP_ERR_WIFI_STATE）。 */
+        if (!s_provisioning) {
+            esp_wifi_connect();
+        }
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
+        /* 扫描完成。驱动里的 AP 记录必须在这里取走 —— 取一次就释放，
+           不取会漏掉驱动内部那块内存。 */
+        uint16_t count = 0;
+        if (esp_wifi_scan_get_ap_num(&count) == ESP_OK && count > 0) {
+            wifi_ap_record_t *recs = calloc(count, sizeof(wifi_ap_record_t));
+            if (!recs) {
+                esp_wifi_clear_ap_list();
+            } else {
+                uint16_t want = count;
+                if (esp_wifi_scan_get_ap_records(&want, recs) == ESP_OK) {
+                    s_scan_count = collect_aps(recs, want, s_scan_aps, PROV_AP_MAX);
+                } else {
+                    esp_wifi_clear_ap_list();
+                }
+                free(recs);
+            }
+        } else {
+            esp_wifi_clear_ap_list();
+        }
+        if (s_scan_sem) xSemaphoreGive(s_scan_sem);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *dev =
             (const wifi_event_sta_disconnected_t *)data;
 
-        /* 扫描期间会主动断开 STA —— 那不是连不上，别进失败计数，
-           也不记 last_error：用户没输错密码。 */
-        s_disconnect_seq++;
-        if (s_scanning) {
-            ESP_LOGI(TAG, "disconnect during scan (expected)");
+        /* 配网模式下不追着连，也不报失败。
+           热点开着的时候 STA 一直「正在连接」，
+           驱动会让 esp_wifi_scan_start() 直接返回 ESP_ERR_WIFI_STATE，
+           扫描永远扫不出东西（IDF：connecting 优先于 scan，重试也救不回来）。
+           顺带屏上不再 CONNECTING / NO WIFI 每 2 秒来回跳。 */
+        if (s_provisioning) {
+            ESP_LOGI(TAG, "sta dropped in setup mode: %s",
+                     disconnect_reason_text(dev->reason));
             return;
         }
 
@@ -800,6 +881,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_fail_count = 0;
         s_last_error[0] = 0;   /* 连上了，之前那次失败不算数了 */
         ESP_LOGI(TAG, "got ip %s", s_ip);
+        /* 连接成功 —— 取消连接超时看门狗。 */
+        if (s_connect_timer) esp_timer_stop(s_connect_timer);
         set_state(PROV_ST_CONNECTED, s_ip);
         if (s_ip_sem) {
             xSemaphoreGive(s_ip_sem);
@@ -817,6 +900,10 @@ esp_err_t provision_init(prov_state_cb_t cb)
 
     s_ip_sem = xSemaphoreCreateCounting(1, 0);
     ESP_ERROR_CHECK(s_ip_sem ? ESP_OK : ESP_ERR_NO_MEM);
+
+    /* 扫描完成信号。非阻塞扫描的「扫完了」凭据。 */
+    s_scan_sem = xSemaphoreCreateCounting(1, 0);
+    ESP_ERROR_CHECK(s_scan_sem ? ESP_OK : ESP_ERR_NO_MEM);
 
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
@@ -837,6 +924,11 @@ esp_err_t provision_init(prov_state_cb_t cb)
 
 esp_err_t provision_start_ap(void)
 {
+    /* 配网模式：STA 不再追着连。
+       热点开着的时候让 STA 一直「正在连接」，扫描会被驱动拒掉
+       （connecting 优先于 scan），屏上也会 CONNECTING / NO WIFI 来回跳。 */
+    s_provisioning = true;
+
     if (s_ap_started) return ESP_OK;
 
     char ssid[32];
@@ -882,13 +974,14 @@ esp_err_t provision_start_ap(void)
         s_wifi_started = true;
     }
 
-    /* STA 侧：没连着就拉一次。
-       切模式有可能把 STA 踢下来，esp_wifi_connect() 幂等 ——
-       连着的时候它自己报错，无害。 */
+    /* STA 侧：已经连着的就留着（重配期间 petd 仍看得到设备），
+       没连着的**不要**去拉 —— 配网模式下发起连接会让 STA 一直
+       「正在连接」，扫描直接被驱动拒掉（ESP_ERR_WIFI_STATE）。
+       反正用户马上就要在这台设备上填新的 Wi-Fi。 */
     if (s_has_creds) {
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
-            esp_wifi_connect();
+            esp_wifi_disconnect();   /* 停掉可能正在进行的连接尝试 */
         }
     }
 
@@ -927,22 +1020,62 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
     }
 
     s_fail_count = 0;
+    /* 离开配网模式：STA 恢复正常重连，连不上才报 NO WIFI。 */
+    s_provisioning = false;
     set_state(PROV_ST_CONNECTING, ssid);
 
+    /* 这里不用 ESP_ERROR_CHECK —— 它会 abort 整个系统。
+       配网路径上出错应该记日志继续走，而不是让设备变砖。 */
     if (!s_ap_started) {
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
+        esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "set mode failed: %s", esp_err_to_name(err));
+            return err;
+        }
+        err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "set sta config failed: %s", esp_err_to_name(err));
+            return err;
+        }
         if (!s_wifi_started) {
-            esp_err_t err = esp_wifi_start();
+            err = esp_wifi_start();
             if (err != ESP_OK) return err;
             s_wifi_started = true;
         }
     } else {
         /* 已经在 APSTA 模式了，只换 STA 配置 */
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
+        esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wc);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "set sta config failed: %s", esp_err_to_name(err));
+            return err;
+        }
         esp_wifi_connect();
     }
+
+    /* 连接看门狗：既没连上也没断开的话，状态会永远停在 CONNECTING。 */
+    connect_timeout_start();
     return ESP_OK;
+}
+
+
+/* 退出配网模式：把 STA 的连接接回去。
+
+   配网期间我们主动停了 STA 的连接尝试 —— 不这样扫描会被驱动直接拒掉
+   （connecting 优先于 scan）。用户短按旋钮退出配网时必须接回去，
+   否则设备等于失联（热点还在，但连不上 petd）。
+
+   已经连着的就什么都不做 —— 那条连接是重配前就在的，petd 仍看得到设备。 */
+void provision_resume_sta(void)
+{
+    if (!s_provisioning) return;
+    s_provisioning = false;
+
+    if (s_has_creds) {
+        wifi_ap_record_t ap;
+        if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
+            esp_wifi_connect();
+        }
+    }
 }
 
 

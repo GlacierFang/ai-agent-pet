@@ -138,16 +138,33 @@ typedef struct {
     int8_t  rssi;
 } wifi_event_sta_disconnected_t;
 
+/* IDF v5.5 真实的 wifi_scan_config_t —— scan_time 是嵌套结构，
+   还有 coex_background_scan。写成扁平字段的话固件编不过，
+   写成旧字段名的话测的就不是真行为。 */
+typedef struct {
+    uint32_t min;
+    uint32_t max;
+} wifi_active_scan_time_t;
+
+typedef struct {
+    wifi_active_scan_time_t active;
+    uint32_t passive;
+} wifi_scan_time_t;
+
+typedef enum {
+    WIFI_SCAN_TYPE_ACTIVE = 0,
+    WIFI_SCAN_TYPE_PASSIVE,
+} wifi_scan_type_t;
+
 typedef struct {
     uint8_t *ssid;
     uint8_t *bssid;
     uint8_t channel;
     bool show_hidden;
-    uint8_t scan_type;
-    uint32_t active_min;
-    uint32_t active_max;
-    uint32_t passive;
+    wifi_scan_type_t scan_type;
+    wifi_scan_time_t scan_time;
     uint8_t home_chan_dwell_time;
+    bool coex_background_scan;
 } wifi_scan_config_t;
 
 typedef struct {
@@ -205,9 +222,17 @@ typedef const char *esp_event_base_t;
 #define ESP_EVENT_ANY_ID -1
 extern const esp_event_base_t WIFI_EVENT;
 extern const esp_event_base_t IP_EVENT;
-#define WIFI_EVENT_STA_START        0
-#define WIFI_EVENT_STA_DISCONNECTED 1
-#define WIFI_EVENT_STA_CONNECTED    2
+/* IDF v5.5 的真实事件 ID：
+   WIFI_READY=0, SCAN_DONE=1, STA_START=2, STA_STOP=3,
+   STA_CONNECTED=4, STA_DISCONNECTED=5。
+   之前 STA_DISCONNECTED 和 SCAN_DONE 都写成 1 —— 事件一旦派发
+   就会走错分支。桩的语义必须跟真驱动一致。 */
+#define WIFI_EVENT_WIFI_READY      0
+#define WIFI_EVENT_SCAN_DONE       1
+#define WIFI_EVENT_STA_START        2
+#define WIFI_EVENT_STA_STOP        3
+#define WIFI_EVENT_STA_CONNECTED    4
+#define WIFI_EVENT_STA_DISCONNECTED 5
 #define IP_EVENT_STA_GOT_IP         0
 esp_err_t esp_event_handler_register(esp_event_base_t base, int32_t id,
                                       void (*handler)(void *, esp_event_base_t, int32_t, void *),
@@ -373,12 +398,38 @@ const esp_event_base_t IP_EVENT = "IP_EVENT";
 
 /* ---- FreeRTOS ---- */
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
+/* 桩语义：真的计数信号量。
+   固件里「排掉上一次的残留信号」是 while(take(sem,0)==pdTRUE) 的循环 ——
+   桩要是永远返回 pdTRUE，那个循环就是死循环，测试直接卡住。
+   真信号量取空了就返回 pdFALSE —— 这里照抄这个语义。 */
+#define STUB_SEM_MAX 8
+/* SemaphoreHandle_t 是 void* —— 用 int 索引查表，不能拿它当下标。 */
+static struct { SemaphoreHandle_t h; int count; } g_sems[STUB_SEM_MAX];
+static int g_sem_next = 1;
 SemaphoreHandle_t xSemaphoreCreateCounting(unsigned int max, unsigned int initial) {
-    (void)max; (void)initial; return (SemaphoreHandle_t)1;
+    (void)max;
+    if (g_sem_next >= STUB_SEM_MAX) return NULL;
+    int idx = g_sem_next++;
+    SemaphoreHandle_t h = (SemaphoreHandle_t)(intptr_t)idx;
+    g_sems[idx].h = h;
+    g_sems[idx].count = (int)initial;
+    return h;
 }
-BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) { (void)sem; return pdTRUE; }
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
+    for (int i = 1; i < g_sem_next; i++) {
+        if (g_sems[i].h == sem) { g_sems[i].count++; return pdTRUE; }
+    }
+    return pdFALSE;
+}
 BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, TickType_t ticks) {
-    (void)sem; (void)ticks; return pdTRUE;
+    (void)ticks;
+    for (int i = 1; i < g_sem_next; i++) {
+        if (g_sems[i].h == sem) {
+            if (g_sems[i].count > 0) { g_sems[i].count--; return pdTRUE; }
+            return pdFALSE;   /* 取空了 —— 真信号量也是这个结果 */
+        }
+    }
+    return pdFALSE;
 }
 
 /* ---- netif / event / timer / mac ---- */
@@ -386,11 +437,6 @@ esp_err_t esp_netif_init(void) { return ESP_OK; }
 esp_err_t esp_netif_create_default_wifi_sta(void) { return ESP_OK; }
 esp_err_t esp_netif_create_default_wifi_ap(void) { return ESP_OK; }
 esp_err_t esp_event_loop_create_default(void) { return ESP_OK; }
-esp_err_t esp_event_handler_register(esp_event_base_t base, int32_t id,
-                                     void (*handler)(void *, esp_event_base_t, int32_t, void *),
-                                     void *arg) {
-    (void)base; (void)id; (void)handler; (void)arg; return ESP_OK;
-}
 esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *handle) {
     (void)args; *handle = (esp_timer_handle_t)1; return ESP_OK;
 }
@@ -453,7 +499,7 @@ esp_err_t esp_wifi_set_config(wifi_interface_t iface, wifi_config_t *cfg) {
 esp_err_t esp_wifi_connect(void) { return ESP_OK; }
 esp_err_t esp_wifi_disconnect(void) { return ESP_OK; }
 
-/* 桩语义：没连着 —— 扫描路径不走「主动断开再接回」那条。 */
+/* 桩语义：没连着 —— 配网路径不会去拉连接。 */
 esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap) { (void)ap; return ESP_FAIL; }
 
 /* 桩语义：驱动按 RSSI 降序返回。固件靠这条不自己排序。 */
@@ -462,8 +508,31 @@ static const wifi_ap_record_t k_fake_aps[] = {
     { {0}, { 'O', 'p', 'e', 'n', 'N', 'e', 't' }, 0, -60, WIFI_AUTH_OPEN },
 };
 
+/* 桩语义：非阻塞启动后派发 SCAN_DONE 事件 —— 真驱动就是这么做的。
+   固件改成非阻塞后，结果是在事件里取的，桩不派发的话
+   固件会一直等信号量 —— 测的就不是真行为了。
+
+   handler 必须按 base 分开存：固件注册了 WIFI_EVENT 和 IP_EVENT 两个，
+   用一个变量的话第二个注册会把第一个覆盖掉，SCAN_DONE 就派发到错的分支。 */
+static void (*g_wifi_handler)(void *, esp_event_base_t, int32_t, void *);
+static void (*g_ip_handler)(void *, esp_event_base_t, int32_t, void *);
+esp_err_t esp_event_handler_register(esp_event_base_t base, int32_t id,
+                                     void (*handler)(void *, esp_event_base_t, int32_t, void *),
+                                     void *arg) {
+    (void)id; (void)arg;
+    if (base == WIFI_EVENT) {
+        g_wifi_handler = handler;
+    } else if (base == IP_EVENT) {
+        g_ip_handler = handler;
+    }
+    return ESP_OK;
+}
 esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *cfg, bool block) {
-    (void)cfg; (void)block; return ESP_OK;
+    (void)cfg; (void)block;
+    if (g_wifi_handler) {
+        g_wifi_handler(NULL, WIFI_EVENT, WIFI_EVENT_SCAN_DONE, NULL);
+    }
+    return ESP_OK;
 }
 esp_err_t esp_wifi_scan_get_ap_num(uint16_t *number) {
     *number = (uint16_t)(sizeof(k_fake_aps) / sizeof(k_fake_aps[0]));
@@ -600,6 +669,9 @@ int main(void)
     /* --- /scan 端点的 JSON 输出 --- */
     {
         httpd_req_t req;
+        /* 先初始化 —— 扫描完成信号量在 provision_init 里建。
+           不初始化的话扫描会走超时分支，测的就不是真行为。 */
+        provision_init(NULL);
         memset(&req, 0, sizeof(req));
         scan_handler(&req);
     }

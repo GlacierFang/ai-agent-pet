@@ -189,6 +189,13 @@ static void draw_linked_screen(const char *ip)
 static void on_prov_state(prov_state_t st, const char *msg)
 {
     (void)msg;
+    /* 状态没变就别重画。
+       重试期间状态一直停在同一个值（NO WIFI → NO WIFI），
+       之前无条件标记 dirty —— 每 2 秒失败一次就整屏清黑重画一次，
+       看着就是「疯狂刷屏」。 */
+    if (s_screen_state == st) {
+        return;
+    }
     s_screen_state = st;
     s_screen_dirty = true;
 }
@@ -263,6 +270,10 @@ static void exit_setup_mode(void)
     ESP_LOGW(TAG, "leaving setup mode");
     s_setup_mode = false;
     s_screen_dirty = true;
+
+    /* 把 STA 的连接接回去 —— 配网期间为了能扫描停掉了它。
+       不接回去的话设备等于失联：热点还在，但连不上 petd。 */
+    provision_resume_sta();
 
     /* 状态屏：连上了显示 LINKED，等 WS 推第一帧宠物。 */
     char ip[16];

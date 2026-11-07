@@ -78,8 +78,19 @@ void provision_get_ip(char *buf, size_t len);
 int provision_fail_count(void);
 
 /* 扫描附近 2.4GHz Wi-Fi。写进 out 的条数按信号强度降序。
-   返回 -1 表示扫描失败。扫描期间会短暂断开 STA，扫完自动接回。 */
+   返回 -1 表示扫描失败（原因见 provision_scan_error）。
+   返回 0 表示扫完了但附近没热点 —— 这不是错误。
+
+   非阻塞启动 + 等 SCAN_DONE 事件取结果：阻塞式扫描会占住 httpd 的
+   worker，手机那一下请求会超时。扫描期间不碰 STA —— 断开会让射频
+   离开 home channel，AP+STA 下手机的连接被拉走。 */
 int provision_scan_wifi(prov_ap_t *out, int max);
+
+/* 最近一次扫描失败的原因（短描述）。空串 = 没失败过。 */
+const char *provision_scan_error(void);
+
+/* 退出配网模式：把 STA 的连接接回去（配网期间为了能扫描停掉了它）。 */
+void provision_resume_sta(void);
 
 /* 最近一次连接失败的原因（小写短语，如 "bad password"）。
    没有失败过就返回空串。 */
