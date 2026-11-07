@@ -55,6 +55,7 @@
 - **Release `fw-v0.3.0`** —— 修掉配网引导屏索引错位、颜色反相反了，补上首屏自检色条。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 - **Release `fw-v0.4.0`** —— 修掉 3 处阻断级问题：画面每行块左侧 16 列错位、推帧推两帧就停死、配网回退时设备反复重启。另修旋钮聚合窗口失效与误报短按、开机黑屏 8 秒、无密码热点连不上、事件回调阻塞。加 Captive Portal 探测重定向。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 - **Release `fw-v0.4.1`** —— 修掉 4 个问题：显示管线零锁（两个任务并发刷屏会花屏）、进配网后回不来（Wi-Fi 被停掉，设备失联）、等 IP 的信号会吞掉已到达的通知、配网模式会把宠物帧盖到配网页上。另修配网引导屏画不出字：屏幕上一行字只剩最后一个字符（每画一个字符就把整行清黑一次），点阵字库补上小写字母（热点名 petd-setup-XXXX 的小写原本全是空白，手机 Wi-Fi 列表里对不上）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
+- **Release `fw-v0.4.2`** —— 配网页上点「扫描附近的 Wi-Fi」就能列出周围热点（按信号强度降序，加密的标 LOCKED），点一下就把 SSID 填进输入框，不用手打路由器名字。连不上时直接说原因（密码错 / 没找到热点 / 连不上 / 认证过期），不用对着「NO WIFI」猜。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 
 ### Changed
 
