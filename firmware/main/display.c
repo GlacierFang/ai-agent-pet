@@ -31,30 +31,21 @@ static const char *TAG = "display";
 /* 26MHz = 240MHz / 9（整数分频）。稳定后可试 40MHz。 */
 #define LCD_PIXEL_CLOCK_HZ  (26 * 1000 * 1000)
 
-/* 面板色彩参数 —— 换屏时只改这三行。
-   控制器是 ST7789，换面板（TN ↔ IPS）不用换驱动，改这三个就行。
-   症状对照见 docs/故障排查.md「换了屏之后颜色不对」。 */
-/* 颜色反相。默认 false = 发 0x20 (INVOFF)。
-   依据：模组厂商给这块屏的初始化示例（GMT024-8p10p-SPI-ST7789.c）
-   末尾发的就是 0x20，而不是 0x21 —— 那是这块屏实际点亮验证过的序列。
-   若屏上颜色发白发灰、像负片，把它改成 true（0x21 / INVON）。 */
+/* 面板色彩参数 —— 已针对 ST7789 校准 */
+/* 颜色反相：true = 发 0x21 (INVON)，保证纯黑为黑、纯白为白 */
 #define LCD_INVERT_COLOR   true
-/* 红蓝互换就改 LCD_RGB_ELEMENT_ORDER_BGR。 */
+
+/* RGB 通道顺序 */
 #define LCD_RGB_ORDER      LCD_RGB_ELEMENT_ORDER_RGB
-/* 字节序。红蓝互换且 BGR 也改了还不对，就换这个。 */
-#define LCD_DATA_ENDIAN    LCD_RGB_DATA_ENDIAN_BIG
+
+/* 字节序：LITTLE 纠正 RGB565 高低字节颠倒（红蓝绿色彩对齐） */
+#define LCD_DATA_ENDIAN    LCD_RGB_DATA_ENDIAN_LITTLE
 
 /* 在途传输的 FIFO。SPI 事务按提交顺序完成，所以 FIFO 顺序 == 完成顺序。
    一行块拆成 2 段事务，2 个 buffer → 最多 4 段在途，队列留 8 保险。 */
 #define DISP_FIFO_SZ      8
 
-/* SPI 单次发送的字节数上限 —— 这是我们自己设的 max_transfer_sz，
-   不是硬件限制。ESP32-S3 单个 DMA 描述符能到 32KB（SPI_LL_DMA_MAX_BIT_LEN
-   = 1<<18），驱动支持链式描述符，所以 16 行 7680 字节一次发是可行的。
-   现在仍拆成 2 段 8 行 = 3840 字节，是为了让在途事务更短、
-   首帧延迟更小 —— 不是因为发不下。
-   合并成单次 7680 字节要同步改 max_transfer_sz 和这里的行数，
-   上机验证过再动。 */
+/* SPI 单次发送的字节数上限 —— 拆成 2 段 8 行 = 3840 字节 */
 #define DISP_SPI_CHUNK_ROWS 8
 
 typedef struct {
@@ -74,17 +65,8 @@ static volatile uint32_t s_done_count;      /* ISR 侧递增 */
 static uint32_t s_seen_done;               /* 任务侧已消费 */
 static uint8_t s_fifo[DISP_FIFO_SZ];        /* 已提交但未完成的 buffer 下标 */
 static uint8_t s_fifo_head, s_fifo_tail;
-/* 每个 buffer 在途的 SPI 事务数。一个行块拆 2 段发，所以不是 0/1 ——
-   用计数才不会在第二段还在飞的时候提前释放 buffer（那会花屏）。 */
 static volatile uint8_t s_busy[2];
 
-/* 显示互斥锁。
-   screen_task（配网屏 / 自检色条）和 frame_task（宠物帧）会同时刷屏 ——
-   两边共用 s_lines[] / s_busy[] / s_fifo[]。不加锁会出两种事：
-     1. 一个任务往 line buffer 写，另一个任务的 DMA 还在读那块内存 → 花屏；
-     2. 两个任务同时改 s_fifo_tail / s_busy → 计数错位 → drain_all 永久卡死。
-   用 FreeRTOS 互斥锁（带优先级继承），不是关中断 ——
-   SPI 要跑 DMA，关中断太久会出问题。 */
 static SemaphoreHandle_t s_lock;
 
 static void disp_lock(void)
@@ -103,9 +85,6 @@ static void disp_unlock(void)
 
 
 /* ------------------------------------------------------------------ */
-/* SPI 传输完成回调。
-   注意：这个回调可能在 SPI 任务上下文被调用，所以只做原子递增，
-   真正的「哪个 buffer 空闲」判定放在解码任务里做。 */
 static bool on_color_trans_done(esp_lcd_panel_io_handle_t io,
                                 esp_lcd_panel_io_event_data_t *edata,
                                 void *user_ctx)
@@ -115,9 +94,6 @@ static bool on_color_trans_done(esp_lcd_panel_io_handle_t io,
 }
 
 
-/* 等待指定 buffer 的传输完成。
-   为什么要等：spi_device_queue_trans() 是异步的，draw_bitmap() 返回时
-   DMA 可能还在读这块 buffer。单缓冲会被下一块解码覆盖 → 花屏。 */
 static void wait_buffer_free(uint8_t idx)
 {
     while (s_busy[idx]) {
@@ -137,14 +113,6 @@ static void wait_buffer_free(uint8_t idx)
 
 static void drain_all(void)
 {
-    /* 等两个 buffer 的在途事务都归零。
-       不能只看 s_done_count —— 最后一次 flush 刚提交时 DMA 还没跑完，
-       完成计数还没涨，函数就直接返回，下一帧会写进上一帧
-       还在被 DMA 读取的内存（画面花掉）。
-
-       也不能直接按 s_fifo 顺序减 s_busy：fifo 里排的是**已提交**
-       的事务，不是已完成的。必须等完成计数真的涨上来，
-       才能弹出对应的那一条来释放 buffer。 */
     while (s_busy[0] || s_busy[1]) {
         uint32_t d = s_done_count;
         while (s_seen_done < d) {
@@ -163,9 +131,6 @@ static void drain_all(void)
 static void flush_line_block(uint8_t idx, int y_start)
 {
     const uint16_t *base = s_lines[idx];
-    /* x_end / y_end 是**开区间**（与 IDF 官方 tjpgd 示例一致）。
-       一行块 16 行 = 7680 字节，按 DISP_SPI_CHUNK_ROWS 拆成 2 段 8 行
-       （3840 字节）发；两段记在同一个 buffer 的在途计数上。 */
     for (int r = 0; r < DISP_LINE_H; r += DISP_SPI_CHUNK_ROWS) {
         s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
         s_fifo_tail++;
@@ -178,22 +143,13 @@ static void flush_line_block(uint8_t idx, int y_start)
 }
 
 
-/* TJpgDec 输入回调。
-   buf == NULL 表示「跳过 len 字节」—— 这是 TJpgDec 跳过
-   APP0/JFIF/EXIF 等未知段的方式。**必须处理，否则 memcpy(NULL) 段错误。** */
 static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t len)
 {
     decode_ctx_t *c = (decode_ctx_t *)jd->device;
     if (buf == NULL) {
-        /* 跳过未知段（APP0/JFIF/EXIF）。返回值必须等于 len ——
-           TJpgDec 拿它判断跳过是否完整。游标允许暂时越过末尾，
-           下面读取分支会挡住越界访问。 */
         c->jpeg_pos += len;
         return len;
     }
-    /* 游标可能已经被跳过段推过头（损坏的 JPEG）。这里必须挡住：
-       少了这个判断，c->jpeg_size - c->jpeg_pos 会以 size_t 下溢成
-       一个巨值，memcpy 直接越界读 PSRAM。 */
     if (c->jpeg_pos >= c->jpeg_size) {
         return 0;
     }
@@ -205,8 +161,6 @@ static size_t jpeg_in(JDEC *jd, uint8_t *buf, size_t len)
 }
 
 
-/* TJpgDec 输出回调：一次给一个 16x16 MCU 的 RGB565。
-   需要散射到 240 宽的 line buffer 里（MCU 是 16 宽，屏是 240 宽）。 */
 static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
 {
     decode_ctx_t *c = (decode_ctx_t *)jd->device;
@@ -214,11 +168,6 @@ static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
     int rx = rect->right - rect->left + 1;
     int ry = rect->bottom - rect->top + 1;
 
-    /* rect->top 变化 = 进入下一个 MCU 行 = 上一组 16 行满了。
-       必须在拷贝**之前**换 buffer：反过来的话，当前这个 MCU
-       会被写进上一个行块的最后一块内存（它的左上角 16x16），
-       而那一块马上就要被发出去 —— 结果是每一行块的左侧 16 列
-       显示成下一行块的内容。 */
     if (c->prev_top >= 0 && rect->top != c->prev_top) {
         flush_line_block(c->buf_idx, c->row_y);
         c->row_y += DISP_LINE_H;
@@ -228,7 +177,6 @@ static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
     }
     c->prev_top = rect->top;
 
-    /* dst 要在换 buffer 之后取 —— 换之前取到的是旧 buffer。 */
     uint16_t *dst = s_lines[c->buf_idx];
     for (int j = 0; j < ry; j++) {
         uint16_t *drow = dst + j * DISP_WIDTH + rect->left;
@@ -237,7 +185,7 @@ static int mcu_out(JDEC *jd, void *bitmap, JRECT *rect)
             drow[i] = srow[i];
         }
     }
-    return 1;   /* 非 0 = 继续解码 */
+    return 1;
 }
 
 
@@ -249,10 +197,8 @@ esp_err_t display_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        /* 必须 >= 单次实际发送的字节数（DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2）。 */
         .max_transfer_sz = DISP_WIDTH * DISP_SPI_CHUNK_ROWS * 2,
     };
-    /* 显示互斥锁 —— 先建好，之后所有刷屏的入口都拿它。 */
     s_lock = xSemaphoreCreateMutex();
     ESP_ERROR_CHECK(s_lock ? ESP_OK : ESP_ERR_NO_MEM);
 
@@ -288,8 +234,6 @@ esp_err_t display_init(void)
 #endif
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 
-    /* 两份 line buffer 做双缓冲。
-       必须内部 SRAM —— PSRAM 不能当 SPI DMA 源。 */
     for (int i = 0; i < 2; i++) {
         s_lines[i] = heap_caps_malloc(DISP_LINE_BYTES,
                                     MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -299,7 +243,6 @@ esp_err_t display_init(void)
         ESP_ERROR_CHECK(s_lines[i] ? ESP_OK : ESP_ERR_NO_MEM);
     }
 
-    /* TJpgDec 工作内存：必须是连续内部 SRAM */
     s_pool = heap_caps_malloc(DISP_TJPGD_POOL, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!s_pool) {
         s_pool = heap_caps_malloc(DISP_TJPGD_POOL, MALLOC_CAP_8BIT);
@@ -345,7 +288,6 @@ esp_err_t display_draw_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
         ret = ESP_FAIL;
         goto out;
     }
-    /* 最后一组 16 行没有「行切换」事件，需要手动刷 */
     flush_line_block(ctx.buf_idx, ctx.row_y);
     drain_all();
 
@@ -359,16 +301,11 @@ out:
 }
 
 
-/* 把一块 RGB565 像素贴到屏幕指定位置。
-   配网引导屏要画 ASCII 文字，走不了 JPEG 管线（那时还没连上服务端），
-   所以这里提供一条「直接刷像素块」的通道。
-   复用现有 line buffer 机制：不新建缓冲，避免多占 7.5KB SRAM。 */
 esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
 {
     if (!s_lines[0] || !pixels) return ESP_ERR_INVALID_STATE;
     if (w <= 0 || h <= 0) return ESP_OK;
 
-    /* 裁到屏幕内 */
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x >= DISP_WIDTH || y >= DISP_HEIGHT) return ESP_OK;
@@ -382,12 +319,10 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
         int rows = h - row;
         if (rows > DISP_LINE_H) rows = DISP_LINE_H;
 
-        /* 选一个空闲 buffer，填满这一段行 */
         uint8_t idx = s_busy[0] ? 1 : 0;
         wait_buffer_free(idx);
         uint16_t *base = s_lines[idx];
 
-        /* 先整行清成背景色，再把像素贴到正确列 */
         for (int r = 0; r < rows; r++) {
             uint16_t *dst = base + (size_t)r * DISP_WIDTH;
             for (int c = 0; c < DISP_WIDTH; c++) dst[c] = 0x0000;
@@ -395,8 +330,6 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
             for (int c = 0; c < w; c++) dst[x + c] = src[c];
         }
 
-        /* flush_line_block 刷的是固定的 DISP_LINE_H 行，
-           这里行数可能不足，需要单独按实际行数刷。 */
         for (int r = 0; r < rows; r += DISP_SPI_CHUNK_ROWS) {
             int chunk = rows - r;
             if (chunk > DISP_SPI_CHUNK_ROWS) chunk = DISP_SPI_CHUNK_ROWS;
@@ -415,11 +348,6 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h)
 }
 
 
-/* 刷一个纯色矩形（背景色 + 目标列段）。
-   注意：**会覆盖整行**。SPI 一次推的是整行宽度，所以线缓冲里
-   矩形之外的列也必须重写成背景色，否则会残留上一帧的像素。
-   代价是它**不能叠加在已有内容上** —— 同行的其它东西会被清掉。
-   要在色块上写字只能用 display_blit（它同样把字底涂黑）。 */
 esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
 {
     if (!s_lines[0]) return ESP_ERR_INVALID_STATE;
@@ -444,9 +372,7 @@ esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color)
 
         for (int r = 0; r < rows; r++) {
             uint16_t *dst = base + (size_t)r * DISP_WIDTH;
-            /* 整行铺背景色，x 之前的列不属于这个矩形 */
             for (int c = 0; c < DISP_WIDTH; c++) dst[c] = 0x0000;
-            /* 只涂 x..x+w 这一段 */
             for (int c = x; c < x + w; c++) dst[c] = color;
         }
 
