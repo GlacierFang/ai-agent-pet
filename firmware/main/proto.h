@@ -17,7 +17,7 @@
 /* ---- 固件版本（上报给 petd 的 fw 字段）---- */
 /* 写死在这里：CONFIG_APP_PROJECT_VER 在 IDF v5.5 里不是稳定可用的符号，
    为了一个版本号去翻 Kconfig 不划算。改版本就改这一行。 */
-#define PETD_FW_VERSION       "0.4.4"
+#define PETD_FW_VERSION       "0.4.5"
 
 /* ---- 传输 ---- */
 #define PETD_DEFAULT_PORT     18860

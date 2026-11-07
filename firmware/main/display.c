@@ -38,7 +38,7 @@ static const char *TAG = "display";
    依据：模组厂商给这块屏的初始化示例（GMT024-8p10p-SPI-ST7789.c）
    末尾发的就是 0x20，而不是 0x21 —— 那是这块屏实际点亮验证过的序列。
    若屏上颜色发白发灰、像负片，把它改成 true（0x21 / INVON）。 */
-#define LCD_INVERT_COLOR   false
+#define LCD_INVERT_COLOR   true
 /* 红蓝互换就改 LCD_RGB_ELEMENT_ORDER_BGR。 */
 #define LCD_RGB_ORDER      LCD_RGB_ELEMENT_ORDER_RGB
 /* 字节序。红蓝互换且 BGR 也改了还不对，就换这个。 */
