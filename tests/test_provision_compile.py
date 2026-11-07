@@ -778,9 +778,27 @@ def test_scan_route_registered(harness):
     assert "httpd_register_uri_handler(s_http, &u_scan);" in src
 
 
-def test_setup_page_has_scan_button(harness):
-    """配网页要有扫描按钮和热点列表容器。"""
+def test_setup_page_auto_scans(harness):
+    """配网页打开就自动扫描,并保留热点列表容器和重试入口。"""
     src = (FW / "provision.c").read_text(encoding="utf-8")
-    assert 'id=\\"scanBtn\\"' in src, "配网页没有扫描按钮"
     assert 'id=\\"apList\\"' in src, "配网页没有热点列表容器"
     assert "fetch('/scan')" in src, "配网页没有调 /scan"
+    assert "function petdScanWifi()" in src, "配网页没有扫描函数"
+    assert "window.onload=function(){petdScanWifi();}" in src, "配网页没有在打开时自动扫描"
+
+
+def test_load_credentials_does_not_use_uninitialized_host(harness):
+    """host 这个 NVS key 可能不存在 —— 读失败时不能拿栈上的脏数据当 host。"""
+    src = (FW / "provision.c").read_text(encoding="utf-8")
+    assert "char buf[PROV_HOST_MAX] = {0};" in src, "host 读取缓冲区没有清零"
+    assert "if (nvs_read_str(NVS_KEY_HOST, buf, sizeof(buf)) == ESP_OK)" in src, \
+        "host 读取结果没有判断"
+
+
+def test_save_requires_server_host(harness):
+    """服务端 IP 必填 —— 缺了要 400,不能默默存成空字符串。"""
+    src = (FW / "provision.c").read_text(encoding="utf-8")
+    assert 'if (!form_get(body, "host", host, sizeof(host)) || host[0] == 0)' in src, \
+        "host 缺失时没有拒绝"
+    assert "httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST" in src, \
+        "host 缺失时没有返回 400"

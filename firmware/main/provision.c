@@ -30,13 +30,10 @@ static const char *TAG = "prov";
 #define AP_IP           "192.168.4.1"
 #define AP_MAX_CONN     4
 
-/* 连续连接失败多少次就放弃、退回配网模式。
-   密码错的情况下一直重试没有意义，用户看到 NO WIFI 会自己想办法。 */
+/* 连续连接失败多少次就放弃、退回配网模式。 */
 #define STA_MAX_RETRY   30
 
-/* 重连间隔 2 秒。用一次性定时器实现 ——
-   不能在 Wi-Fi 事件回调里 vTaskDelay：默认事件循环是单任务，
-   阻塞 2 秒会把 GOT_IP 等其它事件一起拖住。 */
+/* 重连间隔 2 秒。用一次性定时器实现 */
 #define STA_RETRY_DELAY_US (2 * 1000 * 1000)
 
 static prov_state_cb_t s_cb;
@@ -44,35 +41,20 @@ static prov_state_t    s_state = PROV_ST_IDLE;
 static int             s_fail_count;
 static bool            s_has_creds;
 static bool            s_ap_started;
-/* esp_wifi_start() 成功过没有。用来判断能不能再调 start ——
-   重复 start 会返回错误，而 ESP_ERROR_CHECK 会直接 abort。 */
 static bool            s_wifi_started;
 static char            s_ip[16];
 static httpd_handle_t  s_http;
-/* 「拿到 IP」的信号。用**计数信号量**而不是事件组：
-   事件组那种「先清位再等」会把已经到达的通知吞掉 —— IP 恰好在
-   发起连接和等待之间到的话，清位就把它丢了，连接任务白等满 20 秒。
-   计数信号量不会：先 give 后 take 照样拿得到。 */
+
 static SemaphoreHandle_t s_ip_sem;
 static esp_timer_handle_t s_retry_timer;
 static esp_timer_handle_t s_ap_timer;
 static esp_timer_handle_t s_connect_timer;
-/* 配网模式（热点开着）标志。为真时 STA 不再自动重连。
-   原因：热点开着的时候 STA 一直「正在连接」，驱动会让
-   esp_wifi_scan_start() 直接返回 ESP_ERR_WIFI_STATE ——
-   扫描永远扫不出东西（IDF 文档：connecting 优先于 scan，
-   重试也救不回来，只有让 STA 别连才行）。
-   顺带屏上也不再 CONNECTING / NO WIFI 每 2 秒来回跳。 */
+
 static bool            s_provisioning;
-/* 扫描是异步的：非阻塞启动，等 WIFI_EVENT_SCAN_DONE 事件取结果。
-   这个信号量就是「扫完了」的凭据。 */
 static SemaphoreHandle_t s_scan_sem;
-/* 扫描结果。事件里填好，HTTP handler 取走。 */
 static prov_ap_t       s_scan_aps[PROV_AP_MAX];
 static int             s_scan_count;
-/* 扫描失败的原因（短描述）。空串 = 没失败。 */
 static char            s_scan_error[48];
-/* 最近一次连接失败的原因（小写短语）。给配网页看「为什么连不上」。 */
 static char            s_last_error[32];
 
 
@@ -101,15 +83,19 @@ esp_err_t provision_load_credentials(prov_creds_t *out, bool *found)
     memset(out, 0, sizeof(*out));
     if (found) *found = false;
 
-    char buf[PROV_HOST_MAX];
+    char buf[PROV_HOST_MAX] = {0};
     if (nvs_read_str(NVS_KEY_SSID, out->ssid, sizeof(out->ssid)) != ESP_OK) {
         return ESP_ERR_NOT_FOUND;
     }
     if (out->ssid[0] == 0) return ESP_ERR_NOT_FOUND;
 
     nvs_read_str(NVS_KEY_PASS, out->pass, sizeof(out->pass));
-    nvs_read_str(NVS_KEY_HOST, buf, sizeof(buf));
-    strncpy(out->host, buf, sizeof(out->host) - 1);
+    /* host 这个 key 可能根本不存在（老版本的 NVS 里只有 SSID/密码）。
+       nvs_read_str 读失败时**不碰** buf —— 不清零就会把栈上未初始化的
+       内存当成 host 用，设备连到一个乱码地址，永远连不上服务端。 */
+    if (nvs_read_str(NVS_KEY_HOST, buf, sizeof(buf)) == ESP_OK) {
+        strncpy(out->host, buf, sizeof(out->host) - 1);
+    }
 
     if (found) *found = true;
     s_has_creds = true;
@@ -126,7 +112,6 @@ esp_err_t provision_save_credentials(const char *ssid, const char *pass, const c
     err = nvs_set_str(h, NVS_KEY_SSID, ssid ? ssid : "");
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_PASS, pass ? pass : "");
     if (err == ESP_OK) {
-        /* host 允许留空 —— 留空就用默认 petd.local（走 mDNS 找服务端） */
         err = nvs_set_str(h, NVS_KEY_HOST, host ? host : "");
     }
     if (err == ESP_OK) err = nvs_commit(h);
@@ -143,7 +128,6 @@ void provision_get_ap_ssid(char *buf, size_t len)
 {
     uint8_t mac[6] = {0};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    /* MAC 后 4 位十六进制，大写 */
     snprintf(buf, len, "%s%02X%02X%02X%02X",
              AP_SSID_PREFIX, mac[2], mac[3], mac[4], mac[5]);
 }
@@ -153,8 +137,6 @@ void provision_get_ap_pass(char *buf, size_t len)
 {
     uint8_t mac[6] = {0};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    /* MAC 后 6 位十六进制做 PoP。
-       WPA2 要求密码至少 8 位且首字符不能是字母，所以前面补个 0。 */
     snprintf(buf, len, "0%02X%02X%02X%02X%02X%02X",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
@@ -205,7 +187,6 @@ const char *provision_last_error(void)
 }
 
 
-/* 断开原因 → 人话。用户只知道「连不上」，得说清是密码错还是没找到热点。 */
 static const char *disconnect_reason_text(uint8_t reason)
 {
     switch (reason) {
@@ -228,10 +209,6 @@ static const char *disconnect_reason_text(uint8_t reason)
 }
 
 
-/* 把驱动给的扫描结果搬进 out。
-   驱动那边已经按信号强度降序排好了 —— 不用再自己排。
-   同一个 SSID 可能对应多个 AP（mesh、信号放大器），只留信号最强的那个，
-   免得配网页上一串重名。 */
 static int collect_aps(const wifi_ap_record_t *recs, int count,
                        prov_ap_t *out, int max)
 {
@@ -240,7 +217,7 @@ static int collect_aps(const wifi_ap_record_t *recs, int count,
         char ssid[PROV_SSID_MAX];
         strncpy(ssid, (const char *)recs[i].ssid, sizeof(ssid) - 1);
         ssid[sizeof(ssid) - 1] = 0;
-        if (ssid[0] == 0) continue;   /* 隐藏热点没名字，列出来也没法选 */
+        if (ssid[0] == 0) continue;
 
         bool dup = false;
         for (int j = 0; j < n; j++) {
@@ -258,7 +235,6 @@ static int collect_aps(const wifi_ap_record_t *recs, int count,
 }
 
 
-/* 扫描失败的原因 → 网页上能看懂的话。 */
 static const char *scan_error_text(esp_err_t err)
 {
     if (err == ESP_ERR_WIFI_STATE) return "wifi busy";
@@ -276,23 +252,12 @@ int provision_scan_wifi(prov_ap_t *out, int max)
 {
     if (!out || max <= 0) return -1;
 
-    /* 排掉上一次的残留信号 —— 计数信号量不会自己清。 */
     if (s_scan_sem) {
         while (xSemaphoreTake(s_scan_sem, 0) == pdTRUE) { }
     }
     s_scan_count = 0;
     s_scan_error[0] = 0;
 
-    /* 非阻塞启动，结果在 WIFI_EVENT_SCAN_DONE 事件里取。
-
-       为什么不能阻塞（block=true）：全信道主动扫描要好几秒，
-       阻塞期间 httpd 的 worker 被占住 —— 手机那一下 fetch('/scan')
-       会超时，浏览器就报「扫描失败」。设备上看跟「附近没热点」
-       一模一样，分不出是哪种。
-
-       coex_background_scan：热点开着（APSTA）时，扫完一个信道就回
-       home channel 一次。全信道前台扫描会让射频离开信道 1，
-       手机连 192.168.4.1 直接断 —— 这就是「一进扫描就连不上配网页」。 */
     wifi_scan_config_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.show_hidden = false;
@@ -305,16 +270,12 @@ int provision_scan_wifi(prov_ap_t *out, int max)
 
     esp_err_t err = esp_wifi_scan_start(&cfg, false);
     if (err != ESP_OK) {
-        /* ESP_ERR_WIFI_STATE = STA 正在连接，连接优先于扫描。
-           配网模式下 s_provisioning 会挡住重连，所以这里不该出现；
-           真出现了就把真实原因报给网页，别再显示「没扫到热点」。 */
         strncpy(s_scan_error, scan_error_text(err), sizeof(s_scan_error) - 1);
         s_scan_error[sizeof(s_scan_error) - 1] = 0;
         ESP_LOGW(TAG, "scan start failed: %s", s_scan_error);
         return -1;
     }
 
-    /* 等扫描完成。驱动最多几秒。 */
     if (!s_scan_sem || xSemaphoreTake(s_scan_sem, pdMS_TO_TICKS(10000)) != pdTRUE) {
         strncpy(s_scan_error, "timeout", sizeof(s_scan_error) - 1);
         s_scan_error[sizeof(s_scan_error) - 1] = 0;
@@ -323,7 +284,6 @@ int provision_scan_wifi(prov_ap_t *out, int max)
     }
 
     if (s_scan_count <= 0) {
-        /* 没扫到 —— 不是错误，但网页要能跟「扫不了」区分开。 */
         ESP_LOGI(TAG, "scan done: 0 aps");
         return 0;
     }
@@ -337,88 +297,79 @@ int provision_scan_wifi(prov_ap_t *out, int max)
 
 /* ---------------- HTTP 配网页 ---------------- */
 
-/* 配网页是设备自己发的小页面，存在 flash 里当常量。
-   设备没有中文字库，但浏览器有 —— 所以这里可以放中文。 */
 static const char SETUP_HTML[] =
     "<!DOCTYPE html><html lang=\"zh-CN\"><head>"
     "<meta charset=\"utf-8\">"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-    "<title>宠物配网</title>"
+    "<title>桌面宠物配网</title>"
     "<style>"
-    "body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:24px;"
+    "body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:20px;"
     "background:#f5f5f7;color:#1c1c1e}"
     "h1{font-size:22px;margin:0 0 6px}"
-    ".sub{color:#8e8e93;font-size:14px;margin-bottom:22px;line-height:1.6}"
-    "label{display:block;font-size:13px;color:#6e6e73;margin:14px 0 5px}"
+    ".sub{color:#8e8e93;font-size:14px;margin-bottom:20px;line-height:1.6}"
+    "label{display:block;font-size:13px;font-weight:600;color:#6e6e73;margin:16px 0 6px}"
     "input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;"
-    "border:1px solid #d1d1d6;border-radius:10px;background:#fff}"
-    "button{width:100%;margin-top:24px;padding:14px;font-size:17px;font-weight:600;"
-    "border:0;border-radius:10px;background:#007aff;color:#fff}"
+    "border:1px solid #d1d1d6;border-radius:10px;background:#fff;outline:none}"
+    "input:focus{border-color:#007aff}"
+    "button.submit-btn{width:100%;margin-top:24px;padding:14px;font-size:17px;font-weight:600;"
+    "border:0;border-radius:10px;background:#007aff;color:#fff;cursor:pointer}"
     ".tip{background:#fff;border-radius:12px;padding:14px 16px;font-size:14px;"
-    "line-height:1.7;margin-bottom:18px}"
-    "code{background:#f0f0f5;padding:2px 6px;border-radius:5px;font-size:13px}"
+    "line-height:1.7;margin-bottom:18px;border:1px solid #e5e5ea}"
+    ".hint{font-size:12px;color:#8e8e93;margin-top:4px;line-height:1.4}"
     "</style></head><body>"
-    "<h1>连接家里的 Wi-Fi</h1>"
-    "<div class=\"sub\">设置完成后设备会重启，并自动连接你电脑上的 petd 服务。</div>"
+    "<h1>连接家庭 Wi-Fi</h1>"
+    "<div class=\"sub\">配置完成后设备将重启，并直接连接运行后端的电脑。</div>"
     "<div class=\"tip\">"
-    "1. 手机连上屏幕上显示的热点<br>"
-    "2. 打开 <code>" AP_IP "</code><br>"
-    "3. 填 Wi-Fi 名称和密码（可先点「扫描附近的 Wi-Fi」）<br>"
-    "4. 点「保存并重启」，设备会重启"
+    "1. 选取下方搜索到的 2.4G Wi-Fi<br>"
+    "2. 输入对应的 Wi-Fi 密码<br>"
+    "3. 输入运行服务的电脑 IP 地址（电脑终端运行 <code>ipconfig</code> 查看）"
     "</div>"
     "<form method=\"POST\" action=\"/save\">"
-    "<label for=\"ssid\">Wi-Fi 名称</label>"
-    "<input id=\"ssid\" name=\"ssid\" placeholder=\"你的WiFi名字\" required>"
-    "<button type=\"button\" id=\"scanBtn\" style=\"width:100%;margin-top:10px;padding:12px;"
-    "font-size:15px;font-weight:600;border:1px solid #d1d1d6;border-radius:10px;background:#fff\">"
-    "扫描附近的 Wi-Fi</button>"
-    "<div id=\"apList\" style=\"margin-top:12px\"></div>"
-    "<div id=\"stateMsg\" style=\"margin-top:10px;font-size:14px;line-height:1.6\"></div>"
+    "<label>附近的 Wi-Fi（正在自动扫描）</label>"
+    "<div id=\"apList\" style=\"margin-top:6px\"></div>"
+    "<label for=\"ssid\">Wi-Fi 名称 (SSID)</label>"
+    "<input id=\"ssid\" name=\"ssid\" placeholder=\"点击上方扫描结果或手动输入\" required>"
     "<label for=\"pass\">Wi-Fi 密码</label>"
-    "<input id=\"pass\" name=\"pass\" type=\"password\" placeholder=\"没有密码就留空\">"
-    "<label for=\"host\">宠物服务端地址（一般不用改）</label>"
-    "<input id=\"host\" name=\"host\" placeholder=\"petd.local\">"
-    "<button type=\"submit\">保存并重启</button>"
+    "<input id=\"pass\" name=\"pass\" type=\"password\" placeholder=\"无密码请留空\">"
+    "<label for=\"host\">电脑服务器 IP 地址</label>"
+    "<input id=\"host\" name=\"host\" placeholder=\"例如：192.168.1.100\" required>"
+    "<div class=\"hint\">请确保填写的是局域网 IPv4 地址，且电脑与设备处于同一路由器下。</div>"
+    "<button type=\"submit\" class=\"submit-btn\">保存并重启设备</button>"
     "</form>"
     "<script>"
     "function petdRenderAps(aps){"
     "var el=document.getElementById('apList');"
     "el.innerHTML='';"
-    "if(!aps||!aps.length){el.textContent='附近没找到热点';return;}"
+    "if(!aps||!aps.length){"
+    "el.innerHTML='<div style=\"color:#8e8e93;padding:8px 0;font-size:14px\">未发现可用 2.4G 热点 <a href=\"javascript:petdScanWifi()\" style=\"color:#007aff;margin-left:8px\">重试</a></div>';"
+    "return;"
+    "}"
     "aps.forEach(function(ap){"
     "var b=document.createElement('button');"
     "b.type='button';"
-    "b.textContent=ap.ssid+'  '+ap.rssi+'dBm'+(ap.secured?'  LOCKED':'');"
-    "b.style.cssText='display:block;width:100%;margin:6px 0;padding:11px;font-size:15px;"
-    "border:1px solid #d1d1d6;border-radius:10px;background:#fff;text-align:left';"
-    "b.onclick=function(){document.getElementById('ssid').value=ap.ssid;};"
+    "b.textContent=ap.ssid+'  ('+ap.rssi+' dBm)'+(ap.secured?'  🔒':'');"
+    "b.style.cssText='display:block;width:100%;margin:5px 0;padding:10px 12px;font-size:15px;'"
+    "+'border:1px solid #d1d1d6;border-radius:8px;background:#fff;text-align:left;color:#1c1c1e;cursor:pointer;';"
+    "b.onclick=function(){"
+    "document.getElementById('ssid').value=ap.ssid;"
+    "document.getElementById('pass').focus();"
+    "};"
     "el.appendChild(b);"
     "});"
+    "var rf=document.createElement('div');"
+    "rf.style.cssText='text-align:right;margin-top:6px;';"
+    "rf.innerHTML='<a href=\"javascript:petdScanWifi()\" style=\"font-size:13px;color:#007aff;text-decoration:none\">重新搜索</a>';"
+    "el.appendChild(rf);"
     "}"
-    "document.getElementById('scanBtn').onclick=function(){"
+    "function petdScanWifi(){"
     "var el=document.getElementById('apList');"
-    "var btn=document.getElementById('scanBtn');"
-    "el.textContent='扫描中...';"
-    "btn.disabled=true;"
+    "el.innerHTML='<div style=\"color:#8e8e93;padding:8px 0;font-size:14px\">正在搜索 Wi-Fi...</div>';"
     "fetch('/scan').then(function(r){return r.json();}).then(function(d){"
-    "btn.disabled=false;"
-    "if(d.error){el.textContent='扫描失败：'+d.error;return;}"
+    "if(d.error){el.innerHTML='<div style=\"color:#c80000;padding:8px 0;font-size:14px\">扫描失败：'+d.error+' <a href=\"javascript:petdScanWifi()\" style=\"color:#007aff;margin-left:8px\">重试</a></div>';return;}"
     "petdRenderAps(d.aps);"
-    "}).catch(function(){btn.disabled=false;el.textContent='扫描失败：请求没回来';});"
-    "};"
-    "function petdPollStatus(){"
-    "fetch('/status').then(function(r){return r.json();}).then(function(d){"
-    "var el=document.getElementById('stateMsg');"
-    "if(d.state==='failed'){"
-    "el.textContent=d.error?('连接失败：'+d.error):'连接失败';"
-    "el.style.color='#c80000';"
-    "}else if(d.state==='connected'){"
-    "el.textContent='已连接 '+d.ip;"
-    "el.style.color='#007aff';"
-    "}else{el.textContent='';}"
-    "}).catch(function(){});"
+    "}).catch(function(){el.innerHTML='<div style=\"color:#c80000;padding:8px 0;font-size:14px\">请求超时 <a href=\"javascript:petdScanWifi()\" style=\"color:#007aff;margin-left:8px\">重试</a></div>';});"
     "}"
-    "setInterval(petdPollStatus,2000);"
+    "window.onload=function(){petdScanWifi();};"
     "</script></body></html>";
 
 
@@ -430,14 +381,11 @@ static const char SAVED_HTML[] =
     "background:#f5f5f7;color:#1c1c1e;text-align:center}"
     "h1{font-size:20px}p{color:#8e8e93;font-size:14px;line-height:1.7}"
     "</style></head><body>"
-    "<h1>已保存</h1>"
-    "<p>设备正在重启并连接 Wi-Fi。<br>屏幕会显示连接状态。</p>"
+    "<h1>配置已保存</h1>"
+    "<p>ESP32 正在重启并连接 Wi-Fi 与目标服务器。<br>屏幕将同步显示当前状态。</p>"
     "</body></html>";
 
 
-/* ---- URL 解码 + 表单解析 ---- */
-
-/* %XX 解码。加解密都在 flash 里做，不引第三方库。 */
 static void url_decode(char *s)
 {
     char *out = s;
@@ -466,7 +414,6 @@ static void url_decode(char *s)
 }
 
 
-/* 从 body 里取一个字段的值。找到返回 1。 */
 static int form_get(const char *body, const char *key, char *out, size_t len)
 {
     size_t klen = strlen(key);
@@ -518,7 +465,6 @@ static esp_err_t save_handler(httpd_req_t *req)
     char body[512];
     int total = 0;
 
-    /* 表单可能分多次到达，收满为止 */
     while (total < (int)sizeof(body) - 1) {
         int n = httpd_req_recv(req, body + total, sizeof(body) - 1 - total);
         if (n <= 0) {
@@ -542,7 +488,11 @@ static esp_err_t save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
     form_get(body, "pass", pass, sizeof(pass));
-    form_get(body, "host", host, sizeof(host));
+    
+    if (!form_get(body, "host", host, sizeof(host)) || host[0] == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "server ip required");
+        return ESP_FAIL;
+    }
 
     esp_err_t err = provision_save_credentials(ssid, pass, host);
     if (err != ESP_OK) {
@@ -551,27 +501,16 @@ static esp_err_t save_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "credentials saved, restarting");
+    ESP_LOGI(TAG, "credentials saved, restarting -> target: %s", host);
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr(req, SAVED_HTML);
 
-    /* 让浏览器先把响应收到，再重启 */
     vTaskDelay(pdMS_TO_TICKS(600));
     esp_restart();
     return ESP_OK;
 }
 
 
-/* Captive Portal 探测请求的处理器。
-   手机连上热点后，系统会先请求一个探测地址；拿不到预期响应就弹
-   「此网络无法访问互联网」，用户还以为设备坏了。把探测请求重定向到
-   配网页，手机系统就会跟着跳转、弹出配网页面。
-
-   探测地址（Android / iOS / 桌面各用不同的）：
-     /generate_204  /gen_204  /ncsi.txt  /connecttest.txt
-     /hotspot-detect.html  /canonical.html  /success.txt
-     /library/test/success.html
-   少注册一个就可能有一类系统弹不出页面 —— 所以全都注册。 */
 static esp_err_t captive_handler(httpd_req_t *req)
 {
     httpd_resp_set_status(req, "302 Found");
@@ -581,9 +520,6 @@ static esp_err_t captive_handler(httpd_req_t *req)
 }
 
 
-/* 把字符串写进 JSON —— SSID 里可能有引号和反斜杠。
-   顺带校验 UTF-8：路由器的 SSID 不保证是合法 UTF-8，
-   坏字节会让整个 JSON 解析失败，一整列表就都没了。 */
 static size_t json_escape(const char *in, char *out, size_t out_len)
 {
     size_t o = 0;
@@ -595,14 +531,12 @@ static size_t json_escape(const char *in, char *out, size_t out_len)
             out[o++] = (char)c;
             p++;
         } else if (c < 0x20) {
-            out[o++] = ' ';   /* 控制字符在 SSID 里不该出现，兜个底 */
+            out[o++] = ' ';
             p++;
         } else if (c < 0x80) {
             out[o++] = (char)c;
             p++;
         } else {
-            /* UTF-8 多字节：校验通过就原样放行，坏序列换 '?'。
-               注意不能读过 NUL —— p[i] 一旦撞上结尾，后面就是越界读。 */
             int need = (c >= 0xF0) ? 3 : (c >= 0xE0) ? 2 : (c >= 0xC2) ? 1 : -1;
             bool ok = (need > 0);
             for (int i = 1; ok && i <= need; i++) {
@@ -623,7 +557,6 @@ static size_t json_escape(const char *in, char *out, size_t out_len)
 }
 
 
-/* 扫附近的 Wi-Fi，给配网页列出来。 */
 static esp_err_t scan_handler(httpd_req_t *req)
 {
     static prov_ap_t aps[PROV_AP_MAX];
@@ -631,8 +564,6 @@ static esp_err_t scan_handler(httpd_req_t *req)
 
     httpd_resp_set_type(req, "application/json");
     if (n < 0) {
-        /* 把真实原因带给网页 —— 「扫不了」和「附近没热点」是两回事，
-           用户看到的必须是两个不同的提示。 */
         char esc[96];
         char msg[128];
         json_escape(s_scan_error[0] ? s_scan_error : "scan failed",
@@ -642,7 +573,6 @@ static esp_err_t scan_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
-    /* 一个 AP 最多 32 字节名字 + 转义余量 + 字段名 ≈ 128 字节 */
     size_t cap = 256 + (size_t)n * 128;
     char *buf = malloc(cap);
     if (!buf) {
@@ -676,13 +606,11 @@ static esp_err_t scan_handler(httpd_req_t *req)
 
 static esp_err_t http_start(void)
 {
-    /* 已经起过了 —— 重复 start 会报错。 */
     if (s_http) return ESP_OK;
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
-    cfg.ctrl_port += 1;   /* 避开默认 32768，跟别的服务不撞 */
-    /* 4 个正常路由 + 8 个 Captive Portal 探测路由 = 12，留到 16。 */
+    cfg.ctrl_port += 1;
     cfg.max_uri_handlers = 16;
     cfg.lru_purge_enable = true;
 
@@ -707,7 +635,6 @@ static esp_err_t http_start(void)
     };
     httpd_register_uri_handler(s_http, &u_scan);
 
-    /* Captive Portal 探测路由 */
     static const char *const captive_uris[] = {
         "/generate_204", "/gen_204", "/ncsi.txt", "/connecttest.txt",
         "/hotspot-detect.html", "/canonical.html", "/success.txt",
@@ -726,18 +653,15 @@ static esp_err_t http_start(void)
 
 /* ---------------- Wi-Fi 事件 ---------------- */
 
-/* 重连定时器回调。跑在 esp_timer 任务上下文 —— 只发一条连接命令。 */
 static void sta_retry_cb(void *arg)
 {
     (void)arg;
-    /* 配网模式下不重连 —— 连上就等于占住射频，扫描会被驱动拒掉。 */
     if (s_wifi_started && !s_provisioning) {
         esp_wifi_connect();
     }
 }
 
 
-/* 安排一次延迟重连。 */
 static void schedule_sta_retry(void)
 {
     if (!s_retry_timer) {
@@ -752,10 +676,6 @@ static void schedule_sta_retry(void)
 }
 
 
-/* 退到配网模式的定时器回调。
-   必须在定时器上下文做，不能在 Wi-Fi 事件回调里直接调
-   provision_start_ap() —— 那里面会切 Wi-Fi 模式，
-   而事件回调正跑在 Wi-Fi 驱动派发事件的那个任务上。 */
 static void ap_fallback_cb(void *arg)
 {
     (void)arg;
@@ -780,16 +700,13 @@ static void schedule_ap_fallback(void)
 }
 
 
-/* 连接超时看门狗。esp_wifi_connect() 之后如果既没连上也没断开，
-   状态会永远停在 CONNECTING —— 屏幕上看着像死了，什么都不发生。
-   超时就主动断一次，让正常的失败路径接管（记原因、计数、重试）。 */
-#define STA_CONNECT_TIMEOUT_US (20 * 1000 * 1000)
+#define STA_CONNECT_TIMEOUT_US (30 * 1000 * 1000)
 
 static void connect_timeout_cb(void *arg)
 {
     (void)arg;
     if (s_state == PROV_ST_CONNECTING) {
-        ESP_LOGW(TAG, "connect timeout");
+        ESP_LOGW(TAG, "connect timeout, resetting sta");
         esp_wifi_disconnect();
     }
 }
@@ -813,14 +730,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     (void)arg;
 
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        /* 配网模式下不让 STA 自己找网 —— 一连接就占住射频，
-           驱动会把扫描直接拒掉（ESP_ERR_WIFI_STATE）。 */
         if (!s_provisioning) {
             esp_wifi_connect();
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
-        /* 扫描完成。驱动里的 AP 记录必须在这里取走 —— 取一次就释放，
-           不取会漏掉驱动内部那块内存。 */
         uint16_t count = 0;
         if (esp_wifi_scan_get_ap_num(&count) == ESP_OK && count > 0) {
             wifi_ap_record_t *recs = calloc(count, sizeof(wifi_ap_record_t));
@@ -843,11 +756,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         const wifi_event_sta_disconnected_t *dev =
             (const wifi_event_sta_disconnected_t *)data;
 
-        /* 配网模式下不追着连，也不报失败。
-           热点开着的时候 STA 一直「正在连接」，
-           驱动会让 esp_wifi_scan_start() 直接返回 ESP_ERR_WIFI_STATE，
-           扫描永远扫不出东西（IDF：connecting 优先于 scan，重试也救不回来）。
-           顺带屏上不再 CONNECTING / NO WIFI 每 2 秒来回跳。 */
         if (s_provisioning) {
             ESP_LOGI(TAG, "sta dropped in setup mode: %s",
                      disconnect_reason_text(dev->reason));
@@ -859,29 +767,22 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_last_error[sizeof(s_last_error) - 1] = 0;
 
         s_fail_count++;
-        ESP_LOGW(TAG, "wifi disconnected (fail %d)", s_fail_count);
-        /* 连不上就是 NO WIFI，屏幕要明确告诉用户，不能默默重连 */
+        ESP_LOGW(TAG, "wifi disconnected (fail %d, reason %d: %s)",
+                 s_fail_count, dev->reason, s_last_error);
         set_state(PROV_ST_FAILED, "no wifi");
         if (s_fail_count < STA_MAX_RETRY) {
-            /* 不能在这里 vTaskDelay —— 默认事件循环只有一个任务，
-               阻塞 2 秒会把 GOT_IP 等其它事件一起拖住。 */
             schedule_sta_retry();
         } else {
             ESP_LOGE(TAG, "too many failures, falling back to AP setup");
             s_fail_count = 0;
-            /* 走定时器，不在事件回调里直接切 Wi-Fi。
-               这条路径以前用 ESP_ERROR_CHECK 包着 provision_start_ap()，
-               一旦出错就 abort → 重启 → 再失败 → 再重启，
-               设备永远出不来配网页。 */
             schedule_ap_fallback();
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&ev->ip_info.ip));
         s_fail_count = 0;
-        s_last_error[0] = 0;   /* 连上了，之前那次失败不算数了 */
+        s_last_error[0] = 0;
         ESP_LOGI(TAG, "got ip %s", s_ip);
-        /* 连接成功 —— 取消连接超时看门狗。 */
         if (s_connect_timer) esp_timer_stop(s_connect_timer);
         set_state(PROV_ST_CONNECTED, s_ip);
         if (s_ip_sem) {
@@ -901,7 +802,6 @@ esp_err_t provision_init(prov_state_cb_t cb)
     s_ip_sem = xSemaphoreCreateCounting(1, 0);
     ESP_ERROR_CHECK(s_ip_sem ? ESP_OK : ESP_ERR_NO_MEM);
 
-    /* 扫描完成信号。非阻塞扫描的「扫完了」凭据。 */
     s_scan_sem = xSemaphoreCreateCounting(1, 0);
     ESP_ERROR_CHECK(s_scan_sem ? ESP_OK : ESP_ERR_NO_MEM);
 
@@ -916,7 +816,6 @@ esp_err_t provision_init(prov_state_cb_t cb)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                                 wifi_event_handler, NULL));
 
-    /* AP + STA 共存：配网模式下热点一直在，STA 同时尝试连网 */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     return ESP_OK;
 }
@@ -924,9 +823,6 @@ esp_err_t provision_init(prov_state_cb_t cb)
 
 esp_err_t provision_start_ap(void)
 {
-    /* 配网模式：STA 不再追着连。
-       热点开着的时候让 STA 一直「正在连接」，扫描会被驱动拒掉
-       （connecting 优先于 scan），屏上也会 CONNECTING / NO WIFI 来回跳。 */
     s_provisioning = true;
 
     if (s_ap_started) return ESP_OK;
@@ -945,16 +841,6 @@ esp_err_t provision_start_ap(void)
     wc.ap.max_connection = AP_MAX_CONN;
     wc.ap.authmode = WIFI_AUTH_WPA2_PSK;
 
-    /* AP + STA 共存 —— 原来那条 STA 连接要留着，重配期间后端仍看得到设备。
-
-       所以**不能** esp_wifi_stop()：停了 STA 就断，而 esp_wifi_start()
-       之后不会自动重连（得再显式 esp_wifi_connect()）。
-       Wi-Fi 已经在跑的时候直接切模式就行 —— set_mode / set_config
-       都支持运行中调用，比停机再起稳得多。
-
-       「连不上退配网」那条路进来时 Wi-Fi 也是开着的（STA 连不上但驱动在跑），
-       这里同样不用停 —— 停了反而多走一遍重连。
-       重复 esp_wifi_start() 会返回错误，所以用 s_wifi_started 把住。 */
     esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "set mode failed: %s", esp_err_to_name(err));
@@ -974,14 +860,10 @@ esp_err_t provision_start_ap(void)
         s_wifi_started = true;
     }
 
-    /* STA 侧：已经连着的就留着（重配期间 petd 仍看得到设备），
-       没连着的**不要**去拉 —— 配网模式下发起连接会让 STA 一直
-       「正在连接」，扫描直接被驱动拒掉（ESP_ERR_WIFI_STATE）。
-       反正用户马上就要在这台设备上填新的 Wi-Fi。 */
     if (s_has_creds) {
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
-            esp_wifi_disconnect();   /* 停掉可能正在进行的连接尝试 */
+            esp_wifi_disconnect();
         }
     }
 
@@ -1006,13 +888,7 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
     memset(&wc, 0, sizeof(wc));
     strncpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid) - 1);
     strncpy((char *)wc.sta.password, pass ? pass : "", sizeof(wc.sta.password) - 1);
-    /* 认证阈值 = 「最弱可接受的加密级别」。
-       IDF v5.5 的顺序：
-         OPEN(0) < WEP(1) < WPA_PSK(2) < WPA2_PSK(3) < WPA_WPA2_PSK(4) < ... < WPA3_PSK(6)
-       设成 WPA2_PSK(3) 时 WPA3(6) 也能连（数值更大 = 更强）。
-       但无密码的热点是 OPEN(0)，比 3 弱 —— 用 WPA2_PSK 会直接连不上。
-       所以按有没有密码分开设。
-       注意别用 WPA_WPA2_PSK(4)：那反而会拒掉纯 WPA2 的路由器。 */
+
     if (pass && pass[0]) {
         wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     } else {
@@ -1020,12 +896,9 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
     }
 
     s_fail_count = 0;
-    /* 离开配网模式：STA 恢复正常重连，连不上才报 NO WIFI。 */
     s_provisioning = false;
     set_state(PROV_ST_CONNECTING, ssid);
 
-    /* 这里不用 ESP_ERROR_CHECK —— 它会 abort 整个系统。
-       配网路径上出错应该记日志继续走，而不是让设备变砖。 */
     if (!s_ap_started) {
         esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
         if (err != ESP_OK) {
@@ -1042,8 +915,9 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
             if (err != ESP_OK) return err;
             s_wifi_started = true;
         }
+        /* 显式主动触发一次连接，彻底消除事件等待空悬 */
+        esp_wifi_connect();
     } else {
-        /* 已经在 APSTA 模式了，只换 STA 配置 */
         esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wc);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "set sta config failed: %s", esp_err_to_name(err));
@@ -1052,19 +926,11 @@ esp_err_t provision_start_sta(const char *ssid, const char *pass)
         esp_wifi_connect();
     }
 
-    /* 连接看门狗：既没连上也没断开的话，状态会永远停在 CONNECTING。 */
     connect_timeout_start();
     return ESP_OK;
 }
 
 
-/* 退出配网模式：把 STA 的连接接回去。
-
-   配网期间我们主动停了 STA 的连接尝试 —— 不这样扫描会被驱动直接拒掉
-   （connecting 优先于 scan）。用户短按旋钮退出配网时必须接回去，
-   否则设备等于失联（热点还在，但连不上 petd）。
-
-   已经连着的就什么都不做 —— 那条连接是重配前就在的，petd 仍看得到设备。 */
 void provision_resume_sta(void)
 {
     if (!s_provisioning) return;
@@ -1082,10 +948,6 @@ void provision_resume_sta(void)
 esp_err_t provision_wait_for_ip(uint32_t timeout_ms)
 {
     if (!s_ip_sem) return ESP_ERR_INVALID_STATE;
-    /* 不在这里清计数 —— 计数信号量里「先 give 后 take」照样拿得到。
-       IP 在等待**之前**就到是常态（连得快的网络），
-       那种情况下这里必须立刻返回成功。
-       清掉反而会把它吞掉，白等满超时。 */
     if (xSemaphoreTake(s_ip_sem, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
