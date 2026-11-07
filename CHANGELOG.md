@@ -7,7 +7,7 @@
 
 | 项 | 说明 |
 |---|---|
-| 固件未在真实硬件上验证 | 编译在 CI 里通过，但没在实板子上跑过：SPI 稳定性、屏幕方向、旋钮每圈步数都还是纸面结论。到货后按 [固件构建](docs/固件构建.md) 的「到货后待查」逐条核 |
+| 固件已实机验证，但长时间稳定性未知 | 已在实板子上跑通：显示方向正常、旋钮四类手势（旋转/短按/长按/按住旋转）端到端可用、WS 连接稳定不重连。长时间 SPI 稳定性与上屏耗时仍只有纸面估算 |
 | 宠物状态在 gateway 事件密集时可能有秒级延迟 | 状态来自 gateway 推送，不是轮询 |
 | 反向代理前缀不带尾斜杠时后台页会白屏 | `/前缀` 必须 301 跳到 `/前缀/`，见 [部署手册](docs/部署手册.md) |
 
@@ -56,7 +56,7 @@
 - **Release `fw-v0.4.0`** —— 修掉 3 处阻断级问题：画面每行块左侧 16 列错位、推帧推两帧就停死、配网回退时设备反复重启。另修旋钮聚合窗口失效与误报短按、开机黑屏 8 秒、无密码热点连不上、事件回调阻塞。加 Captive Portal 探测重定向。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 - **Release `fw-v0.4.1`** —— 修掉 4 个问题：显示管线零锁（两个任务并发刷屏会花屏）、进配网后回不来（Wi-Fi 被停掉，设备失联）、等 IP 的信号会吞掉已到达的通知、配网模式会把宠物帧盖到配网页上。另修配网引导屏画不出字：屏幕上一行字只剩最后一个字符（每画一个字符就把整行清黑一次），点阵字库补上小写字母（热点名 petd-setup-XXXX 的小写原本全是空白，手机 Wi-Fi 列表里对不上）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 - **Release `fw-v0.4.2`** —— 配网页上点「扫描附近的 Wi-Fi」就能列出周围热点（按信号强度降序，加密的标 LOCKED），点一下就把 SSID 填进输入框，不用手打路由器名字。连不上时直接说原因（密码错 / 没找到热点 / 连不上 / 认证过期），不用对着「NO WIFI」猜。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
-- **Release `fw-v0.4.7`** —— 修 KY-040 旋钮工作不正常：`knob.c` 引入 `s_stable_sw` 做真正的电平稳定判定（原来 `last_change_ms` 被编码器边沿共用，转旋钮会重置按钮消抖计时，导致按键状态判定失真）；`emit()` 增加事件日志（实机可直接看到 `rot` / `press` / `rot_press` 及其参数）；`read_sw` / `read_enc` / `read_dt` 改 `inline`；旋转方向判断由 `dt ? -1 : 1` 改为 `(dt != 0) ? -1 : 1`（电平为 0 时不误判方向）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
+- **Release `fw-v0.4.7`** —— 修 KY-040 旋钮工作不正常：`knob.c` 引入 `s_stable_sw` 做真正的电平稳定判定（原来 `last_change_ms` 被编码器边沿共用，转旋钮会重置按钮消抖计时，导致按键状态判定失真）；`emit()` 增加事件日志（实机可直接看到 `rot` / `press` / `rot_press` 及其参数）；`read_sw` / `read_enc` / `read_dt` 改 `inline`；旋转方向判断由 `dt ? -1 : 1` 改为 `(dt != 0) ? -1 : 1`（电平为 0 时不误判方向）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。🟢 已实机验证：显示方向正常，旋钮四类手势端到端可用，WS 连接不再 5 秒一断
 - **Release `fw-v0.4.6`** —— 修 RGB565 高低字节颠倒：`display.c` 里 `LCD_DATA_ENDIAN` 由 `LCD_RGB_DATA_ENDIAN_BIG` 改成 `LCD_RGB_DATA_ENDIAN_LITTLE`。IDF v5.5 的 `esp_lcd_panel_st7789.c` 里，`data_endian == LCD_RGB_DATA_ENDIAN_LITTLE` 会置 ST7789 的 `RAMCTL` 小端位，语义就是 RGB565 高低字节交换。`LCD_INVERT_COLOR` 保持 `true`（v0.4.5 的反相修复保留）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 - **Release `fw-v0.4.5`** —— 修屏幕反色：`display.c` 里 `LCD_INVERT_COLOR` 由 `false` 改成 `true`（发 `0x21 / INVON`）。之前那块屏发出来像负片，颜色发白发灰。改动只有这一个宏，别的逻辑没动。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
 - **Release `fw-v0.4.4`** —— 场外改版后的固件：配网页新增必填「电脑服务器 IP」，不再依赖 mDNS 解析 `petd.local`；开机判定加一条「有凭据但 host 为空 → 视为凭据不全，强制进配网」；`provision_start_sta()` 显式调 `esp_wifi_connect()`，不再等 `WIFI_EVENT_STA_START` 被动触发；连接看门狗 20s→30s，超时主动断开转入失败路径；`connect_task` 跑完自删（修任务泄漏）；配网页打开即自动扫描。顺带修 `provision_load_credentials()` 读 NVS host 失败时用栈上脏数据当 host 的 bug。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ 这版仍未经实机验证
@@ -89,6 +89,7 @@
 ### Fixed
 
 - **旋钮事件全被丢掉（服务端抛异常掐断连接）** —— `app.py` 调 `devices.ack()`，但 `ack` 只挂在 `DeviceSession` 上，`DeviceManager` 没有这个方法。设备回第一帧 frameAck 就抛 `AttributeError`，WS 处理循环的 `except Exception` 把整条连接掐掉。设备 5 秒后重连、再收一帧、再被掐断：屏上偶尔会更新，但旋钮事件刚发出去连接就断了，全丢。现象是「旋钮不工作」，根因在服务端。补上 `DeviceManager.ack()`；再让单条消息处理失败只记日志，不连累整条连接
+- **旋钮步数的文档与实现对不上** —— `gestures.json` 里的 `stepsPerAction` 定义了、后台页面也显示，但没有任何代码读它；实测是编码器一个齿 = 翻一张卡。文档已按实机行为改正，配置项保留未删
 - **删掉屏底那行「petd」水印** —— 纯标识，没有功能
 - **屏幕规格定案** —— 2.40" ST7789 240×320 4-SPI。卖家规格表与 PCB 丝印已核对：8 针顺序确认为 GND/VCC/SCL/SDA/RES/DC/CS/BL，「1」号挨着 GND 在排针右端。硬件指南的接线顺序已按此核准
 - **旋钮丝印核准** —— KY-040 是 5 针，丝印 `GND/+/SW/DT/CLK`，第五针印的是 **CLK** 不是 ENC（同一信号）。硬件指南接线表照丝印重写，并注明「照丝印接、不照位置接」—— 模块转 180° 针序就反了
