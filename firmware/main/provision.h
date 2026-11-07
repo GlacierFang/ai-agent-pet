@@ -20,11 +20,21 @@
 #define PROV_PASS_MAX 65
 #define PROV_HOST_MAX 64
 
+/* 一次扫描最多返回多少个热点（按信号强度降序）。 */
+#define PROV_AP_MAX 16
+
 typedef struct {
     char ssid[PROV_SSID_MAX];
     char pass[PROV_PASS_MAX];
     char host[PROV_HOST_MAX];   /* 留空 = 用默认 petd.local */
 } prov_creds_t;
+
+/* 扫描到的一个热点。 */
+typedef struct {
+    char ssid[PROV_SSID_MAX];
+    int  rssi;        /* dBm，负数 */
+    bool secured;     /* true = 需要密码 */
+} prov_ap_t;
 
 typedef enum {
     PROV_ST_IDLE = 0,
@@ -66,6 +76,17 @@ void provision_get_ip(char *buf, size_t len);
 
 /* 连续连接失败次数。 */
 int provision_fail_count(void);
+
+/* 扫描附近 2.4GHz Wi-Fi。写进 out 的条数按信号强度降序。
+   返回 -1 表示扫描失败。扫描期间会短暂断开 STA，扫完自动接回。 */
+int provision_scan_wifi(prov_ap_t *out, int max);
+
+/* 最近一次连接失败的原因（小写短语，如 "bad password"）。
+   没有失败过就返回空串。 */
+const char *provision_last_error(void);
+
+/* 当前配网状态的英文名（ap / connecting / connected / failed）。 */
+const char *provision_state_name(void);
 
 /* 是否已经进过配网模式（用于状态上报的 provisioned 字段）。 */
 bool provision_has_credentials(void);

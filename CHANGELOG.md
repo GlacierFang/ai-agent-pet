@@ -49,6 +49,8 @@
 **固件**
 
 - **SoftAP 配网** —— 设备自带 `petd-setup-XXXX` 热点与中文配网页 `http://192.168.4.1`，凭据存 NVS
+- **配网页扫热点** —— 配网页上点「扫描附近的 Wi-Fi」，列出周围 2.4GHz 热点（按信号强度降序，加密的标 `LOCKED`），点一下就把名字填进输入框，不用手打 SSID
+- **配网失败说人话** —— 状态接口带上失败原因（`bad password` / `not found` / `connection failed` / `auth expired`），配网页直接显示，不用对着「连不上」猜
 - **点阵字库** —— 5×7 ASCII，仅覆盖配网引导屏所需字符。设备端仍不含中文字库
 - **Release `fw-v0.3.0`** —— 修掉配网引导屏索引错位、颜色反相反了，补上首屏自检色条。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 - **Release `fw-v0.4.0`** —— 修掉 3 处阻断级问题：画面每行块左侧 16 列错位、推帧推两帧就停死、配网回退时设备反复重启。另修旋钮聚合窗口失效与误报短按、开机黑屏 8 秒、无密码热点连不上、事件回调阻塞。加 Captive Portal 探测重定向。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`

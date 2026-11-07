@@ -56,6 +56,14 @@ static httpd_handle_t  s_http;
 static SemaphoreHandle_t s_ip_sem;
 static esp_timer_handle_t s_retry_timer;
 static esp_timer_handle_t s_ap_timer;
+/* 扫描期间会主动断开 STA。用它把住 —— 断开事件照常来，
+   但那不是「连不上」，不能进失败计数、也不能记成连接失败。 */
+static bool            s_scanning;
+/* 断开事件计数器。扫描时用来确认「这次主动断开的事件确实到了」——
+   事件晚到的话会被当成真失败，设备就掉线了。 */
+static uint32_t        s_disconnect_seq;
+/* 最近一次连接失败的原因（小写短语）。给配网页看「为什么连不上」。 */
+static char            s_last_error[32];
 
 
 /* ---------------- NVS 凭据 ---------------- */
@@ -173,6 +181,147 @@ static const char *state_name(prov_state_t st)
 }
 
 
+/* ---------------- 扫描与状态查询 ---------------- */
+
+const char *provision_state_name(void)
+{
+    return state_name(s_state);
+}
+
+
+const char *provision_last_error(void)
+{
+    return s_last_error;
+}
+
+
+/* 断开原因 → 人话。用户只知道「连不上」，得说清是密码错还是没找到热点。 */
+static const char *disconnect_reason_text(uint8_t reason)
+{
+    switch (reason) {
+    case WIFI_REASON_NO_AP_FOUND:
+    case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD:
+    case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
+        return "not found";
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+        return "bad password";
+    case WIFI_REASON_ASSOC_FAIL:
+    case WIFI_REASON_CONNECTION_FAIL:
+        return "connection failed";
+    case WIFI_REASON_AUTH_EXPIRE:
+        return "auth expired";
+    default:
+        return "disconnected";
+    }
+}
+
+
+/* 把驱动给的扫描结果搬进 out。
+   驱动那边已经按信号强度降序排好了 —— 不用再自己排。
+   同一个 SSID 可能对应多个 AP（mesh、信号放大器），只留信号最强的那个，
+   免得配网页上一串重名。 */
+static int collect_aps(const wifi_ap_record_t *recs, int count,
+                       prov_ap_t *out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < count && n < max; i++) {
+        char ssid[PROV_SSID_MAX];
+        strncpy(ssid, (const char *)recs[i].ssid, sizeof(ssid) - 1);
+        ssid[sizeof(ssid) - 1] = 0;
+        if (ssid[0] == 0) continue;   /* 隐藏热点没名字，列出来也没法选 */
+
+        bool dup = false;
+        for (int j = 0; j < n; j++) {
+            if (strcmp(out[j].ssid, ssid) == 0) { dup = true; break; }
+        }
+        if (dup) continue;
+
+        strncpy(out[n].ssid, ssid, sizeof(out[n].ssid) - 1);
+        out[n].ssid[sizeof(out[n].ssid) - 1] = 0;
+        out[n].rssi = recs[i].rssi;
+        out[n].secured = (recs[i].authmode != WIFI_AUTH_OPEN);
+        n++;
+    }
+    return n;
+}
+
+
+int provision_scan_wifi(prov_ap_t *out, int max)
+{
+    if (!out || max <= 0) return -1;
+
+    /* 扫之前连着没有？连着的话扫完要接回去。 */
+    bool was_connected = false;
+    wifi_ap_record_t cur;
+    if (esp_wifi_sta_get_ap_info(&cur) == ESP_OK) {
+        was_connected = true;
+    }
+
+    uint32_t seq_before = s_disconnect_seq;
+
+    s_scanning = true;
+    if (was_connected) {
+        /* 主动断开 —— 边连边扫会被驱动中止（ESP_ERR_WIFI_STATE）。
+           断开事件被 s_scanning 挡掉，不进失败计数。 */
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    /* config 传 NULL = 驱动默认：主动扫描、全信道、每信道最多 120ms。
+       ESP_ERR_WIFI_STATE 是「还在连接中」—— 等一下再试一次。 */
+    esp_err_t err = esp_wifi_scan_start(NULL, true);
+    if (err == ESP_ERR_WIFI_STATE) {
+        vTaskDelay(pdMS_TO_TICKS(300));
+        err = esp_wifi_scan_start(NULL, true);
+    }
+
+    int n = 0;
+    if (err == ESP_OK) {
+        uint16_t count = 0;
+        if (esp_wifi_scan_get_ap_num(&count) == ESP_OK && count > 0) {
+            wifi_ap_record_t *recs = calloc(count, sizeof(wifi_ap_record_t));
+            if (!recs) {
+                esp_wifi_clear_ap_list();   /* 释放驱动里的列表 */
+            } else {
+                uint16_t want = count;
+                if (esp_wifi_scan_get_ap_records(&want, recs) == ESP_OK) {
+                    n = collect_aps(recs, want, out, max);
+                } else {
+                    esp_wifi_clear_ap_list();
+                }
+                free(recs);
+            }
+        } else {
+            esp_wifi_clear_ap_list();
+        }
+    }
+
+    /* 等驱动把这次主动断开的事件派发出来。
+       事件是异步的 —— 晚到一步就会被当成「连不上」记一次失败，
+       设备直接掉线。所以等它确实到了再解除 s_scanning。 */
+    if (was_connected) {
+        for (int i = 0; i < 50 && s_disconnect_seq == seq_before; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    s_scanning = false;
+
+    /* 接回去 —— 用户正靠这条网络用设备，不能因为扫个 Wi-Fi 就断网。 */
+    if (was_connected) {
+        esp_wifi_connect();
+    }
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "scan failed: %s", esp_err_to_name(err));
+        return -1;
+    }
+    ESP_LOGI(TAG, "scan done: %d aps", n);
+    return n;
+}
+
+
 /* ---------------- HTTP 配网页 ---------------- */
 
 /* 配网页是设备自己发的小页面，存在 flash 里当常量。
@@ -207,12 +356,53 @@ static const char SETUP_HTML[] =
     "<form method=\"POST\" action=\"/save\">"
     "<label for=\"ssid\">Wi-Fi 名称</label>"
     "<input id=\"ssid\" name=\"ssid\" placeholder=\"你的WiFi名字\" required>"
+    "<button type=\"button\" id=\"scanBtn\" style=\"width:100%;margin-top:10px;padding:12px;"
+    "font-size:15px;font-weight:600;border:1px solid #d1d1d6;border-radius:10px;background:#fff\">"
+    "扫描附近的 Wi-Fi</button>"
+    "<div id=\"apList\" style=\"margin-top:12px\"></div>"
+    "<div id=\"stateMsg\" style=\"margin-top:10px;font-size:14px;line-height:1.6\"></div>"
     "<label for=\"pass\">Wi-Fi 密码</label>"
     "<input id=\"pass\" name=\"pass\" type=\"password\" placeholder=\"没有密码就留空\">"
     "<label for=\"host\">宠物服务端地址（一般不用改）</label>"
     "<input id=\"host\" name=\"host\" placeholder=\"petd.local\">"
     "<button type=\"submit\">保存并重启</button>"
-    "</form></body></html>";
+    "</form>"
+    "<script>"
+    "function petdRenderAps(aps){"
+    "var el=document.getElementById('apList');"
+    "el.innerHTML='';"
+    "if(!aps||!aps.length){el.textContent='没扫到热点';return;}"
+    "aps.forEach(function(ap){"
+    "var b=document.createElement('button');"
+    "b.type='button';"
+    "b.textContent=ap.ssid+'  '+ap.rssi+'dBm'+(ap.secured?'  LOCKED':'');"
+    "b.style.cssText='display:block;width:100%;margin:6px 0;padding:11px;font-size:15px;"
+    "border:1px solid #d1d1d6;border-radius:10px;background:#fff;text-align:left';"
+    "b.onclick=function(){document.getElementById('ssid').value=ap.ssid;};"
+    "el.appendChild(b);"
+    "});"
+    "}"
+    "document.getElementById('scanBtn').onclick=function(){"
+    "var el=document.getElementById('apList');"
+    "el.textContent='扫描中...';"
+    "fetch('/scan').then(function(r){return r.json();}).then(function(d){"
+    "petdRenderAps(d.aps);"
+    "}).catch(function(){el.textContent='扫描失败';});"
+    "};"
+    "function petdPollStatus(){"
+    "fetch('/status').then(function(r){return r.json();}).then(function(d){"
+    "var el=document.getElementById('stateMsg');"
+    "if(d.state==='failed'){"
+    "el.textContent=d.error?('连接失败：'+d.error):'连接失败';"
+    "el.style.color='#c80000';"
+    "}else if(d.state==='connected'){"
+    "el.textContent='已连接 '+d.ip;"
+    "el.style.color='#007aff';"
+    "}else{el.textContent='';}"
+    "}).catch(function(){});"
+    "}"
+    "setInterval(petdPollStatus,2000);"
+    "</script></body></html>";
 
 
 static const char SAVED_HTML[] =
@@ -297,8 +487,9 @@ static esp_err_t status_handler(httpd_req_t *req)
     char ip[16];
     provision_get_ip(ip, sizeof(ip));
     snprintf(json, sizeof(json),
-             "{\"state\":\"%s\",\"ip\":\"%s\",\"msg\":\"%s\"}",
-             state_name(s_state), ip, s_ip[0] ? s_ip : "");
+             "{\"state\":\"%s\",\"ip\":\"%s\",\"msg\":\"%s\",\"error\":\"%s\"}",
+             provision_state_name(), ip, s_ip[0] ? s_ip : "",
+             provision_last_error());
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
     return ESP_OK;
@@ -373,6 +564,92 @@ static esp_err_t captive_handler(httpd_req_t *req)
 }
 
 
+/* 把字符串写进 JSON —— SSID 里可能有引号和反斜杠。
+   顺带校验 UTF-8：路由器的 SSID 不保证是合法 UTF-8，
+   坏字节会让整个 JSON 解析失败，一整列表就都没了。 */
+static size_t json_escape(const char *in, char *out, size_t out_len)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *)in;
+    while (*p && o + 4 < out_len) {
+        unsigned char c = *p;
+        if (c == '"' || c == '\\') {
+            out[o++] = '\\';
+            out[o++] = (char)c;
+            p++;
+        } else if (c < 0x20) {
+            out[o++] = ' ';   /* 控制字符在 SSID 里不该出现，兜个底 */
+            p++;
+        } else if (c < 0x80) {
+            out[o++] = (char)c;
+            p++;
+        } else {
+            /* UTF-8 多字节：校验通过就原样放行，坏序列换 '?'。
+               注意不能读过 NUL —— p[i] 一旦撞上结尾，后面就是越界读。 */
+            int need = (c >= 0xF0) ? 3 : (c >= 0xE0) ? 2 : (c >= 0xC2) ? 1 : -1;
+            bool ok = (need > 0);
+            for (int i = 1; ok && i <= need; i++) {
+                if (p[i] == 0) { ok = false; break; }
+                if ((p[i] & 0xC0) != 0x80) { ok = false; break; }
+            }
+            if (!ok) {
+                out[o++] = '?';
+                p++;
+                continue;
+            }
+            for (int i = 0; i <= need; i++) out[o++] = (char)p[i];
+            p += need + 1;
+        }
+    }
+    out[o] = 0;
+    return o;
+}
+
+
+/* 扫附近的 Wi-Fi，给配网页列出来。 */
+static esp_err_t scan_handler(httpd_req_t *req)
+{
+    static prov_ap_t aps[PROV_AP_MAX];
+    int n = provision_scan_wifi(aps, PROV_AP_MAX);
+
+    httpd_resp_set_type(req, "application/json");
+    if (n < 0) {
+        httpd_resp_sendstr(req, "{\"aps\":[],\"error\":\"scan failed\"}");
+        return ESP_OK;
+    }
+
+    /* 一个 AP 最多 32 字节名字 + 转义余量 + 字段名 ≈ 128 字节 */
+    size_t cap = 256 + (size_t)n * 128;
+    char *buf = malloc(cap);
+    if (!buf) {
+        httpd_resp_sendstr(req, "{\"aps\":[],\"error\":\"out of memory\"}");
+        return ESP_OK;
+    }
+
+    size_t o = 0;
+    int w = snprintf(buf, cap, "{\"aps\":[");
+    if (w > 0) o += (size_t)w;
+    for (int i = 0; i < n && o + 128 < cap; i++) {
+        char name[PROV_SSID_MAX * 2];
+        json_escape(aps[i].ssid, name, sizeof(name));
+        w = snprintf(buf + o, cap - o, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"secured\":%s}",
+                     i ? "," : "", name, aps[i].rssi,
+                     aps[i].secured ? "true" : "false");
+        if (w < 0) break;
+        o += (size_t)w;
+    }
+    if (o + 2 < cap) {
+        w = snprintf(buf + o, cap - o, "]}");
+        if (w > 0) o += (size_t)w;
+    }
+    buf[cap - 1] = 0;
+
+    httpd_resp_sendstr(req, buf);
+    free(buf);
+    return ESP_OK;
+}
+
+
 static esp_err_t http_start(void)
 {
     /* 已经起过了 —— 重复 start 会报错。 */
@@ -381,7 +658,7 @@ static esp_err_t http_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port += 1;   /* 避开默认 32768，跟别的服务不撞 */
-    /* 3 个正常路由 + 8 个 Captive Portal 探测路由 = 11，留到 16。 */
+    /* 4 个正常路由 + 8 个 Captive Portal 探测路由 = 12，留到 16。 */
     cfg.max_uri_handlers = 16;
     cfg.lru_purge_enable = true;
 
@@ -400,6 +677,11 @@ static esp_err_t http_start(void)
     httpd_register_uri_handler(s_http, &u_root);
     httpd_register_uri_handler(s_http, &u_save);
     httpd_register_uri_handler(s_http, &u_status);
+
+    httpd_uri_t u_scan = {
+        .uri = "/scan", .method = HTTP_GET, .handler = scan_handler, .user_ctx = NULL,
+    };
+    httpd_register_uri_handler(s_http, &u_scan);
 
     /* Captive Portal 探测路由 */
     static const char *const captive_uris[] = {
@@ -480,6 +762,21 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        const wifi_event_sta_disconnected_t *dev =
+            (const wifi_event_sta_disconnected_t *)data;
+
+        /* 扫描期间会主动断开 STA —— 那不是连不上，别进失败计数，
+           也不记 last_error：用户没输错密码。 */
+        s_disconnect_seq++;
+        if (s_scanning) {
+            ESP_LOGI(TAG, "disconnect during scan (expected)");
+            return;
+        }
+
+        strncpy(s_last_error, disconnect_reason_text(dev->reason),
+                sizeof(s_last_error) - 1);
+        s_last_error[sizeof(s_last_error) - 1] = 0;
+
         s_fail_count++;
         ESP_LOGW(TAG, "wifi disconnected (fail %d)", s_fail_count);
         /* 连不上就是 NO WIFI，屏幕要明确告诉用户，不能默默重连 */
@@ -501,6 +798,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&ev->ip_info.ip));
         s_fail_count = 0;
+        s_last_error[0] = 0;   /* 连上了，之前那次失败不算数了 */
         ESP_LOGI(TAG, "got ip %s", s_ip);
         set_state(PROV_ST_CONNECTED, s_ip);
         if (s_ip_sem) {
