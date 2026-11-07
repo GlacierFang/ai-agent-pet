@@ -127,3 +127,15 @@ class DeviceManager:
             return True
         except Exception:
             return False
+
+    async def ack(self, frame_id):
+        """设备回了一帧的 ACK —— inflight 减一。
+
+        挂在 manager 上，不让 app 直接摸 session：
+        app 手上一直只有 manager，session 会随重连换掉。
+        """
+        s = self.session
+        if s is None:
+            return False
+        await s.ack(frame_id)
+        return True

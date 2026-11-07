@@ -296,7 +296,12 @@ def create_app(cfg=None, start_gateway=True, port=None):
                     break
                 text = event.get("text")
                 if text:
-                    await pet.on_device_message(text)
+                    # 一条消息处理不了，不能连累整条连接 ——
+                    # 连接一断，旋钮事件就全丢了，用户只看到「屏时好时坏」。
+                    try:
+                        await pet.on_device_message(text)
+                    except Exception as exc:
+                        pet.log("error", "设备消息处理失败: %s" % exc)
         except WebSocketDisconnect:
             pass
         except asyncio.TimeoutError:
