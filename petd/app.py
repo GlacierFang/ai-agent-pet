@@ -360,8 +360,9 @@ class PetApp:
         """
         root = self.cfg.get("_repo_root", ".")
         name = str(name or "").strip()
-        if name and not bg_mod.has_bg(root, name):
-            raise ValueError("没有这个背景")
+        # 只认卡片背景那一套 —— 宠物背景的图不算数，两套各管各的。
+        if name and not bg_mod.has_bg(root, name, bg_mod.KIND_CARD):
+            raise ValueError("没有这张卡片背景")
         self.card_background = name
         self.cfg.setdefault("ui", {})["cardBackground"] = name
         self._persist_config()
@@ -386,7 +387,7 @@ class PetApp:
         city = str(city or "").strip()
         self.cfg.setdefault("ui", {})["weatherCity"] = city
         self._persist_config()
-        # 缓存里还���旧城市的数据 —— 扔掉，让它重新取
+        # 缓存里还有旧城市的数据 —— 扔掉，让它重新取
         for f in feature_mod.all_features():
             reset = getattr(f, "reset", None)
             if callable(reset):
@@ -620,10 +621,12 @@ class PetApp:
         # 骰子、卡片在夜里不会出现（导演先判睡觉），所以只有
         # render_frame 和 render_dice 需要接这个参数。
 
-        # 卡片背景 —— 内容层用的底。跟宠物背景是分开的两套。
+        # 卡片背景 —— 内容层用的底。跟宠物背景是分开的两套：
+        # 读的是卡片背景自己的目录，宠物背景那张图它看不见。
         card_bg_img = None
         if self.card_background:
-            card_bg_img = bg_mod.load_image(root, self.card_background)
+            card_bg_img = bg_mod.load_image(root, self.card_background,
+                                           bg_mod.KIND_CARD)
 
         # 骰子占屏 —— 一次性覆盖层。这时没有宠物形象。
         if not self.dice_on():

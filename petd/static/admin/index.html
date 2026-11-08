@@ -124,9 +124,12 @@
 
     <section class="card">
       <h2 data-i18n="bg:cardTitle">卡片背景</h2>
-      <p class="note" data-i18n="bg:cardNote">内容卡和骰子铺的底。跟宠物背景分开 —— 换一边不动另一边。不选就用卡片自己的深色渐变。</p>
-      <div class="ctl ctl-select"><select id="bg-card-select"></select></div>
-      <div class="row"><span class="muted" id="bg-card-meta"></span></div>
+      <p class="note" data-i18n="bg:cardNote">内容卡（会话、通知、最近完成、功德、时间、主机、天气）和骰子铺的底。跟宠物背景分开两套 —— 各有各的图，互不串。不选就用卡片自己的深色渐变。</p>
+      <div class="pet-grid" id="cb-list"></div>
+      <div class="row"><span class="muted" id="cb-list-meta"></span></div>
+      <div class="row">
+        <button type="button" class="ghost" id="cb-reset" data-i18n="bg:cardReset">改回渐变底</button>
+      </div>
     </section>
   </section>
 
@@ -276,6 +279,23 @@
       <button type="button" class="ghost" id="bg-modal-cancel" data-i18n="skins:cancel">取消</button>
       <button type="button" id="bg-modal-save" data-i18n="skins:save">完成</button>
       <span class="muted" id="bg-modal-meta"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 上传卡片背景 -->
+<div class="modal hidden" id="cb-modal">
+  <div class="modal-box card">
+    <h2 data-i18n="bg:cardUpload">上传卡片背景</h2>
+    <label><span data-i18n="bg:name">名字</span>
+      <input type="text" id="cb-modal-name" placeholder="卡片底图" data-i18n-placeholder="bg:cardNamePlaceholder"></label>
+    <label><span data-i18n="bg:cardUpload">卡片背景图</span>
+      <input type="file" id="cb-modal-file" accept="image/png,image/jpeg,image/webp"></label>
+    <p class="note" data-i18n="bg:cardSpecNote">240×320 · PNG / JPEG / WebP 都收，会转成 PNG 存</p>
+    <div class="row">
+      <button type="button" class="ghost" id="cb-modal-cancel" data-i18n="skins:cancel">取消</button>
+      <button type="button" id="cb-modal-save" data-i18n="skins:save">完成</button>
+      <span class="muted" id="cb-modal-meta"></span>
     </div>
   </div>
 </div>

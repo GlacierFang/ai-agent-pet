@@ -627,11 +627,10 @@ def create_app(cfg=None, start_gateway=True, port=None):
                              "current": pet.skin})
 
     async def api_backgrounds_get(request):
-        """背景清单 —— 后台要显示有哪些背景可选。"""
+        """宠物背景清单 —— 后台要显示有哪些背景可选。"""
         root = pet.cfg.get("_repo_root", ".")
         return JSONResponse({"items": bg_mod.list_bg_info(root),
-                             "current": pet.background,
-                             "cardCurrent": pet.card_background})
+                             "current": pet.background})
 
     async def api_backgrounds_post(request):
         try:
@@ -646,12 +645,10 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 bg_mod.create_bg(root, name)
                 pet.log("info", "新建背景 %s" % name)
             elif op == "delete":
-                bg_mod.delete_bg(root, name)
+                bg_mod.delete_bg(root, name, bg_mod.KIND_PET)
                 if pet.background == name:
                     await pet.set_background("default")
-                # 这张图要是正垫着卡片，删了就得让卡片回自己的渐变
-                if pet.card_background == name:
-                    await pet.set_card_background("")
+                # 卡片背景是另一套 —— 删宠物背景不碰它。
                 pet.log("info", "删除背景 %s" % name)
             elif op == "activate":
                 await pet.set_background(name)
@@ -661,8 +658,7 @@ def create_app(cfg=None, start_gateway=True, port=None):
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         return JSONResponse({"ok": True, "items": bg_mod.list_bg_info(root),
-                             "current": pet.background,
-                             "cardCurrent": pet.card_background})
+                             "current": pet.background})
 
     async def api_background_image(request):
         """某张背景的 PNG —— 后台预览用。"""
@@ -692,13 +688,81 @@ def create_app(cfg=None, start_gateway=True, port=None):
                                 status_code=400)
         root = pet.cfg.get("_repo_root", ".")
         try:
-            path = bg_mod.save_image(root, name, png)
+            path = bg_mod.save_image(root, name, png, bg_mod.KIND_PET)
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         pet.log("info", "背景已保存 %s" % path.name)
         return JSONResponse({"ok": True, "items": bg_mod.list_bg_info(root),
-                             "current": pet.background,
-                             "cardCurrent": pet.card_background})
+                             "current": pet.background})
+
+    async def api_card_backgrounds_get(request):
+        """卡片背景清单 —— 跟宠物背景分开的一套，各看各的。"""
+        root = pet.cfg.get("_repo_root", ".")
+        return JSONResponse({"items": bg_mod.list_bg_info(root, bg_mod.KIND_CARD),
+                             "current": pet.card_background})
+
+    async def api_card_backgrounds_post(request):
+        """卡片背景的新建 / 删除。选用走 /settings 的 cardBackground。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        op = str(body.get("op") or "")
+        name = str(body.get("name") or "").strip()
+        root = pet.cfg.get("_repo_root", ".")
+        try:
+            if op == "create":
+                bg_mod.create_bg(root, name, bg_mod.KIND_CARD)
+                pet.log("info", "新建卡片背景 %s" % name)
+            elif op == "delete":
+                bg_mod.delete_bg(root, name, bg_mod.KIND_CARD)
+                # 这张图正垫着卡片，删了就得让卡片回自己的渐变
+                if pet.card_background == name:
+                    await pet.set_card_background("")
+                pet.log("info", "删除卡片背景 %s" % name)
+            else:
+                return JSONResponse({"ok": False, "error": "未知操作"},
+                                    status_code=400)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True,
+                             "items": bg_mod.list_bg_info(root, bg_mod.KIND_CARD),
+                             "current": pet.card_background})
+
+    async def api_card_background_image(request):
+        """某张卡片背景的 PNG —— 后台预览用。"""
+        root = pet.cfg.get("_repo_root", ".")
+        name = str(request.query_params.get("name") or "")
+        if not bg_mod.valid_name(name):
+            return JSONResponse({"ok": False, "error": "参数不对"},
+                                status_code=400)
+        data = bg_mod.image_bytes(root, name, bg_mod.KIND_CARD)
+        if data is None:
+            return JSONResponse({"ok": False, "error": "没有图"}, status_code=404)
+        return Response(data, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+    async def api_card_background_upload(request):
+        """传一张卡片背景图 —— 走 base64，跟皮肤图那条路一样。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        name = str(body.get("name") or "").strip()
+        try:
+            png = base64.b64decode(str(body.get("data") or ""))
+        except Exception:
+            return JSONResponse({"ok": False, "error": "图片数据不是 base64"},
+                                status_code=400)
+        root = pet.cfg.get("_repo_root", ".")
+        try:
+            path = bg_mod.save_image(root, name, png, bg_mod.KIND_CARD)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        pet.log("info", "卡片背景已保存 %s" % path.name)
+        return JSONResponse({"ok": True,
+                             "items": bg_mod.list_bg_info(root, bg_mod.KIND_CARD),
+                             "current": pet.card_background})
 
     async def api_skin_image(request):
         """某只宠物某一态的 PNG —— 宠物卡封面用。
@@ -807,6 +871,10 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/backgrounds", _guard(api_backgrounds_post), methods=["POST"]),
         Route("/admin/api/backgrounds/image", _guard(api_background_image), methods=["GET"]),
         Route("/admin/api/backgrounds/upload", _guard(api_background_upload), methods=["POST"]),
+        Route("/admin/api/card-backgrounds", _guard(api_card_backgrounds_get), methods=["GET"]),
+        Route("/admin/api/card-backgrounds", _guard(api_card_backgrounds_post), methods=["POST"]),
+        Route("/admin/api/card-backgrounds/image", _guard(api_card_background_image), methods=["GET"]),
+        Route("/admin/api/card-backgrounds/upload", _guard(api_card_background_upload), methods=["POST"]),
         Route("/admin/api/events", _guard(api_events)),
         Route("/admin/api/releases", _guard(api_releases)),
         Route("/admin/api/firmware", _guard(api_firmware_list)),

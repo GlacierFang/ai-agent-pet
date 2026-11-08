@@ -181,19 +181,69 @@ def test_activate_missing_background_fails(client):
 
 def test_card_background_is_independent_from_pet_background(client, tmp_path):
     """换卡片背景不动宠物背景，换宠物背景也不动卡片背景。"""
-    bg_mod.save_image(str(tmp_path), "b1", _png())
-    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "b1"})
+    bg_mod.save_image(str(tmp_path), "b1", _png(), bg_mod.KIND_CARD)
+    bg_mod.save_image(str(tmp_path), "p1", _png())
+    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "p1"})
     r = client.post("/admin/api/settings",
                     json={"id": "cardBackground", "value": "b1"})
     assert r.status_code == 200
     pet = client.app.state.pet
     assert pet.card_background == "b1"
-    assert pet.background == "b1"
+    assert pet.background == "p1"
 
-    bg_mod.save_image(str(tmp_path), "b2", _png(color=(10, 200, 10)))
-    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "b2"})
-    assert pet.background == "b2"
+    bg_mod.save_image(str(tmp_path), "p2", _png(color=(10, 200, 10)))
+    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "p2"})
+    assert pet.background == "p2"
     assert pet.card_background == "b1"
+
+
+def test_card_background_list_is_separate_from_pet_background(client, tmp_path):
+    """两套各看各的清单 —— 宠物背景那张图不会出现在卡片背景列表里。"""
+    bg_mod.save_image(str(tmp_path), "pet-only", _png())
+    bg_mod.save_image(str(tmp_path), "card-only", _png(), bg_mod.KIND_CARD)
+
+    pet_names = [i["name"] for i in
+                 client.get("/admin/api/backgrounds").json()["items"]]
+    card_names = [i["name"] for i in
+                  client.get("/admin/api/card-backgrounds").json()["items"]]
+    assert "pet-only" in pet_names
+    assert "card-only" not in pet_names
+    assert "card-only" in card_names
+    assert "pet-only" not in card_names
+
+
+def test_card_background_rejects_pet_background_name(client, tmp_path):
+    """宠物背景的图不能拿去当卡片背景 —— 两套目录是分开的。"""
+    bg_mod.save_image(str(tmp_path), "pet-only", _png())
+    r = client.post("/admin/api/settings",
+                    json={"id": "cardBackground", "value": "pet-only"})
+    assert r.status_code == 400
+    assert client.app.state.pet.card_background == ""
+
+
+def test_card_background_upload_goes_to_its_own_dir(client, tmp_path):
+    """上传卡片背景 —— 落在 card_backgrounds 目录，跟宠物背景不混。"""
+    import base64
+    r = client.post("/admin/api/card-backgrounds/upload",
+                    json={"name": "cardbg",
+                          "data": base64.b64encode(_png()).decode()})
+    assert r.status_code == 200
+    assert r.json()["ok"]
+    assert (tmp_path / "petd" / "data" / "card_backgrounds" / "cardbg.png").is_file()
+    # 宠物背景的目录里不该有这张
+    assert not (tmp_path / "petd" / "data" / "backgrounds" / "cardbg.png").exists()
+    names = [i["name"] for i in r.json()["items"]]
+    assert "cardbg" in names
+
+
+def test_deleting_pet_background_keeps_card_background(client, tmp_path):
+    """删宠物背景不碰卡片背景 —— 两套各删各的。"""
+    bg_mod.save_image(str(tmp_path), "cardbg", _png(), bg_mod.KIND_CARD)
+    client.post("/admin/api/settings", json={"id": "cardBackground", "value": "cardbg"})
+    bg_mod.save_image(str(tmp_path), "petbg", _png())
+    r = client.post("/admin/api/backgrounds", json={"op": "delete", "name": "petbg"})
+    assert r.status_code == 200
+    assert client.app.state.pet.card_background == "cardbg"
 
 
 def test_card_background_defaults_to_gradient(client):
@@ -240,7 +290,7 @@ def test_set_card_background_rejects_missing(client):
 
 def test_card_background_can_be_cleared(client, tmp_path):
     """清空 = 回到卡片自己的渐变。"""
-    bg_mod.save_image(str(tmp_path), "b1", _png())
+    bg_mod.save_image(str(tmp_path), "b1", _png(), bg_mod.KIND_CARD)
     client.post("/admin/api/settings", json={"id": "cardBackground", "value": "b1"})
     assert client.app.state.pet.card_background == "b1"
     r = client.post("/admin/api/settings", json={"id": "cardBackground", "value": ""})
@@ -250,9 +300,9 @@ def test_card_background_can_be_cleared(client, tmp_path):
 
 def test_deleting_card_background_resets_it(client, tmp_path):
     """删掉正垫着卡片的那张图 —— 卡片回自己的渐变，不能空着。"""
-    bg_mod.save_image(str(tmp_path), "b1", _png())
+    bg_mod.save_image(str(tmp_path), "b1", _png(), bg_mod.KIND_CARD)
     client.post("/admin/api/settings", json={"id": "cardBackground", "value": "b1"})
-    r = client.post("/admin/api/backgrounds", json={"op": "delete", "name": "b1"})
+    r = client.post("/admin/api/card-backgrounds", json={"op": "delete", "name": "b1"})
     assert r.status_code == 200
     assert client.app.state.pet.card_background == ""
 

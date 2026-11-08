@@ -150,8 +150,15 @@ var T = {
     title: '背景',
     note: '宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。宠物背景和卡片背景是分开的两套。',
     cardTitle: '卡片背景',
-    cardNote: '内容卡（会话、通知、最近完成、功德、时间、主机、天气）和骰子铺的底。跟宠物背景分开 —— 换一边不动另一边。不选就用卡片自己的深色渐变。',
-    cardNone: '不选 —— 用卡片自己的渐变',
+    cardNote: '内容卡（会话、通知、最近完成、功德、时间、主机、天气）和骰子铺的底。跟宠物背景分开两套 —— 各有各的图，互不串。不选就用卡片自己的深色渐变。',
+    cardEmpty: '还没有卡片背景 —— 传一张吧。',
+    cardUpload: '上传卡片背景',
+    cardReset: '改回渐变底',
+    cardNamePlaceholder: '卡片底图',
+    cardSpecNote: '240×320 · PNG / JPEG / WebP 都收，会转成 PNG 存',
+    cardUploadFail: '上传失败',
+    cardUploadOk: '卡片背景已上传',
+    cardDeleteAsk: '删除卡片背景「{name}」？找不回来。',
     empty: '还没有背景 —— 上传一张吧。',
     yours: '你的',
     builtin: '自带',
@@ -401,8 +408,9 @@ var S = {
   docName: '',       // 现在打开的那篇
   skins: [],
   skin: '',
-  backgrounds: [],   // 背景清单（GET /backgrounds）
+  backgrounds: [],   // 宠物背景清单（GET /backgrounds）
   background: '',    // 当前宠物背景的名字
+  cardBackgrounds: [],// 卡片背景清单（GET /card-backgrounds）—— 跟宠物背景各一份
   cardBackground: '',// 当前卡片背景的名字（空 = 卡片自己的渐变）
   skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
   tab: 'pet',
@@ -507,7 +515,7 @@ function switchTab(name) {
     if (p.getAttribute('data-panel') === name) p.classList.remove('hidden');
     else p.classList.add('hidden');
   });
-  if (name === 'skins') { loadSkins(); loadBackgrounds(); }
+  if (name === 'skins') { loadSkins(); loadBackgrounds(); loadCardBackgrounds(); }
   if (name === 'settings') loadSettings();
   if (name === 'docs') loadDocs();
 }
@@ -1137,31 +1145,120 @@ function renderBackgrounds() {
   add.appendChild(al);
   add.addEventListener('click', function () { openBgModal(); });
   box.appendChild(add);
-
-  renderCardBackgroundSelect();
 }
 
-/* 卡片背景 —— 跟宠物背景分开的两套。空 = 用卡片自己的渐变。 */
-function renderCardBackgroundSelect() {
-  var sel = el('bg-card-select');
-  if (!sel) return;
-  sel.textContent = '';
-  var none = document.createElement('option');
-  none.value = '';
-  none.textContent = t('bg:cardNone');
-  sel.appendChild(none);
-  S.backgrounds.forEach(function (bg) {
-    var op = document.createElement('option');
-    op.value = bg.name;
-    op.textContent = bg.title || bg.name;
-    sel.appendChild(op);
-  });
-  sel.value = S.cardBackground || '';
-  sel.onchange = function () { setCardBackground(sel.value); };
+/* ---------------- 卡片背景（跟宠物背景分开的两套） ---------------- */
+
+/* 卡片背景 = 内容卡和骰子铺的底。
+   它有自己的目录、自己的清单、自己的上传口 ——
+   宠物背景那张图这里一张也看不到，反之亦然。 */
+function renderCardBackgrounds() {
+  var box = el('cb-list');
+  if (!box) return;
+  box.textContent = '';
+  if (!S.cardBackgrounds.length) {
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = t('bg:cardEmpty');
+    box.appendChild(e);
+  }
+  S.cardBackgrounds.forEach(function (bg) { box.appendChild(cardBackgroundCard(bg)); });
+
+  /* 最后一张永远是「上传」 */
+  var add = document.createElement('div');
+  add.className = 'pet-card pet-add';
+  add.setAttribute('role', 'button');
+  add.setAttribute('tabindex', '0');
+  var plus = document.createElement('div');
+  plus.className = 'pet-add-plus';
+  plus.textContent = '＋';
+  add.appendChild(plus);
+  var al = document.createElement('div');
+  al.className = 'pet-add-label';
+  al.textContent = t('bg:cardUpload');
+  add.appendChild(al);
+  add.addEventListener('click', function () { openCardBgModal(); });
+  box.appendChild(add);
+
+  var reset = el('cb-reset');
+  if (reset) reset.disabled = !S.cardBackground;
 }
 
-function setCardBackground(name) {
-  var meta = el('bg-card-meta');
+function cardBackgroundCard(bg) {
+  var card = document.createElement('div');
+  var isCurrent = bg.name === S.cardBackground;
+  card.className = 'pet-card' + (isCurrent ? ' current' : '');
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  if (!isCurrent) {
+    card.title = t('bg:setCurrent');
+    card.addEventListener('click', function () { activateCardBackground(bg.name); });
+  }
+
+  var cover = document.createElement('div');
+  cover.className = 'pet-cover';
+  var img = document.createElement('img');
+  img.src = API + '/card-backgrounds/image?name=' + encodeURIComponent(bg.name);
+  img.alt = bg.title || bg.name;
+  img.onerror = function () {
+    img.remove();
+    var ni = document.createElement('span');
+    ni.className = 'noimg';
+    ni.textContent = '?';
+    cover.appendChild(ni);
+  };
+  cover.appendChild(img);
+  card.appendChild(cover);
+
+  var nm = document.createElement('div');
+  nm.className = 'pet-name';
+  nm.textContent = bg.title || bg.name;
+  card.appendChild(nm);
+
+  var tags = document.createElement('div');
+  tags.className = 'pet-tags';
+  var src = document.createElement('span');
+  src.className = 'badge dim';
+  src.textContent = bg.source === 'user' ? t('bg:yours') : t('bg:builtin');
+  tags.appendChild(src);
+  if (isCurrent) {
+    var cur = document.createElement('span');
+    cur.className = 'badge ok';
+    cur.textContent = t('bg:current');
+    tags.appendChild(cur);
+  }
+  card.appendChild(tags);
+
+  if (bg.source === 'user') {
+    var acts = document.createElement('div');
+    acts.className = 'pet-actions';
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost';
+    del.textContent = t('bg:remove');
+    del.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      deleteCardBackground(bg.name);
+    });
+    acts.appendChild(del);
+    card.appendChild(acts);
+  }
+  return card;
+}
+
+function loadCardBackgrounds() {
+  return fetch(API + '/card-backgrounds', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.cardBackgrounds = blob.items || [];
+      S.cardBackground = blob.current || '';
+      renderCardBackgrounds();
+    })
+    .catch(function () { /* 忽略 */ });
+}
+
+function activateCardBackground(name) {
+  var meta = el('cb-list-meta');
   if (meta) meta.textContent = t('common:saving');
   fetch(API + '/settings', {
     method: 'POST',
@@ -1170,15 +1267,86 @@ function setCardBackground(name) {
   })
     .then(function (r) { return r.json(); })
     .then(function (b) {
-      if (!b.ok) {
-        if (meta) meta.textContent = fill(t('settings:failed'), { e: b.error || '' });
-        return;
-      }
-      if (meta) meta.textContent = t('common:saved');
+      if (!b.ok) { if (meta) meta.textContent = b.error || t('common:netError'); return; }
       S.cardBackground = name;
-      renderCardBackgroundSelect();
+      renderCardBackgrounds();
+      if (meta) meta.textContent = t('common:saved');
     })
     .catch(function () { if (meta) meta.textContent = t('common:netError'); });
+}
+
+/* 改回渐变底 —— 卡片背景不选时的样子。 */
+function resetCardBackground() {
+  var meta = el('cb-list-meta');
+  if (meta) meta.textContent = t('common:saving');
+  fetch(API + '/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'cardBackground', value: '' })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { if (meta) meta.textContent = b.error || t('common:netError'); return; }
+      S.cardBackground = '';
+      renderCardBackgrounds();
+      if (meta) meta.textContent = t('common:saved');
+    })
+    .catch(function () { if (meta) meta.textContent = t('common:netError'); });
+}
+
+function deleteCardBackground(name) {
+  if (!window.confirm(fill(t('bg:cardDeleteAsk'), { name: name }))) return;
+  fetch(API + '/card-backgrounds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'delete', name: name })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) { el('cb-list-meta').textContent = b.error || t('common:netError'); return; }
+      S.cardBackgrounds = b.items || [];
+      S.cardBackground = b.current || '';
+      renderCardBackgrounds();
+    })
+    .catch(function () { el('cb-list-meta').textContent = t('common:netError'); });
+}
+
+/* 上传一张卡片背景 —— 自己的弹窗，跟宠物背景那个分开。 */
+function openCardBgModal() {
+  el('cb-modal').classList.remove('hidden');
+  el('cb-modal-meta').textContent = '';
+  el('cb-modal-name').value = '';
+  el('cb-modal-file').value = '';
+  el('cb-modal-name').focus();
+}
+
+function saveCardBgModal() {
+  var meta = el('cb-modal-meta');
+  var name = el('cb-modal-name').value.trim();
+  if (!name) { meta.textContent = t('bg:needName'); return; }
+  var input = el('cb-modal-file');
+  var file = input.files && input.files[0];
+  if (!file) { meta.textContent = t('bg:needName'); return; }
+  meta.textContent = t('common:saving');
+  readAsBase64(file)
+    .then(function (data) {
+      return fetch(API + '/card-backgrounds/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, data: data })
+      }).then(function (r) { return r.json(); });
+    })
+    .then(function (b) {
+      if (!b.ok) throw new Error(b.error || t('bg:cardUploadFail'));
+      el('cb-modal').classList.add('hidden');
+      S.cardBackgrounds = b.items || [];
+      S.cardBackground = b.current || '';
+      renderCardBackgrounds();
+      el('cb-list-meta').textContent = t('bg:cardUploadOk');
+    })
+    .catch(function (err) {
+      meta.textContent = (err && err.message) ? err.message : t('bg:cardUploadFail');
+    });
 }
 
 function backgroundCard(bg) {
@@ -1251,7 +1419,6 @@ function loadBackgrounds() {
     .then(function (blob) {
       S.backgrounds = blob.items || [];
       S.background = blob.current || '';
-      S.cardBackground = blob.cardCurrent || '';
       renderBackgrounds();
     })
     .catch(function () { /* 忽略 */ });
@@ -1274,7 +1441,6 @@ function activateBackground(name) {
 function afterBackgrounds(b) {
   S.backgrounds = b.items || [];
   S.background = b.current || '';
-  S.cardBackground = b.cardCurrent || '';
   renderBackgrounds();
 }
 
@@ -2569,6 +2735,9 @@ function startDashboard() {
   el('skin-modal-save').addEventListener('click', function () { saveSkinModal(false); });
   el('bg-modal-cancel').addEventListener('click', function () { el('bg-modal').classList.add('hidden'); });
   el('bg-modal-save').addEventListener('click', function () { saveBgModal(); });
+  el('cb-modal-cancel').addEventListener('click', function () { el('cb-modal').classList.add('hidden'); });
+  el('cb-modal-save').addEventListener('click', function () { saveCardBgModal(); });
+  el('cb-reset').addEventListener('click', function () { resetCardBackground(); });
 
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
@@ -2588,6 +2757,7 @@ function startDashboard() {
   tickPreview();
   loadConfig();
   loadSkins();
+  loadCardBackgrounds();
 
   /* 操作指引：设备连上要一会儿，状态得常刷新才准。 */
   loadSetup();
