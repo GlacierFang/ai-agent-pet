@@ -139,6 +139,30 @@ def _scrim(img, top_y, bottom_y, max_alpha=215, dense_top=True):
     return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
 
+def _card_scrim(img, height, alpha=185, fade=16):
+    """卡片文字区垫一条暗带。
+
+    卡片自己的底可能是用户传的亮图 —— 字压上去得读得清。
+    暗带是平的（宠物那屏是上浓下淡），底下淡出一点，
+    免得跟底图之间出现一条硬边。
+    """
+    w, h = img.size
+    height = max(0, min(h, int(height)))
+    if height <= 0:
+        return img
+    fade = max(0, min(height, int(fade)))
+    ov = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    solid = height - fade
+    if solid > 0:
+        od.rectangle([0, 0, w, solid], fill=(8, 10, 16, int(alpha)))
+    span = max(1, fade - 1)
+    for y in range(solid, height):
+        t = (y - solid) / span
+        od.line([(0, y), (w, y)], fill=(8, 10, 16, int(alpha * (1.0 - t))))
+    return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+
+
 CARD_BG_TOP = (24, 28, 44)
 CARD_BG_BOTTOM = (13, 15, 24)
 
@@ -175,7 +199,7 @@ def draw_standard_card(img, draw, box, card, pet=None):
         img.paste(pet, (x, y + h - pet.size[1]), pet)
 
 
-def render_card(cfg, card, skin_image=None, overlay=None):
+def render_card(cfg, card, skin_image=None, overlay=None, background_image=None):
     """内容层：一张 feature 整屏卡片。
 
     内容层和消息层互斥 —— 屏上永远只有一样东西。
@@ -188,6 +212,9 @@ def render_card(cfg, card, skin_image=None, overlay=None):
         rows   列表行 [{"left", "right", "accent"}]
         state  宠物状态
         source 底部小字
+
+    background_image —— 卡片自己的底。跟宠物那屏的背景是**分开的两套**：
+    这里没有就退回卡片自己的深色渐变，跟宠物背景一点关系都没有。
     """
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
@@ -195,15 +222,38 @@ def render_card(cfg, card, skin_image=None, overlay=None):
     subsampling = int(cfg.get("render", {}).get("subsampling", 2))
 
     scale = 2
-    big = Image.new("RGB", (width * scale, height * scale), CARD_BG_BOTTOM)
-    _gradient(big, CARD_BG_TOP, CARD_BG_BOTTOM)
-    d = ImageDraw.Draw(big)
+    tw, th = width * scale, height * scale
+    big = Image.new("RGB", (tw, th), CARD_BG_BOTTOM)
+
+    # 底 —— 有卡片背景就铺它，没有就用卡片自己的渐变。
+    has_bg = background_image is not None
+    if has_bg:
+        bg = background_image.convert("RGB").resize((tw, th), Image.LANCZOS)
+        big.paste(bg, (0, 0))
+    else:
+        _gradient(big, CARD_BG_TOP, CARD_BG_BOTTOM)
 
     title = str(card.get("title") or "")
     big_text = str(card.get("big") or "")
     body = [str(b) for b in (card.get("body") or [])][:3]
     rows = [r for r in (card.get("rows") or []) if isinstance(r, dict)][:5]
     source = str(card.get("source") or "")
+
+    # 文字区有多高 —— 暗带得刚好盖住它。字画在底图上得读得清。
+    text_h = int(14 * scale)
+    if title:
+        text_h += int(32 * scale)
+    if big_text:
+        text_h += int(56 * scale)
+    text_h += len(body) * int(20 * scale)
+    if rows:
+        text_h += int(6 * scale) + len(rows) * int(20 * scale)
+    if source:
+        text_h += int(16 * scale)
+    if has_bg:
+        big = _card_scrim(big, min(th, text_h + int(6 * scale)))
+
+    d = ImageDraw.Draw(big)
 
     ty = int(14 * scale)
     if title:
@@ -446,10 +496,14 @@ DICE_DOTS = {
 }
 
 
-def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=None):
+def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=None,
+                background_image=None):
     """整屏骰子。宠物形象不画 —— 骰子占屏时没有宠物。
 
     value 在 1..6；rolling 时画面上的点数每帧都在换，出结果后定住。
+
+    background_image —— 卡片背景。骰子是内容层，跟别的卡共用一张底。
+    没有就退回骰子自己的深色渐变。
     """
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
@@ -457,8 +511,17 @@ def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=Non
     subsampling = int(cfg.get("render", {}).get("subsampling", 2))
 
     scale = 2
-    big = Image.new("RGB", (width * scale, height * scale), (20, 22, 32))
-    _gradient(big, (30, 24, 34), (14, 14, 22))
+    tw, th = width * scale, height * scale
+    big = Image.new("RGB", (tw, th), (20, 22, 32))
+    has_bg = background_image is not None
+    if has_bg:
+        bg = background_image.convert("RGB").resize((tw, th), Image.LANCZOS)
+        big.paste(bg, (0, 0))
+    else:
+        _gradient(big, (30, 24, 34), (14, 14, 22))
+    if has_bg:
+        # 标题压在自己的底图上 —— 顶上一条暗带。
+        big = _card_scrim(big, int(52 * scale))
     d = ImageDraw.Draw(big)
 
     _center(d, width * scale // 2, int(16 * scale), title,
@@ -483,7 +546,18 @@ def render_dice(cfg, value=1, rolling=False, title="赛博骰子", anti_burn=Non
 
     # 状态字 —— 滚的时候说在滚，停了就报点数
     label = "..." if rolling else str(int(value))
-    _center(d, width * scale // 2, y1 + int(14 * scale), label,
+    ly = y1 + int(14 * scale)
+    if has_bg:
+        # 底图可能是亮的 —— 状态字垫一块实底才认得出
+        f, _ = _font(int(16 * scale))
+        box = d.textbbox((0, 0), label, font=f)
+        pad = int(7 * scale)
+        lw = box[2] - box[0]
+        lx = (width * scale - lw) // 2
+        d.rounded_rectangle([lx - pad, ly - pad, lx + lw + pad,
+                             ly + (box[3] - box[1]) + pad],
+                            radius=int(5 * scale), fill=(16, 16, 26))
+    _center(d, width * scale // 2, ly, label,
             int(16 * scale), DICE_FACE)
 
     img = big.resize((width, height), Image.LANCZOS)

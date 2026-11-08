@@ -117,9 +117,16 @@
 
     <section class="card">
       <h2 data-i18n="bg:title">背景</h2>
-      <p class="note" data-i18n="bg:note">宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。</p>
+      <p class="note" data-i18n="bg:note">宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。宠物背景和卡片背景是分开的两套。</p>
       <div class="pet-grid" id="bg-list"></div>
       <div class="row"><span class="muted" id="bg-list-meta"></span></div>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="bg:cardTitle">卡片背景</h2>
+      <p class="note" data-i18n="bg:cardNote">内容卡和骰子铺的底。跟宠物背景分开 —— 换一边不动另一边。不选就用卡片自己的深色渐变。</p>
+      <div class="ctl ctl-select"><select id="bg-card-select"></select></div>
+      <div class="row"><span class="muted" id="bg-card-meta"></span></div>
     </section>
   </section>
 

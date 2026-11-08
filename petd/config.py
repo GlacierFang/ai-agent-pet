@@ -44,6 +44,9 @@ def defaults():
             # 背景图 —— 和宠物形象解耦。换宠物不影响背景，换背景不影响宠物。
             # 仓库自带 backgrounds/default.png；用户自己的放 petd/data/backgrounds/。
             "background": "default",
+            # 卡片背景 —— 内容卡和骰子铺的底。跟宠物背景是分开的两套。
+            # 空 = 用卡片自己的深色渐变（跟宠物背景无关）。
+            "cardBackground": "",
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
             "features": ["sessions", "notify", "recent_done", "merit", "dice",

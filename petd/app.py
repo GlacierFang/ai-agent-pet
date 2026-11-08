@@ -58,6 +58,9 @@ class PetApp:
         self.skin = cfg.get("ui", {}).get("skin", "default")
         # 背景 —— 和宠物形象解耦。换宠物不动背景，换背景不动宠物。
         self.background = str(cfg.get("ui", {}).get("background") or "default")
+        # 卡片背景 —— 内容卡和骰子的底。跟宠物背景是分开的两套：
+        # 换一边不动另一边。空 = 用卡片自己的深色渐变。
+        self.card_background = str(cfg.get("ui", {}).get("cardBackground") or "")
         # 空闲时参与轮播的 feature。
         # 老配置里没有新功能的名字 —— 直接 normalize 会把它们悄悄关掉
         # （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
@@ -350,6 +353,20 @@ class PetApp:
         self._persist_config()
         self.log("info", "背景 -> " + name)
 
+    async def set_card_background(self, name):
+        """换卡片背景。跟宠物背景是分开的两套 —— 换一边不动另一边。
+
+        空字符串 = 用卡片自己的渐变底（默认）。
+        """
+        root = self.cfg.get("_repo_root", ".")
+        name = str(name or "").strip()
+        if name and not bg_mod.has_bg(root, name):
+            raise ValueError("没有这个背景")
+        self.card_background = name
+        self.cfg.setdefault("ui", {})["cardBackground"] = name
+        self._persist_config()
+        self.log("info", "卡片背景 -> " + (name or "卡片自己的渐变"))
+
     async def set_skin(self, name):
         root = self.cfg.get("_repo_root", ".")
         if name not in skins_mod.list_skins(root):
@@ -603,6 +620,11 @@ class PetApp:
         # 骰子、卡片在夜里不会出现（导演先判睡觉），所以只有
         # render_frame 和 render_dice 需要接这个参数。
 
+        # 卡片背景 —— 内容层用的底。跟宠物背景是分开的两套。
+        card_bg_img = None
+        if self.card_background:
+            card_bg_img = bg_mod.load_image(root, self.card_background)
+
         # 骰子占屏 —— 一次性覆盖层。这时没有宠物形象。
         if not self.dice_on():
             # 功能被关掉了 —— 屏上不该还有骰子
@@ -613,7 +635,8 @@ class PetApp:
             # 这条路径先于睡觉判断返回，不带上就会漏掉。
             jpeg = render_mod.render_dice(self.cfg, value=dice_face,
                                           rolling=dice_rolling,
-                                          anti_burn=anti_burn)
+                                          anti_burn=anti_burn,
+                                          background_image=card_bg_img)
             self.last_jpeg = jpeg
             self.last_jpeg_ts = time.time()
             return jpeg
@@ -640,12 +663,14 @@ class PetApp:
                     self.cfg, photo, str(card.get("counter") or ""))
                 if jpeg is None:
                     # 照片读不出来 —— 退回普通卡片，别让屏上开天窗
-                    jpeg = render_mod.render_card(self.cfg, card)
+                    jpeg = render_mod.render_card(self.cfg, card,
+                                                  background_image=card_bg_img)
             else:
                 cstate = str(card.get("state") or state)
                 skin_img = skins_mod.load_image(root, self.skin, cstate)
                 jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img,
-                                              overlay=overlay)
+                                              overlay=overlay,
+                                              background_image=card_bg_img)
         else:
             face = str(view.get("face") or state)
             sub = self._subtitle()
@@ -796,6 +821,7 @@ class PetApp:
                     "stateCn": state_mod.STATE_CN.get(self.engine.state, self.engine.state),
                     "density": self.density, "skin": self.skin,
                     "background": self.background,
+                    "cardBackground": self.card_background,
                     "sessions": len(self.engine.sessions),
                     "selected": self.engine.selected_key,
                     "attribution": self.engine.attribution,

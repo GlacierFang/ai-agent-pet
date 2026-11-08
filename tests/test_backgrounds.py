@@ -176,6 +176,87 @@ def test_activate_missing_background_fails(client):
     assert r.status_code == 400
 
 
+# ---------- 卡片背景（跟宠物背景分开的两套） ----------
+
+
+def test_card_background_is_independent_from_pet_background(client, tmp_path):
+    """换卡片背景不动宠物背景，换宠物背景也不动卡片背景。"""
+    bg_mod.save_image(str(tmp_path), "b1", _png())
+    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "b1"})
+    r = client.post("/admin/api/settings",
+                    json={"id": "cardBackground", "value": "b1"})
+    assert r.status_code == 200
+    pet = client.app.state.pet
+    assert pet.card_background == "b1"
+    assert pet.background == "b1"
+
+    bg_mod.save_image(str(tmp_path), "b2", _png(color=(10, 200, 10)))
+    client.post("/admin/api/backgrounds", json={"op": "activate", "name": "b2"})
+    assert pet.background == "b2"
+    assert pet.card_background == "b1"
+
+
+def test_card_background_defaults_to_gradient(client):
+    """没设卡片背景 —— 卡片退回自己的渐变，跟现在一模一样。"""
+    assert client.app.state.pet.card_background == ""
+
+
+def test_card_background_changes_card_pixels():
+    """给了卡片背景，卡片就该跟没有背景时不一样。"""
+    from PIL import Image
+    cfg = config_mod.defaults()
+    bg = Image.new("RGB", (240, 320), (200, 30, 30))
+    card = {"title": "标题", "body": ["一行"]}
+    assert render.render_card(cfg, card) != render.render_card(
+        cfg, card, background_image=bg)
+
+
+def test_card_background_changes_dice_pixels():
+    """骰子也是内容层 —— 用的是同一张卡片背景。"""
+    from PIL import Image
+    cfg = config_mod.defaults()
+    bg = Image.new("RGB", (240, 320), (30, 200, 30))
+    assert render.render_dice(cfg, value=6) != render.render_dice(
+        cfg, value=6, background_image=bg)
+
+
+def test_card_background_stays_within_frame_limit():
+    """加了底图，帧不能超 32KB —— 超了设备丢帧，整台卡住。"""
+    from PIL import Image
+    cfg = config_mod.defaults()
+    bg = Image.new("RGB", (240, 320), (200, 30, 30))
+    jpeg = render.render_card(cfg, {"title": "标题", "body": ["一", "二", "三"]},
+                               background_image=bg)
+    assert len(jpeg) <= render.MAX_FRAME_BYTES
+    jpeg = render.render_dice(cfg, value=6, background_image=bg)
+    assert len(jpeg) <= render.MAX_FRAME_BYTES
+
+
+def test_set_card_background_rejects_missing(client):
+    r = client.post("/admin/api/settings",
+                    json={"id": "cardBackground", "value": "nope"})
+    assert r.status_code == 400
+
+
+def test_card_background_can_be_cleared(client, tmp_path):
+    """清空 = 回到卡片自己的渐变。"""
+    bg_mod.save_image(str(tmp_path), "b1", _png())
+    client.post("/admin/api/settings", json={"id": "cardBackground", "value": "b1"})
+    assert client.app.state.pet.card_background == "b1"
+    r = client.post("/admin/api/settings", json={"id": "cardBackground", "value": ""})
+    assert r.status_code == 200
+    assert client.app.state.pet.card_background == ""
+
+
+def test_deleting_card_background_resets_it(client, tmp_path):
+    """删掉正垫着卡片的那张图 —— 卡片回自己的渐变，不能空着。"""
+    bg_mod.save_image(str(tmp_path), "b1", _png())
+    client.post("/admin/api/settings", json={"id": "cardBackground", "value": "b1"})
+    r = client.post("/admin/api/backgrounds", json={"op": "delete", "name": "b1"})
+    assert r.status_code == 200
+    assert client.app.state.pet.card_background == ""
+
+
 def test_background_and_skin_are_independent(client, tmp_path):
     """换背景不动宠物，换宠物不动背景。"""
     bg_mod.save_image(str(tmp_path), "b1", _png())

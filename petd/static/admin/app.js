@@ -148,7 +148,10 @@ var T = {
 
   bg: {
     title: '背景',
-    note: '宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。',
+    note: '宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。宠物背景和卡片背景是分开的两套。',
+    cardTitle: '卡片背景',
+    cardNote: '内容卡（会话、通知、最近完成、功德、时间、主机、天气）和骰子铺的底。跟宠物背景分开 —— 换一边不动另一边。不选就用卡片自己的深色渐变。',
+    cardNone: '不选 —— 用卡片自己的渐变',
     empty: '还没有背景 —— 上传一张吧。',
     yours: '你的',
     builtin: '自带',
@@ -399,7 +402,8 @@ var S = {
   skins: [],
   skin: '',
   backgrounds: [],   // 背景清单（GET /backgrounds）
-  background: '',    // 当前背景的名字
+  background: '',    // 当前宠物背景的名字
+  cardBackground: '',// 当前卡片背景的名字（空 = 卡片自己的渐变）
   skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
   tab: 'pet',
   setup: null,        // GET /setup 的结果（操作指引）
@@ -1133,6 +1137,48 @@ function renderBackgrounds() {
   add.appendChild(al);
   add.addEventListener('click', function () { openBgModal(); });
   box.appendChild(add);
+
+  renderCardBackgroundSelect();
+}
+
+/* 卡片背景 —— 跟宠物背景分开的两套。空 = 用卡片自己的渐变。 */
+function renderCardBackgroundSelect() {
+  var sel = el('bg-card-select');
+  if (!sel) return;
+  sel.textContent = '';
+  var none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('bg:cardNone');
+  sel.appendChild(none);
+  S.backgrounds.forEach(function (bg) {
+    var op = document.createElement('option');
+    op.value = bg.name;
+    op.textContent = bg.title || bg.name;
+    sel.appendChild(op);
+  });
+  sel.value = S.cardBackground || '';
+  sel.onchange = function () { setCardBackground(sel.value); };
+}
+
+function setCardBackground(name) {
+  var meta = el('bg-card-meta');
+  if (meta) meta.textContent = t('common:saving');
+  fetch(API + '/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'cardBackground', value: name })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) {
+        if (meta) meta.textContent = fill(t('settings:failed'), { e: b.error || '' });
+        return;
+      }
+      if (meta) meta.textContent = t('common:saved');
+      S.cardBackground = name;
+      renderCardBackgroundSelect();
+    })
+    .catch(function () { if (meta) meta.textContent = t('common:netError'); });
 }
 
 function backgroundCard(bg) {
@@ -1205,6 +1251,7 @@ function loadBackgrounds() {
     .then(function (blob) {
       S.backgrounds = blob.items || [];
       S.background = blob.current || '';
+      S.cardBackground = blob.cardCurrent || '';
       renderBackgrounds();
     })
     .catch(function () { /* 忽略 */ });
@@ -1227,6 +1274,7 @@ function activateBackground(name) {
 function afterBackgrounds(b) {
   S.backgrounds = b.items || [];
   S.background = b.current || '';
+  S.cardBackground = b.cardCurrent || '';
   renderBackgrounds();
 }
 

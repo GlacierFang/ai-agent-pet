@@ -520,6 +520,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 await pet.set_skin(str(value))
             elif fid == "background":
                 await pet.set_background(str(value))
+            elif fid == "cardBackground":
+                await pet.set_card_background(str(value or ""))
             elif fid == "session":
                 pet.set_session(str(value or ""))
             elif fid == "weatherCity":
@@ -628,7 +630,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         """背景清单 —— 后台要显示有哪些背景可选。"""
         root = pet.cfg.get("_repo_root", ".")
         return JSONResponse({"items": bg_mod.list_bg_info(root),
-                             "current": pet.background})
+                             "current": pet.background,
+                             "cardCurrent": pet.card_background})
 
     async def api_backgrounds_post(request):
         try:
@@ -646,6 +649,9 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 bg_mod.delete_bg(root, name)
                 if pet.background == name:
                     await pet.set_background("default")
+                # 这张图要是正垫着卡片，删了就得让卡片回自己的渐变
+                if pet.card_background == name:
+                    await pet.set_card_background("")
                 pet.log("info", "删除背景 %s" % name)
             elif op == "activate":
                 await pet.set_background(name)
@@ -655,7 +661,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         return JSONResponse({"ok": True, "items": bg_mod.list_bg_info(root),
-                             "current": pet.background})
+                             "current": pet.background,
+                             "cardCurrent": pet.card_background})
 
     async def api_background_image(request):
         """某张背景的 PNG —— 后台预览用。"""
@@ -690,7 +697,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         pet.log("info", "背景已保存 %s" % path.name)
         return JSONResponse({"ok": True, "items": bg_mod.list_bg_info(root),
-                             "current": pet.background})
+                             "current": pet.background,
+                             "cardCurrent": pet.card_background})
 
     async def api_skin_image(request):
         """某只宠物某一态的 PNG —— 宠物卡封面用。
