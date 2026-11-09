@@ -166,7 +166,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     const cJSON *id = cJSON_GetObjectItem(root, "id");
     if (!cJSON_IsString(id) || !id->valuestring[0]) {
         cJSON_Delete(root);
-        return ESP_ERR_INVALID_ARGUMENT;
+        return ESP_ERR_INVALID_ARG;
     }
     snprintf(out->id, sizeof(out->id), "%s", id->valuestring);
 
@@ -306,7 +306,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             if (ii < 0) {
                 ESP_LOGE(TAG, "input maps to unknown intent: %s", iname->valuestring);
                 cJSON_Delete(root);
-                return ESP_ERR_INVALID_ARGUMENT;
+                return ESP_ERR_INVALID_ARG;
             }
             game_input_map_t *im = &out->inmap[out->ninmap];
             memset(im, 0, sizeof(*im));
@@ -495,8 +495,9 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     const cJSON *gl = cJSON_GetObjectItem(root, "glyphs");
     if (cJSON_IsObject(gl)) {
         for (cJSON *child = gl->child; child; child = child->next) {
+            /* child 是 cJSON；child->valuestring 是 char*，不能当 cJSON 传 */
             if (!cJSON_IsString(child) || !child->string) continue;
-            if (!cJSON_IsString(child->valuestring)) continue;
+            if (!child->valuestring || !child->valuestring[0]) continue;
             uint32_t cp = first_codepoint(child->string);
             if (!cp) continue;
             uint8_t bits[GAME_GLYPH_BYTES];
@@ -605,7 +606,7 @@ esp_err_t game_pack_mount(void)
 
 esp_err_t game_install_pack(const char *json, size_t len)
 {
-    if (!json || len == 0) return ESP_ERR_INVALID_ARGUMENT;
+    if (!json || len == 0) return ESP_ERR_INVALID_ARG;
     if (len > PACK_MAX_BYTES) {
         ESP_LOGE(TAG, "pack too big: %u", (unsigned)len);
         return ESP_ERR_INVALID_SIZE;
@@ -781,7 +782,7 @@ int game_scan_index(void)
 /* 加载某个 pack（按 id）到当前卡。 */
 esp_err_t game_load_pack(const char *id)
 {
-    if (!id || !s_mounted) return ESP_ERR_INVALID_ARGUMENT;
+    if (!id || !s_mounted) return ESP_ERR_INVALID_ARG;
     char path[128];
     snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, id);
     FILE *f = fopen(path, "rb");
