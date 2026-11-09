@@ -1,12 +1,11 @@
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "esp_log.h"
+/* VFS 声明在 esp_spiffs.h 里 —— IDF v5.5 没有 esp_vfs_spiffs.h 这个头。
+   IDF 自己的 spiffs 示例也是只 include esp_spiffs.h。 */
 #include "esp_spiffs.h"
-#include "esp_vfs_spiffs.h"
 
 #include "cJSON.h"
 
@@ -23,10 +22,14 @@ static const char *TAG = "game_pack";
 #define PACK_DIR       "/packs"
 #define PACK_PARTITION "storage"
 #define PACK_MAX_BYTES (24 * 1024)
+/* 已装 pack 的清单。SPIFFS 是扁平文件系统（官方文档明说不支持目录），
+   而且 IDF v5 的 newlib 不保证给 dirent.h —— 所以不扫目录，用清单记账。 */
+#define PACK_MANIFEST "/packs/manifest.json"
+#define PACK_MAX_IDS   GAME_MAX_MENU_ITEMS
 
 static bool s_mounted;
 
-/* 菜单索引（从 SPIFFS 扫出来）*/
+/* 菜单索引（按清单里的 pack 逐个读出来）*/
 static game_index_t s_index[GAME_MAX_MENU_ITEMS];
 static int s_nindex;
 
@@ -54,7 +57,7 @@ static int entity_index_by_name(const cJSON *ents, const char *name)
 
 
 /* sprite 像素矩阵里的字符 -> 调色板下标。
-   '.' 是透明，'0'-'9' 是下标。 */
+   点号是透明，数字是下标。 */
 static int sprite_pixel(char c)
 {
     if (c == '.') return GAME_SPRITE_TRANSPARENT;
@@ -322,10 +325,15 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
         JSON_FOREACH_IDX(e, ents, i) {
             if (out->nents >= GAME_MAX_ENTITIES) break;
             const cJSON *eid = cJSON_GetObjectItem(e, "id");
-            if (!cJSON_IsString(eid)) continue;
             game_entity_t *ge = &out->ents[out->nents];
             memset(ge, 0, sizeof(*ge));
-            snprintf(ge->id, sizeof(ge->id), "%s", eid->valuestring);
+            if (cJSON_IsString(eid)) {
+                snprintf(ge->id, sizeof(ge->id), "%s", eid->valuestring);
+            } else {
+                /* 缺 id 也要占一个槽位 —— 下标必须跟 JSON 数组对齐，
+                   否则 rules 里的 target 会打到别的实体上。 */
+                snprintf(ge->id, sizeof(ge->id), "_%d", out->nents);
+            }
 
             const cJSON *sh = cJSON_GetObjectItem(e, "shape");
             ge->shape = shape_from_name(cJSON_IsString(sh) ? sh->valuestring : NULL);
@@ -502,6 +510,79 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
 }
 
 
+/* ---------- manifest ---------- */
+
+/* 写清单：已装的 pack id 列表。 */
+static esp_err_t manifest_save(const char *ids[], int n)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+    cJSON *arr = cJSON_CreateArray();
+    if (!arr) {
+        cJSON_Delete(root);
+        return ESP_ERR_NO_MEM;
+    }
+    for (int i = 0; i < n; i++) {
+        cJSON_AddItemToArray(arr, cJSON_CreateString(ids[i]));
+    }
+    cJSON_AddItemToObject(root, "packs", arr);
+    char *txt = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!txt) return ESP_ERR_NO_MEM;
+
+    FILE *f = fopen(PACK_MANIFEST, "wb");
+    if (!f) {
+        free(txt);
+        return ESP_FAIL;
+    }
+    size_t nw = fwrite(txt, 1, strlen(txt), f);
+    fclose(f);
+    free(txt);
+    return nw ? ESP_OK : ESP_FAIL;
+}
+
+
+/* 读清单。返回读到的 id 数量。 */
+static int manifest_load(char ids[][GAME_MAX_PACK_ID], int max)
+{
+    int n = 0;
+    FILE *f = fopen(PACK_MANIFEST, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > 4096) {
+        fclose(f);
+        return 0;
+    }
+    char *buf = malloc((size_t)sz + 1);
+    if (!buf) {
+        fclose(f);
+        return 0;
+    }
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[rd] = 0;
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) return 0;
+    cJSON *arr = cJSON_GetObjectItem(root, "packs");
+    if (cJSON_IsArray(arr)) {
+        int i = 0;
+        const cJSON *it;
+        JSON_FOREACH_IDX(it, arr, i) {
+            if (n >= max) break;
+            if (!cJSON_IsString(it)) continue;
+            snprintf(ids[n], GAME_MAX_PACK_ID, "%s", it->valuestring);
+            n++;
+        }
+    }
+    cJSON_Delete(root);
+    return n;
+}
+
+
 esp_err_t game_pack_mount(void)
 {
     if (s_mounted) return ESP_OK;
@@ -554,6 +635,22 @@ esp_err_t game_install_pack(const char *json, size_t len)
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "pack installed: %s (%u bytes)", probe.id, (unsigned)len);
+
+    /* 记进清单 */
+    char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
+    int total = manifest_load(ids, PACK_MAX_IDS);
+    int found = 0;
+    for (int i = 0; i < total; i++) {
+        if (!strcmp(ids[i], probe.id)) { found = 1; break; }
+    }
+    if (!found && total < PACK_MAX_IDS) {
+        snprintf(ids[total], GAME_MAX_PACK_ID, "%s", probe.id);
+        total++;
+        const char *lp[PACK_MAX_IDS];
+        for (int i = 0; i < total; i++) lp[i] = ids[i];
+        manifest_save(lp, total);
+    }
+
     game_scan_index();
     return ESP_OK;
 }
@@ -562,8 +659,10 @@ esp_err_t game_install_pack(const char *json, size_t len)
 bool game_has_pack(const char *id)
 {
     if (!id || !s_mounted) return false;
-    for (int i = 0; i < s_nindex; i++) {
-        if (!strcmp(s_index[i].id, id)) return true;
+    char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
+    int total = manifest_load(ids, PACK_MAX_IDS);
+    for (int i = 0; i < total; i++) {
+        if (!strcmp(ids[i], id)) return true;
     }
     return false;
 }
@@ -572,29 +671,38 @@ bool game_has_pack(const char *id)
 int game_prune_packs(const char *keep[], int n)
 {
     if (!s_mounted) return 0;
-    DIR *d = opendir(PACK_DIR);
-    if (!d) return 0;
+    char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
+    int total = manifest_load(ids, PACK_MAX_IDS);
+
+    char left[PACK_MAX_IDS][GAME_MAX_PACK_ID];
+    int nleft = 0;
     int removed = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        size_t len = strlen(ent->d_name);
-        if (len < 6 || strcmp(ent->d_name + len - 5, ".json")) continue;
-        char id[GAME_MAX_PACK_ID];
-        snprintf(id, sizeof(id), "%.*s", (int)(len - 5), ent->d_name);
+    for (int i = 0; i < total; i++) {
         int keep_it = 0;
-        for (int i = 0; i < n; i++) {
-            if (keep && keep[i] && !strcmp(keep[i], id)) { keep_it = 1; break; }
+        for (int k = 0; k < n; k++) {
+            if (keep && keep[k] && !strcmp(keep[k], ids[i])) { keep_it = 1; break; }
         }
-        if (keep_it) continue;
+        if (keep_it) {
+            if (nleft < PACK_MAX_IDS) {
+                snprintf(left[nleft], GAME_MAX_PACK_ID, "%s", ids[i]);
+                nleft++;
+            }
+            continue;
+        }
         char path[128];
-        snprintf(path, sizeof(path), "%s/%s", PACK_DIR, ent->d_name);
-        if (unlink(path) == 0) {
-            ESP_LOGI(TAG, "pack removed: %s", id);
+        snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, ids[i]);
+        if (remove(path) == 0) {
+            ESP_LOGI(TAG, "pack removed: %s", ids[i]);
             removed++;
         }
     }
-    closedir(d);
-    if (removed) game_scan_index();
+
+    if (removed) {
+        const char *lp[PACK_MAX_IDS];
+        for (int i = 0; i < nleft; i++) lp[i] = left[i];
+        manifest_save(lp, nleft);
+        game_scan_index();
+    }
     return removed;
 }
 
@@ -602,12 +710,7 @@ int game_prune_packs(const char *keep[], int n)
 int game_local_pack_ids(char out[][GAME_MAX_PACK_ID], int max)
 {
     if (!s_mounted) return 0;
-    int n = 0;
-    for (int i = 0; i < s_nindex && n < max; i++) {
-        snprintf(out[n], GAME_MAX_PACK_ID, "%s", s_index[i].id);
-        n++;
-    }
-    return n;
+    return manifest_load(out, max);
 }
 
 
@@ -621,22 +724,21 @@ const game_index_t *game_index_get(int i)
 }
 
 
-/* 扫 SPIFFS，重建索引（id / title / hint / order）。 */
+/* 按清单重建索引（id / title / hint / order）。
+   不扫目录 —— SPIFFS 是扁平文件系统，而且 IDF v5 的 newlib 不保证有 dirent.h。 */
 int game_scan_index(void)
 {
     s_nindex = 0;
     if (!s_mounted) {
         if (game_pack_mount() != ESP_OK) return 0;
     }
-    DIR *d = opendir(PACK_DIR);
-    if (!d) return 0;
 
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL && s_nindex < GAME_MAX_MENU_ITEMS) {
-        size_t len = strlen(ent->d_name);
-        if (len < 6 || strcmp(ent->d_name + len - 5, ".json")) continue;
+    char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
+    int total = manifest_load(ids, PACK_MAX_IDS);
+
+    for (int i = 0; i < total && s_nindex < GAME_MAX_MENU_ITEMS; i++) {
         char path[128];
-        snprintf(path, sizeof(path), "%s/%s", PACK_DIR, ent->d_name);
+        snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, ids[i]);
         FILE *f = fopen(path, "rb");
         if (!f) continue;
         fseek(f, 0, SEEK_END);
@@ -660,7 +762,6 @@ int game_scan_index(void)
         }
         free(buf);
     }
-    closedir(d);
 
     /* 按 order 排 */
     for (int i = 1; i < s_nindex; i++) {
