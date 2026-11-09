@@ -17,6 +17,7 @@ from . import album as album_mod
 from . import features as feature_mod
 from . import backgrounds as bg_mod
 from . import gestures as gestures_mod
+from . import packs as packs_mod
 from . import render as render_mod
 from . import screen as screen_mod
 from . import settings as settings_mod
@@ -98,8 +99,13 @@ class PetApp:
         self.chatter = chatter_mod.Chatter()
         # 屏上的玩具 —— 骰子（一次性覆盖层）和功德计数器。
         # 它们不是宠物状态，不进六态语义表；状态机一个字节都没动。
-        self.dice = toys_mod.Dice()
         self.merit = toys_mod.Merit(cfg.get("ui", {}).get("merit", 0))
+        # 游戏 —— 跑在设备上。启用哪些 pack 存在 ui.games。
+        # 短按进游戏菜单是设备本地接管的事，这里只管「哪些游戏开着」。
+        # 没配过（None）= 全部可用；配了空列表 = 全关。
+        raw_games = cfg.get("ui", {}).get("games")
+        self.games_enabled = packs_mod.normalize(
+            raw_games if raw_games is not None else packs_mod.known_ids())
         # 相册 —— 用户传的照片。照片列表读一次就够，
         # 用户增删时再 reload（见 reload_album）。
         self.album = feature_mod.get("album")
@@ -147,10 +153,7 @@ class PetApp:
         if changed:
             self.log("info", "状态 -> " + state)
             await self.push_state(state)
-            if state in ("working", "waiting", "error"):
-                # 有活来了 —— 骰子让路
-                self.dice.dismiss()
-            elif state == "done":
+            if state == "done":
                 # 干完一次活 —— 功德 +1。
                 # 任何一次「变成 done」都算，包括 idle -> done：
                 # 轮询可能没赶上干活那一帧，但活确实干完了。
@@ -192,6 +195,11 @@ class PetApp:
             "frame": {"idleFps": self.cfg.get("frame", {}).get("idleFps", 1),
                       "activeFps": self.cfg.get("frame", {}).get("activeFps", 10)},
         })
+        # 启用哪些游戏 —— 单独一条消息，不塞在 welcome 里。
+        # welcome 是协议固定字段，塞进去老固件会多出一个没见过的键（无害，
+        # 但协议文档要跟着改；单独一条更清楚，老固件直接忽略）。
+        await self.devices.send_json({"type": "games",
+                                      "enabled": sorted(self.games_enabled)})
         self.log("info", "设备握手完成: " + s.device_id)
         self._mark_device_seen(s)
 
@@ -218,10 +226,72 @@ class PetApp:
                     s.provisioned = bool(msg.get("provisioned"))
         elif t == "input":
             await self.on_knob(msg)
+        elif t == "gameMode":
+            s = self.devices.session
+            if s:
+                s.mode = str(msg.get("mode") or "idle")
+                self.log("info", "设备模式 -> %s" % s.mode)
+        elif t == "gameRequest":
+            await self.send_pack(str(msg.get("id") or ""))
         elif t == "log":
             self.log(msg.get("level", "info"), "device: " + str(msg.get("msg", "")))
         elif t == "error":
             self.log("error", "device: " + str(msg.get("message", msg.get("code", ""))))
+
+    # ---------- 游戏 ----------
+    async def send_pack(self, pack_id):
+        """把一个游戏包推给设备。"""
+        if not pack_id:
+            return False
+        raw = packs_mod.read_pack(pack_id)
+        if raw is None:
+            self.log("warn", "找不到游戏包: " + pack_id)
+            return False
+        try:
+            data = json.loads(raw)
+        except Exception as exc:
+            self.log("error", "游戏包 %s 解析失败: %s" % (pack_id, exc))
+            return False
+        ok = await self.devices.send_json({
+            "type": "pack", "id": data.get("id", pack_id),
+            "version": data.get("version", 1), "data": data})
+        if ok:
+            self.log("info", "游戏包已下发: " + pack_id)
+        return bool(ok)
+
+    async def push_games(self):
+        """把启用的游戏列表推给设备。
+
+        设备收到后自己裁剪（多的删掉）+ 主动要缺的 —— 不用服务端逐个推。
+        """
+        await self.devices.send_json({"type": "games",
+                                      "enabled": sorted(self.games_enabled)})
+
+    def set_games(self, ids):
+        """勾选启用哪些游戏。改完立刻生效，也落盘。"""
+        picked = packs_mod.normalize(ids)
+        self.games_enabled = picked
+        ui = self.cfg.setdefault("ui", {})
+        ui["games"] = sorted(picked)
+        self._persist_config()
+        self.log("info", "可用游戏 -> " + ("、".join(sorted(picked)) or "无"))
+
+    def games_payload(self):
+        """后台「游戏」页 —— 所有可用 pack 和开关状态。"""
+        items = []
+        for d in packs_mod.list_packs():
+            items.append({
+                "id": d["id"],
+                "title": d["title"],
+                "hint": d["hint"],
+                "order": d["order"],
+                "enabled": d["id"] in self.games_enabled,
+                "builtin": "/data/" not in d["path"],
+            })
+        return {"games": items,
+                "enabled": sorted(self.games_enabled),
+                # 设备现在在哪个模式 —— playing 说明它正在玩，服务端停推帧
+                "deviceMode": str(self.devices.status().get("mode") or "idle")}
 
     # ---------- 旋钮 ----------
     async def on_knob(self, msg):
@@ -284,8 +354,8 @@ class PetApp:
         elif action == "skin.next":
             await self.cycle_skin()
             return "ok"
-        elif action == "dice.roll":
-            return self.roll_dice()
+        elif action == "game.menu":
+            return await self.open_game_menu()
         return ""
 
     # ---------- 能改的设置 ----------
@@ -403,33 +473,21 @@ class PetApp:
         self._persist_config()
         self.log("info", "关注会话 -> " + (key or "自动"))
 
-    def roll_dice(self):
-        """摇骰子 —— 按一下开，再按一下收。
+    async def open_game_menu(self):
+        """让设备打开游戏菜单。
 
-        返回这次的结果：opened / closed / busy / night。
-        只在宠物闲着的时候弹：
-          · 睡着不弹 —— 吵醒它要改状态机，那是最贵的一条路
-          · 忙着不弹 —— 有活先干活，骰子让路
+        游戏跑在设备上 —— 服务端没有「游戏界面」这回事，
+        只能请设备自己打开菜单。设备不在线就说清楚，别装成按了没反应。
         """
-        if self.dice.active:
-            self.dice.dismiss()
-            self.log("info", "收起骰子")
-            return "closed"
-        if not self.dice_on():
-            # 骰子功能没勾 —— 按旋钮不弹骰子
-            self.log("info", "骰子没开")
-            return "off"
-        state = self.engine.state
-        if state in ("working", "waiting", "error"):
-            self.log("info", "有活，先干活")
-            return "busy"
-        if self.is_night():
-            # 睡着的判断看时段，不看引擎状态 —— 引擎里没有 sleeping 这一态
-            self.log("info", "睡着了，不摇骰子")
-            return "night"
-        self.dice.press()
-        self.log("info", "摇骰子")
-        return "opened"
+        if not self.devices.online:
+            self.log("info", "设备不在线，开不了游戏菜单")
+            return "offline"
+        ok = await self.devices.send_json({"type": "gameCommand", "action": "menu"})
+        if ok:
+            self.log("info", "已让设备打开游戏菜单")
+            return "opened"
+        self.log("info", "没能让设备打开游戏菜单")
+        return "offline"
 
     def reload_album(self):
         """照片变了 —— 让相册重新读一遍列表。"""
@@ -449,10 +507,6 @@ class PetApp:
         """功德箱功能开没开 —— 关了屏上不出现任何功德字样。"""
         return "merit" in self.features_enabled
 
-    def dice_on(self):
-        """赛博骰子功能开没开 —— 关了短按旋钮不弹骰子。"""
-        return "dice" in self.features_enabled
-
     def toys_view(self):
         """屏上玩具的现状 —— 后台要显示它，也得说清现在摇不摇得动。
 
@@ -463,16 +517,8 @@ class PetApp:
         night = self.is_night()
         return {
             "merit": int(self.merit.value),
-            "dice": {
-                "active": bool(self.dice.active),
-                "rolling": bool(self.dice.rolling),
-                "value": int(self.dice.value),
-                "rolled": bool(self.dice.rolled),
-            },
             "busy": busy,
             "night": night,
-            # 现在按旋钮会不会弹骰子
-            "canRoll": not busy and not night,
             # 短按被映射到哪个动作 —— 页面照它说话，不替用户猜
             "pressAction": gestures_mod.action_for("press_short", self.gestures),
         }
@@ -618,8 +664,7 @@ class PetApp:
         # 夜里屏上是一张不动的睡觉图，一挂就是好几个小时；
         # 白天有卡片轮播，内容本来就在变，不需要。
         anti_burn = render_mod.anti_burn_state(now) if self.is_night(now) else None
-        # 骰子、卡片在夜里不会出现（导演先判睡觉），所以只有
-        # render_frame 和 render_dice 需要接这个参数。
+        # 卡片在夜里不会出现（导演先判睡觉），所以只有 render_frame 要接这个参数。
 
         # 卡片背景 —— 内容层用的底。跟宠物背景是分开的两套：
         # 读的是卡片背景自己的目录，宠物背景那张图它看不见。
@@ -627,22 +672,6 @@ class PetApp:
         if self.card_background:
             card_bg_img = bg_mod.load_image(root, self.card_background,
                                            bg_mod.KIND_CARD)
-
-        # 骰子占屏 —— 一次性覆盖层。这时没有宠物形象。
-        if not self.dice_on():
-            # 功能被关掉了 —— 屏上不该还有骰子
-            self.dice.dismiss()
-        dice_on, dice_face, dice_rolling = self.dice.update(now)
-        if dice_on:
-            # 骰子也要防烧屏 —— 出完结果就定住了，夜里能定一整夜。
-            # 这条路径先于睡觉判断返回，不带上就会漏掉。
-            jpeg = render_mod.render_dice(self.cfg, value=dice_face,
-                                          rolling=dice_rolling,
-                                          anti_burn=anti_burn,
-                                          background_image=card_bg_img)
-            self.last_jpeg = jpeg
-            self.last_jpeg_ts = time.time()
-            return jpeg
 
         # 飘字层 —— 功德 +1 之类，盖在宠物形象上飘过去
         overlay = None
@@ -707,13 +736,9 @@ class PetApp:
             "focused": self.engine.selected_key,
             "device": self.devices.status(),
             "weatherCity": str(self.cfg.get("ui", {}).get("weatherCity") or ""),
-            # 功德和骰子 —— 它们也是 feature，卡片内容从这儿拿
+            # 功德 —— 它也是 feature，卡片内容从这儿拿
             "merit": int(self.merit.value),
             "meritPhrase": self.merit.last_phrase(),
-            "dice": {"active": bool(self.dice.active),
-                     "rolling": bool(self.dice.rolling),
-                     "value": int(self.dice.value),
-                     "rolled": bool(self.dice.rolled)},
         }
 
     def _feature_sessions(self):
@@ -765,9 +790,8 @@ class PetApp:
     async def _frame_loop(self):
         while not self._stop:
             state = self.engine.state
-            # 骰子在滚的时候必须高帧率 —— 闲置档 1fps 只能看到一两帧，等于没滚
             fps = (self.cfg.get("frame", {}).get("activeFps", 10)
-                   if state in ACTIVE_STATES or self.dice.active
+                   if state in ACTIVE_STATES
                    else self.cfg.get("frame", {}).get("idleFps", 1))
             interval = 1.0 / max(0.2, float(fps))
             t0 = time.time()
@@ -776,6 +800,11 @@ class PetApp:
             except Exception as exc:
                 self.log("error", "渲染失败: %s" % exc)
                 await asyncio.sleep(1)
+                continue
+            # 设备在游戏里 —— 别推帧抢屏。设备端也挡一层，这里是省带宽。
+            s = self.devices.session
+            if s is not None and s.mode != "idle":
+                await asyncio.sleep(0.2)
                 continue
             if self.devices.online:
                 self.frame_seq += 1

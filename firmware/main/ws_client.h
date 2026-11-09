@@ -24,6 +24,15 @@ esp_err_t ws_client_start(void);
    配网模式只需要「别把宠物帧画到屏上」，暂停绘制就够。 */
 void ws_client_set_paused(bool paused);
 
+/* 告诉服务端设备当前在哪个模式（idle/menu/playing）—— 服务端据此停推帧 */
+esp_err_t ws_client_send_game_mode(const char *mode);
+
+/* 向服务端要一个游戏包 */
+esp_err_t ws_client_send_game_request(const char *id);
+
+/* 服务端下发启用列表 —— 设备裁剪本地包并补齐缺的 */
+void ws_client_set_enabled_games(const char *const *ids, int n);
+
 /* 通用文本发送（status / log 等） */
 esp_err_t ws_client_send_text(const char *text);
 

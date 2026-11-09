@@ -7,7 +7,7 @@
 要加内容就往 BUILTIN 里加一行。
 """
 from .base import Feature
-from . import album, clock, dice, host, merit, notify, recent_done, sessions, weather
+from . import album, clock, host, merit, notify, recent_done, sessions, weather
 
 # 注册顺序 = 轮播顺序
 BUILTIN = [
@@ -15,7 +15,6 @@ BUILTIN = [
     notify.Notify(),
     recent_done.RecentDone(),
     merit.Merit(),
-    dice.Dice(),
     clock.Clock(),
     host.HostStatus(),
     weather.Weather(),
@@ -28,12 +27,13 @@ BUILTIN = [
 # （骰子会直接失灵）。所以配置里记着「用户看过第几版」，
 # 老配置升上来时把这一版新增的功能补上，补完记下版本。
 # 之后用户自己勾掉，就真的是他的选择了，不会再被加回来。
-FEATURES_VERSION = 3
+FEATURES_VERSION = 4
 
 FEATURE_INTRO = {
     1: ["sessions", "notify", "recent_done", "clock", "host"],
     2: ["merit", "dice"],
     3: ["album"],
+    4: [],   # 第 4 版没有新增 —— 骰子搬去设备端了
 }
 
 # 老名字 -> 新名字。

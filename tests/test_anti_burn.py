@@ -137,16 +137,6 @@ def test_brightness_on_flat_background_changes_pixels():
     assert ImageChops.difference(a, b).getbbox() is not None
 
 
-# ---------- 骰子也要防烧屏 ----------
-
-def test_dice_accepts_anti_burn():
-    """骰子出完结果就定住了 —— 夜里能定一整夜，必须一起防。"""
-    cfg = _cfg()
-    plain = _dec(render.render_dice(cfg, value=3))
-    shifted = _dec(render.render_dice(cfg, value=3, anti_burn=(1, 0, 0)))
-    assert ImageChops.difference(plain, shifted).getbbox() is not None
-
-
 # ---------- 没开的时候不能有影响 ----------
 
 def test_no_anti_burn_by_default():

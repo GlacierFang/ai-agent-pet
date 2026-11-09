@@ -31,7 +31,6 @@ SLEEP_OFF = "off"
 FEATURE_OPTIONS = {
     "sessions": "session",
     "weather": "weatherCity",
-    "dice": "diceButton",
     "album": "albumPanel",
 }
 
@@ -54,17 +53,6 @@ def _city_option(pet):
             "desc": "填城市名，比如「杭州」。留空就用默认城市",
             "value": str(pet.cfg.get("ui", {}).get("weatherCity") or ""),
             "type": "text"}
-
-
-def _dice_button_option():
-    """「模拟短按旋钮」按钮 —— 不改任何配置，只是按一下。
-
-    它走的是真手势表：改了 petd/data/gestures.json，这个按钮跟着变。
-    """
-    return {"id": "diceButton", "name": "模拟短按旋钮",
-            "label": "模拟短按旋钮",
-            "desc": "在浏览器里模拟一次短按旋钮 —— 没有板子也能看效果",
-            "type": "button", "gesture": "press_short"}
 
 
 def _album_option(pet):
@@ -94,8 +82,6 @@ def _feature(pet, entry, selected):
         item["options"].append(_session_option(pet))
     elif extra == "weatherCity":
         item["options"].append(_city_option(pet))
-    elif extra == "diceButton":
-        item["options"].append(_dice_button_option())
     elif extra == "albumPanel":
         item["options"].append(_album_option(pet))
     # live —— 这张卡上会显示的实时数字。前端按 id 填，不猜。
@@ -107,14 +93,6 @@ def _feature(pet, entry, selected):
         item["live"] = [{"id": "feat-live-album", "kind": "album",
                          "text": ("%d / %d 张照片" % (n, album_mod.MAX_PHOTOS))
                                  if n else "还没有照片"}]
-    elif name == "dice":
-        item["live"] = [
-            {"id": "feat-live-dice", "kind": "dice",
-             "text": ("上次摇出 %d" % int(pet.dice.value)) if pet.dice.rolled
-                     else "还没摇过"},
-            {"id": "feat-live-press", "kind": "press", "text": ""},
-            {"id": "feat-live-roll", "kind": "roll", "text": ""},
-        ]
     return item
 
 

@@ -48,7 +48,7 @@ feature 是宠物**空闲时**屏上放的内容。OpenClaw 一开始干活，�
 | 画什么 | Pillow 渲染整帧 JPEG，文字（含中文）全烧进图里 | 解码 JPEG 刷屏 |
 | 业务 | feature 逻辑、状态机、功德计数、相册存储 | 零业务语义 |
 | 文字 | 任意中文 | 只有一个 ASCII 点阵字体，只用在 SoftAP 配网引导屏 |
-| 旋钮 | `data/gestures.json` 把 `press_short` 映射到 `dice.roll` | 只报原始 `rot` / `press` / `rot_press` |
+| 旋钮 | `data/gestures.json` 把 `press_short` 映射到 `game.menu` | 只报原始 `rot` / `press` / `rot_press` |
 
 固件认识的全部消息类型就 11 个（`hello` / `welcome` / `frame` / `frameAck` /
 `setDensity` / `refresh` / `state` / `input` / `status` / `log` / `error`），

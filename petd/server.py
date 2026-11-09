@@ -491,6 +491,23 @@ def create_app(cfg=None, start_gateway=True, port=None):
         """会话列表 —— 宠物反应全部会话，这里看得到每一条。"""
         return JSONResponse({"items": pet.public_sessions()})
 
+    async def api_games_get(request):
+        """游戏 —— 有哪些 pack，开着哪些。"""
+        return JSONResponse(pet.games_payload())
+
+    async def api_games_post(request):
+        """勾选启用哪些游戏。改完立刻推给设备。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        ids = body.get("enabled")
+        if not isinstance(ids, list):
+            ids = []
+        pet.set_games(ids)
+        await pet.push_games()
+        return JSONResponse({"ok": True, "enabled": sorted(pet.games_enabled)})
+
     async def api_settings_get(request):
         """宠物设定 —— 每一项都对应一个真的能改的设置。"""
         return JSONResponse(pet.settings_payload())
@@ -855,6 +872,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),
         Route("/admin/api/logs", _guard(api_logs)),
         Route("/admin/api/sessions", _guard(api_sessions)),
+        Route("/admin/api/games", _guard(api_games_get), methods=["GET"]),
+        Route("/admin/api/games", _guard(api_games_post), methods=["POST"]),
         Route("/admin/api/settings", _guard(api_settings_get), methods=["GET"]),
         Route("/admin/api/settings", _guard(api_settings_post), methods=["POST"]),
         Route("/admin/api/docs", _guard(api_docs_list), methods=["GET"]),

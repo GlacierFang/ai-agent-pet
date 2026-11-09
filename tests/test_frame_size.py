@@ -65,12 +65,6 @@ def test_render_paths_stay_within_frame_limit():
     assert len(jpeg) <= render.MAX_FRAME_BYTES, (
         "内容卡 %d 字节，超了 %d" % (len(jpeg), render.MAX_FRAME_BYTES))
 
-    # 骰子
-    jpeg = render.render_dice(cfg, value=6)
-    assert len(jpeg) <= render.MAX_FRAME_BYTES, (
-        "骰子 %d 字节，超了 %d" % (len(jpeg), render.MAX_FRAME_BYTES))
-
-
 def test_photo_card_is_downscaled_when_too_big():
     """一张噪点照片 —— 未压缩时远超 32KB。
 

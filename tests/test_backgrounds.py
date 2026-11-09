@@ -261,15 +261,6 @@ def test_card_background_changes_card_pixels():
         cfg, card, background_image=bg)
 
 
-def test_card_background_changes_dice_pixels():
-    """骰子也是内容层 —— 用的是同一张卡片背景。"""
-    from PIL import Image
-    cfg = config_mod.defaults()
-    bg = Image.new("RGB", (240, 320), (30, 200, 30))
-    assert render.render_dice(cfg, value=6) != render.render_dice(
-        cfg, value=6, background_image=bg)
-
-
 def test_card_background_stays_within_frame_limit():
     """加了底图，帧不能超 32KB —— 超了设备丢帧，整台卡住。"""
     from PIL import Image
@@ -277,8 +268,6 @@ def test_card_background_stays_within_frame_limit():
     bg = Image.new("RGB", (240, 320), (200, 30, 30))
     jpeg = render.render_card(cfg, {"title": "标题", "body": ["一", "二", "三"]},
                                background_image=bg)
-    assert len(jpeg) <= render.MAX_FRAME_BYTES
-    jpeg = render.render_dice(cfg, value=6, background_image=bg)
     assert len(jpeg) <= render.MAX_FRAME_BYTES
 
 

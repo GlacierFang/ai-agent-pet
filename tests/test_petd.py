@@ -224,10 +224,10 @@ def test_action_lookup():
     assert gestures.action_for("press_long", g) == "state.refresh"
 
 
-def test_short_press_rolls_dice():
-    """短按 = 摇骰子。空字符串才表示「不响应」。"""
+def test_short_press_opens_game_menu():
+    """短按 = 打开游戏菜单。空字符串才表示「不响应」。"""
     g = gestures.load()
-    assert gestures.action_for("press_short", g) == "dice.roll"
+    assert gestures.action_for("press_short", g) == "game.menu"
 
 
 # ---------- 渲染 ----------

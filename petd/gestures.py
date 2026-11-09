@@ -16,12 +16,12 @@ DEFAULT_GESTURES = {
     # 旋转 = 翻到下一张 feature 卡
     # 按住+旋转 = 信息密度
     # 长按 = 刷新状态
-    # 短按 = 摇骰子
+    # 短按 = 打开游戏菜单（设备本地接管，服务端只留映射表）
     "actions": {
         "rot": "card.next",
         "rot_press": "density.cycle",
         "press_long": "state.refresh",
-        "press_short": "dice.roll",
+        "press_short": "game.menu",
     },
 }
 

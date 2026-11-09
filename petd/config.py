@@ -50,7 +50,7 @@ def defaults():
             "cardBackground": "",
             "density": 1,
             # 空闲时参与轮播的 feature（名字见 petd/features/）
-            "features": ["sessions", "notify", "recent_done", "merit", "dice",
+            "features": ["sessions", "notify", "recent_done", "merit",
                          "clock", "host", "album"],
             # 用户看过第几版功能清单 —— 老配置升上来时补齐这版新增的功能。
             # 这个值要跟 petd/features/__init__.py 的 FEATURES_VERSION 对上。
@@ -63,6 +63,9 @@ def defaults():
             "weatherCity": "",
             # 功德计数 —— agent 干完一次活 +1。落在这里是为了活过重启。
             "merit": 0,
+            # 启用哪些游戏（pack id）。None = 全部可用；空列表 = 全关。
+            # 游戏跑在设备上，服务端只管下发 pack。
+            "games": None,
         },
         # mDNS 广播：设备靠它把 petd.local 解析成 IP。起不来不影响 petd 本身。
         "mdns": {"enabled": True, "hostname": "petd.local"},

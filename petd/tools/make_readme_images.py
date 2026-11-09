@@ -58,9 +58,6 @@ def main():
     skin = skins.load_image(str(ROOT), "default", "idle")
     _img(render.render_card(cfg, card, skin_image=skin)).save(OUT / "screen-card.png")
 
-    _img(render.render_dice(cfg, value=6, rolling=False, title="赛博骰子")).save(
-        OUT / "screen-dice.png")
-
     # 宠物住在背景上 —— 背景是独立的一张图
     bg = backgrounds.load_image(str(ROOT), "default")
     if bg is not None:

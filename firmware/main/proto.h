@@ -51,6 +51,14 @@
 #define PETD_T_LOG           "log"
 #define PETD_T_ERROR         "error"
 
+/* ---- 游戏引擎（v1 向后兼容增量）---- */
+#define PETD_T_GAMES         "games"       /* petd -> 设备：启用哪些游戏 */
+#define PETD_T_PACK          "pack"        /* petd -> 设备：下发一个游戏包 */
+#define PETD_T_PACK_ACK      "packAck"     /* 设备 -> petd：收到确认 */
+#define PETD_T_GAME_MODE     "gameMode"    /* 设备 -> petd：当前屏幕归属 */
+#define PETD_T_GAME_REQUEST  "gameRequest" /* 设备 -> petd：我要这个包 */
+#define PETD_T_GAME_COMMAND  "gameCommand"  /* petd -> 设备：让设备干点什么 */
+
 /* ---- 旋钮事件（设备只报原始量）---- */
 #define PETD_EV_ROT          "rot"
 #define PETD_EV_PRESS        "press"

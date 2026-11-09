@@ -52,6 +52,7 @@
     <button type="button" class="tab active" data-tab="pet" data-i18n="tabs:pet">我的宠物</button>
     <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">宠物库</button>
     <button type="button" class="tab" data-tab="settings" data-i18n="tabs:settings">宠物设定</button>
+    <button type="button" class="tab" data-tab="games" data-i18n="tabs:games">游戏</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">连接与诊断</button>
     <button type="button" class="tab" data-tab="docs" data-i18n="tabs:docs">文档</button>
     <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">使用说明</button>
@@ -142,6 +143,23 @@
       <div class="set-grid" id="settings-grid"></div>
       <div class="row">
         <span class="muted" id="settings-meta"></span>
+      </div>
+    </section>
+  </section>
+
+  <!-- ============ 游戏 ============ -->
+  <section class="panel hidden" data-panel="games">
+    <section class="card">
+      <h2 data-i18n="games:title">游戏</h2>
+      <p class="note" data-i18n="games:note">游戏跑在设备上 —— 断网也能玩。勾上哪些游戏，设备菜单里就出现哪些。短按旋钮进游戏菜单，长按退出。</p>
+      <div class="set-grid" id="games-grid"></div>
+      <div class="row">
+        <button type="button" id="btn-game-menu" data-i18n="games:openMenu">打开游戏菜单</button>
+        <span class="badge" id="games-device-mode">设备 空闲</span>
+        <span class="muted" id="games-menu-meta"></span>
+      </div>
+      <div class="row">
+        <span class="muted" id="games-meta"></span>
       </div>
     </section>
   </section>

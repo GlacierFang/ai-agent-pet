@@ -1,12 +1,12 @@
 {
   "_comment": "旋钮手势映射 —— 随版本走的默认值，不是用户数据。改完重启 petd 生效。",
-  "version": 3,
+  "version": 4,
   "longPressMs": 600,
   "stepsPerAction": 4,
   "actions": {
     "rot": "card.next",
     "rot_press": "density.cycle",
     "press_long": "state.refresh",
-    "press_short": "dice.roll"
+    "press_short": "game.menu"
   }
 }

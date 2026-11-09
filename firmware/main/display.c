@@ -413,3 +413,55 @@ esp_err_t display_clear(uint16_t color)
     disp_unlock();
     return ESP_OK;
 }
+/* 推一块画布区域到屏。
+   pixels 可能是 PSRAM（引擎画布），SPI DMA 不能从 PSRAM 取源 ——
+   所以逐行拷进内部 SRAM 的行缓冲再推。
+   一行 240 列 = 480 字节，内部行缓冲 16 行 = 7680 字节，够放。 */
+esp_err_t display_push_region(int x, int y, int w, int h,
+                              const uint16_t *pixels, int stride_px)
+{
+    if (!s_lines[0] || !pixels) return ESP_ERR_INVALID_STATE;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x >= DISP_WIDTH || y >= DISP_HEIGHT) return ESP_OK;
+    if (x + w > DISP_WIDTH) w = DISP_WIDTH - x;
+    if (y + h > DISP_HEIGHT) h = DISP_HEIGHT - y;
+    if (w <= 0 || h <= 0) return ESP_OK;
+
+    disp_lock();
+
+    for (int row = 0; row < h; row += DISP_LINE_H) {
+        int rows = h - row;
+        if (rows > DISP_LINE_H) rows = DISP_LINE_H;
+
+        uint8_t idx = s_busy[0] ? 1 : 0;
+        wait_buffer_free(idx);
+        uint16_t *base = s_lines[idx];
+
+        /* 先把整条 240 列清黑，再写要的那一段 ——
+           display_blit 也是这么做的（屏上别的内容不能留着）*/
+        for (int r = 0; r < rows; r++) {
+            uint16_t *dst = base + (size_t)r * DISP_WIDTH;
+            for (int c = 0; c < DISP_WIDTH; c++) dst[c] = 0x0000;
+            const uint16_t *src = pixels + (size_t)(y + row + r) * stride_px;
+            for (int c = 0; c < w; c++) dst[x + c] = src[x + c];
+        }
+
+        for (int r = 0; r < rows; r += DISP_SPI_CHUNK_ROWS) {
+            int chunk = rows - r;
+            if (chunk > DISP_SPI_CHUNK_ROWS) chunk = DISP_SPI_CHUNK_ROWS;
+            s_fifo[s_fifo_tail % DISP_FIFO_SZ] = idx;
+            s_fifo_tail++;
+            s_busy[idx]++;
+            ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
+                s_panel, 0, y + row + r,
+                DISP_WIDTH, y + row + r + chunk,
+                base + (size_t)r * DISP_WIDTH));
+        }
+    }
+    drain_all();
+    disp_unlock();
+    return ESP_OK;
+}

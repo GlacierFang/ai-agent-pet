@@ -34,6 +34,9 @@ class DeviceSession:
         # 旧固件不上报就保持默认值，不影响现有流程。
         self.ip = str(info.get("ip", "") or "")
         self.provisioned = bool(info.get("provisioned", False))
+        # 设备当前在哪个模式：idle / menu / playing。
+        # 设备在游戏里时服务端停推帧 —— 抢屏。
+        self.mode = str(info.get("mode") or "idle")
 
     async def send_json(self, obj):
         await self.ws.send_text(json.dumps(obj, ensure_ascii=False))
@@ -95,6 +98,7 @@ class DeviceManager:
             "rssi": s.rssi,
             "ip": s.ip,
             "provisioned": s.provisioned,
+            "mode": s.mode,
         }
 
     async def attach(self, ws, info):

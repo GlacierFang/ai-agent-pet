@@ -1,4 +1,4 @@
-"""屏上玩具的测试：骰子、功德计数器。
+"""屏上玩具的测试：功德计数器。
 
 玩具不是宠物状态 —— 六态语义一个字都没动，这些测试钉的是玩具自己的行为。
 """
@@ -16,79 +16,6 @@ from petd import config  # noqa: E402
 from petd import features as feature_mod  # noqa: E402
 from petd import render as render_mod  # noqa: E402
 from petd import toys as toys_mod  # noqa: E402
-
-
-# ---------- 骰子 ----------
-
-def test_dice_starts_closed():
-    d = toys_mod.Dice()
-    assert d.active is False
-    on, face, rolling = d.update(0)
-    assert on is False and rolling is False
-
-
-def test_dice_press_opens_and_second_press_closes():
-    d = toys_mod.Dice()
-    assert d.press(now=100.0) is True
-    assert d.active is True
-    assert d.press(now=100.0) is False
-    assert d.active is False
-
-
-def test_dice_result_is_in_range():
-    d = toys_mod.Dice()
-    d.press(now=0.0)
-    assert 1 <= d.value <= toys_mod.DICE_FACES
-
-
-def test_dice_face_stops_at_result():
-    """滚完之后画面上的点数必须等于结果 —— 停住的那个数不能是另一个数。"""
-    d = toys_mod.Dice()
-    d.press(now=0.0)
-    # 滚还没完 —— 画面上的点数是随机的
-    on, face, rolling = d.update(0.1)
-    assert on is True and rolling is True
-    # 滚完了
-    on, face, rolling = d.update(toys_mod.DICE_ROLL_MS / 1000.0 + 0.01)
-    assert on is True and rolling is False
-    assert face == d.value
-
-
-def test_dice_auto_hides_after_result_hold():
-    d = toys_mod.Dice()
-    d.press(now=0.0)
-    t = toys_mod.DICE_ROLL_MS / 1000.0 + toys_mod.DICE_RESULT_HOLD_MS / 1000.0
-    on, face, rolling = d.update(t + 0.01)
-    assert on is False
-
-
-def test_dice_dismiss_yields_screen():
-    """有活来了 —— 骰子让路。"""
-    d = toys_mod.Dice()
-    d.press(now=0.0)
-    d.dismiss()
-    on, face, rolling = d.update(0.1)
-    assert on is False
-
-
-def test_dice_distribution_is_fair():
-    """1000 次摇出来的点数得大致均匀。
-
-    骰子要是偏斜，这东西就没有意义了 —— 抽 1000 次，
-    任何一面低于 12% 或高于 22% 都算异常。
-
-    固定种子：不固定的话这条测试就是定时炸弹 ——
-    均匀分布下标准差约 11.8，阈值 120 落在 4 个标准差外，
-    总会偶发红一条，而红的时候跟骰子没关系。
-    测的是「有偏斜」，不是「某一次抽样碰巧偏了」。
-    """
-    d = toys_mod.Dice(rng=random.Random(20261104))
-    counts = {i: 0 for i in range(1, toys_mod.DICE_FACES + 1)}
-    for _ in range(1000):
-        d.press(now=0.0)
-        counts[d.value] += 1
-    for face, n in counts.items():
-        assert 120 <= n <= 220, "点数 %d 出了 %d 次，分布不匀" % (face, n)
 
 
 # ---------- 功德 ----------
@@ -154,20 +81,6 @@ def test_merit_default_is_zero():
 
 # ---------- 渲染 ----------
 
-def test_render_dice_produces_valid_jpeg():
-    cfg = config.load()
-    for face in range(1, 7):
-        jpeg = render_mod.render_dice(cfg, value=face, rolling=False)
-        assert jpeg[:2] == b"\xff\xd8", "JPEG 头缺失"
-        assert jpeg[-2:] == b"\xff\xd9", "JPEG 尾缺失"
-
-
-def test_render_dice_rolling_produces_valid_jpeg():
-    cfg = config.load()
-    jpeg = render_mod.render_dice(cfg, value=3, rolling=True)
-    assert jpeg[:2] == b"\xff\xd8"
-
-
 def test_bubble_overlay_is_rgba():
     """飘字层是 RGBA 图 —— 它要盖在宠物形象上，不能自己编码 JPEG。"""
     cfg = config.load()
@@ -218,26 +131,6 @@ def client(monkeypatch):
         yield c
 
 
-def test_knob_endpoint_rolls_dice(client):
-    """后台那个「模拟短按旋钮」按钮 —— 没有板子也能看效果。"""
-    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
-    assert body["ok"] is True
-    assert body["gesture"] == "press_short"
-    assert body["action"] == "dice.roll"
-    assert body["result"] == "opened"
-    assert body["toys"]["dice"]["active"] is True
-    assert body["toys"]["dice"]["rolling"] is True
-    assert 1 <= body["toys"]["dice"]["value"] <= 6
-
-
-def test_knob_endpoint_toggles(client):
-    """按一下开，再按一下收 —— 跟设备上的旋钮一个行为。"""
-    client.post("/admin/api/knob", json={"gesture": "press_short"})
-    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
-    assert body["result"] == "closed"
-    assert body["toys"]["dice"]["active"] is False
-
-
 def test_knob_endpoint_follows_gesture_table(client):
     """模拟按钮走的是真手势表 —— 改了映射，按钮跟着变。
 
@@ -249,7 +142,6 @@ def test_knob_endpoint_follows_gesture_table(client):
     body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
     assert body["action"] == "density.cycle"
     assert pet.density == (before + 1) % 3
-    assert body["toys"]["dice"]["active"] is False
 
 
 def test_knob_endpoint_reports_unassigned(client):
@@ -261,51 +153,36 @@ def test_knob_endpoint_reports_unassigned(client):
     assert body["result"] == "unassigned"
 
 
-def test_knob_endpoint_refuses_when_busy(client):
-    """宠物在忙的时候不弹骰子 —— 有活先干活。"""
-    pet = client.app.state.pet
-    pet.engine.state = "working"
-    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
-    assert body["result"] == "busy"
-    assert body["toys"]["canRoll"] is False
-
-
 def test_toys_view_shape(client):
     """后台要显示玩具，字段名是前后端契约。"""
     pet = client.app.state.pet
     view = pet.toys_view()
-    assert set(view.keys()) == {"merit", "dice", "busy", "night", "canRoll", "pressAction"}
-    assert set(view["dice"].keys()) == {"active", "rolling", "value", "rolled"}
+    assert set(view.keys()) == {"merit", "busy", "night", "pressAction"}
 
 
 def test_toys_view_reports_press_mapping(client):
     """页面要照实说短按被映射成什么 —— 不替用户猜。"""
     pet = client.app.state.pet
-    assert pet.toys_view()["pressAction"] == "dice.roll"
+    assert pet.toys_view()["pressAction"] == "game.menu"
 
 
 # ---------- 玩具是功能 ----------
 
 def test_toys_are_real_features():
-    """功德箱和赛博骰子是功能清单里的两项 —— 不是另开一节。
+    """功德箱是功能清单里的一项 —— 不是另开一节。
 
-    设计约束：它们该作为「功能」出现，别自成一类。
+    设计约束：它该作为「功能」出现，别自成一类。
     """
     names = [f.name for f in feature_mod.all_features()]
     assert "merit" in names
-    assert "dice" in names
     cat = [c["name"] for c in feature_mod.catalog()]
     assert "merit" in cat
-    assert "dice" in cat
 
 
-def test_dice_feature_off_means_no_dice(client):
-    """骰子功能没勾 —— 按旋钮不弹骰子，屏上也不该有骰子。"""
-    pet = client.app.state.pet
-    pet.set_features(["clock"])
-    body = client.post("/admin/api/knob", json={"gesture": "press_short"}).json()
-    assert body["result"] == "off"
-    assert body["toys"]["dice"]["active"] is False
+def test_dice_is_not_a_server_side_feature():
+    """骰子搬进设备端引擎了 —— 它不再是屏上的一张内容卡。"""
+    names = [f.name for f in feature_mod.all_features()]
+    assert "dice" not in names
 
 
 def test_merit_feature_off_hides_merit_number(client):
@@ -322,11 +199,10 @@ def test_merit_feature_off_hides_merit_number(client):
 def test_old_config_gets_new_features_enabled():
     """老配置里没有新功能的名字 —— 升级时要自动补上。
 
-    不补的话骰子会直接失灵：用户没勾过，不是他不要，是配置太老。
+    不补的话用户没勾过的新功能会直接失灵：不是他不要，是配置太老。
     """
     names, ver = feature_mod.reconcile(["clock", "host"], 1)
     assert "merit" in names
-    assert "dice" in names
     assert ver == feature_mod.FEATURES_VERSION
 
 
@@ -334,7 +210,6 @@ def test_reconcile_respects_user_choice():
     """用户自己勾掉的不能被加回来 —— 版本记上了就说明他看过这一版。"""
     names, ver = feature_mod.reconcile(["clock"], feature_mod.FEATURES_VERSION)
     assert "merit" not in names
-    assert "dice" not in names
 
 
 def test_reconcile_keeps_v1_features_user_removed():
@@ -346,7 +221,6 @@ def test_reconcile_keeps_v1_features_user_removed():
     assert "clock" in names
     assert "weather" not in names, "用户勾掉的旧功能不该被加回来"
     assert "merit" in names
-    assert "dice" in names
 
 
 def test_config_load_keeps_old_config_without_version(tmp_path, monkeypatch):
@@ -363,18 +237,17 @@ def test_config_load_keeps_old_config_without_version(tmp_path, monkeypatch):
     names, ver = feature_mod.reconcile(cfg["ui"]["features"],
                                        cfg["ui"]["featuresVersion"])
     assert "merit" in names
-    assert "dice" in names
 
 
 def test_user_toggle_persists_version(client):
-    """用户自己勾掉骰子 —— 版本要记上，下次启动别又加回来。"""
+    """用户自己勾掉一个功能 —— 版本要记上，下次启动别又加回来。"""
     client.post("/admin/api/settings",
                 json={"id": "features", "value": ["clock", "merit"]})
     pet = client.app.state.pet
     assert pet.cfg["ui"]["featuresVersion"] == feature_mod.FEATURES_VERSION
     names, _ = feature_mod.reconcile(pet.cfg["ui"]["features"],
                                       pet.cfg["ui"]["featuresVersion"])
-    assert "dice" not in names
+    assert "notify" not in names
 
 
 def test_merit_feature_card_shows_count():
@@ -392,33 +265,12 @@ def test_merit_feature_silent_before_any_work():
     assert f.context({"now": 1000.0, "merit": 0}) is None
 
 
-def test_dice_feature_card_shows_last_roll():
-    """骰子卡上显示上次摇出的点数。"""
-    f = feature_mod.BUILTIN[[x.name for x in feature_mod.BUILTIN].index("dice")]
-    card = f.context({"now": 1000.0, "dice": {"rolled": True, "value": 4}})
-    assert card is not None
-    assert card["big"] == "4"
-
-
 def test_settings_expose_toy_features_with_live_slots(client):
-    """后台「功能」清单里要有这两项，而且带实时数字槽。"""
+    """后台「功能」清单里要有功德箱，而且带实时数字槽。"""
     caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
     assert "merit" in caps
-    assert "dice" in caps
     merit_live = {lv["id"] for lv in caps["merit"].get("live") or []}
     assert "feat-live-merit" in merit_live
-    dice_live = {lv["id"] for lv in caps["dice"].get("live") or []}
-    assert "feat-live-dice" in dice_live
-    assert "feat-live-press" in dice_live
-
-
-def test_dice_feature_carries_simulate_button(client):
-    """骰子功能带一个「模拟短按旋钮」按钮 —— 不改配置，只是按一下。"""
-    caps = {c["name"]: c for c in client.get("/admin/api/settings").json()["features"]}
-    opts = caps["dice"]["options"]
-    assert len(opts) == 1
-    assert opts[0]["type"] == "button"
-    assert opts[0]["gesture"] == "press_short"
 
 
 def test_status_carries_toys(client):

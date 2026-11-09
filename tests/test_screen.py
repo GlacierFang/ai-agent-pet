@@ -210,9 +210,11 @@ def test_broken_feature_does_not_break_the_screen():
 # ---------- feature 契约 ----------
 def test_registry_contains_all_builtin():
     names = [f.name for f in feature_mod.all_features()]
+    # 骰子不在名单里 —— 它搬进设备端的游戏引擎了（petd/packs/dice.json）。
     for expected in ("sessions", "notify", "recent_done", "clock",
-                     "host", "weather", "merit", "dice", "album"):
+                     "host", "weather", "merit", "album"):
         assert expected in names
+    assert "dice" not in names
 
 
 def test_catalog_lists_every_feature():

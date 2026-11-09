@@ -56,5 +56,12 @@ esp_err_t display_blit(int x, int y, const uint16_t *pixels, int w, int h);
 /* 刷一个纯色矩形 */
 esp_err_t display_fill_rect(int x, int y, int w, int h, uint16_t color);
 
+/* 推一块画布区域到屏。
+   pixels 是整块画布的像素（stride = stride_px），要推的是其中 x,y 起 w,h 的部分。
+   ⚠️ DMA 源不能是 PSRAM —— 调用方要么保证 pixels 在内部 SRAM，
+   要么引擎自己分块拷进内部行缓冲。这里内部拷贝，稳妥。 */
+esp_err_t display_push_region(int x, int y, int w, int h,
+                              const uint16_t *pixels, int stride_px);
+
 #endif /* PETD_DISPLAY_H */
 

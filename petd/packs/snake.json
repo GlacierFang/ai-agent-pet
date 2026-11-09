@@ -1,0 +1,146 @@
+{
+  "id": "snake",
+  "version": 1,
+  "order": 20,
+  "title": "贪吃蛇",
+  "hint": "旋转转向 · 按下掉头 · 长按退出",
+  "requires": [
+    "cell",
+    "trail",
+    "heading",
+    "grid",
+    "overlap",
+    "self",
+    "oob",
+    "score"
+  ],
+  "grid": {
+    "cols": 18,
+    "rows": 18,
+    "x": 12,
+    "y": 24,
+    "cell": 12,
+    "border": true,
+    "borderColor": "#5C4033"
+  },
+  "intents": [
+    {
+      "name": "turn",
+      "target": "snake"
+    },
+    {
+      "name": "reverse",
+      "target": "snake"
+    }
+  ],
+  "input": {
+    "rot": {
+      "intent": "turn"
+    },
+    "press": {
+      "intent": "reverse"
+    }
+  },
+  "entities": [
+    {
+      "id": "snake",
+      "shape": "trail",
+      "gx": 9,
+      "gy": 12,
+      "heading": "up",
+      "speed": 6,
+      "trail": 3,
+      "color": "#5C4033"
+    },
+    {
+      "id": "food",
+      "shape": "cell",
+      "gx": 3,
+      "gy": 3,
+      "color": "#C80000"
+    }
+  ],
+  "rules": [
+    {
+      "on": "intent",
+      "intent": "turn",
+      "target": "snake",
+      "effects": [
+        {
+          "fx": "turn",
+          "target": "snake",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "on": "intent",
+      "intent": "reverse",
+      "target": "snake",
+      "effects": [
+        {
+          "fx": "reverse",
+          "target": "snake"
+        }
+      ]
+    },
+    {
+      "on": "overlap",
+      "target": "snake",
+      "other": "food",
+      "effects": [
+        {
+          "fx": "grow",
+          "target": "snake",
+          "value": 1
+        },
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "randomize",
+          "target": "food"
+        },
+        {
+          "fx": "destroy",
+          "target": "food"
+        }
+      ]
+    },
+    {
+      "on": "self",
+      "target": "snake",
+      "effects": [
+        {
+          "fx": "lose"
+        }
+      ]
+    },
+    {
+      "on": "oob",
+      "target": "snake",
+      "effects": [
+        {
+          "fx": "lose"
+        }
+      ]
+    }
+  ],
+  "glyphs": {
+    "贪": "BgAdgHZgP4AAgAGAP8AkQCRAJEAZwHBg",
+    "吃": "AgByAFfgVABcAFPgUMBRAHIARBAEMAfg",
+    "蛇": "IIAggH/gbCBrAGsge8BjACsAOxD/MAHg",
+    "旋": "MgD/8CQAI+A4oCqAauBKgEqATYC08AAA",
+    "转": "IID74CEAcQBX8FEAe+AQQDhA8YAQwBBA",
+    "向": "BAAEAH/gQCBAIE8gSSBJIE8gSCBAIEDg",
+    "·": "AAAAAAAABgAGAAAAAAAAAAAAAAAAAAAA",
+    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
+    "下": "f+AEAAQABgAHgATABAAEAAQABAAEAAAA",
+    "掉": "IQAh4CEA/+AsIC/gfCBn4CEAL/AhAGEA",
+    "头": "AgAaAAoAYgAyAAIAf+AGAAcACYAwYGAg",
+    "长": "EEAQgBEAFgAQAH/gEgATABEAEMAeYBAA",
+    "退": "AABHwCRAB8AEQGfAJWAkwCdALiB4AE/g",
+    "出": "BgAmQCZAJkAmQD/ABgBGIEYgRiB/4AAg"
+  }
+}

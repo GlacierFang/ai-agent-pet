@@ -67,9 +67,28 @@ var T = {
     pet: '我的宠物',
     skins: '宠物库',
     settings: '宠物设定',
+    games: '游戏',
     diag: '连接与诊断',
     docs: '文档',
     setup: '使用说明'
+  },
+
+  /* 游戏 —— 设备端跑的，勾哪些哪些就出现在设备菜单里 */
+  games: {
+    title: '游戏',
+    note: '游戏跑在设备上 —— 断网也能玩。勾上哪些游戏，设备菜单里就出现哪些。',
+    empty: '还没有可玩的游戏',
+    builtin: '内置',
+    custom: '自带',
+    openMenu: '打开游戏菜单',
+    deviceIdle: '设备 空闲',
+    deviceMenu: '设备 在游戏菜单',
+    devicePlaying: '设备 在玩游戏',
+    on: '已开启',
+    off: '已关闭',
+    saved: '已保存',
+    failed: '保存失败：{e}',
+    deviceOffline: '设备离线 —— 改动会在设备下次连上时生效'
   },
 
   /* 宠物六态的名字 —— 新建宠物时那六个格子说的是「这张图是什么心情」。
@@ -107,7 +126,6 @@ var T = {
     devOffline: '设备 离线',
     sessionsN: '会话 {n} 个',
     meritN: '功德 {n}',
-    diceOn: '骰子开着',
     previewTitle: '设备画面',
     previewNote: '与设备屏幕显示的是同一帧画面。',
     previewRefresh: '立即刷新',
@@ -132,25 +150,20 @@ var T = {
   /* 屏上的玩具 —— 不是宠物状态，是屏上的一次性覆盖层 */
   toys: {
     meritLive: '功德 {n}',
-    diceLive: '上次摇出 {n}',
-    diceNever: '还没摇过',
-    rolling: '骰子滚着…',
-    closed: '骰子收起来了',
-    busy: '有活，先干活 —— 骰子让路',
+    busy: '有活，先干活',
     night: '睡着了，不吵醒它',
-    off: '骰子功能没勾上 —— 按旋钮不弹',
-    canRoll: '现在按旋钮会弹骰子',
-    cannotRoll: '现在按旋钮不弹（{why}）',
     pressMapped: '短按旋钮现在被映射成「{a}」。改 petd/data/gestures.json 就换。',
     pressUnmapped: '短按旋钮还没分配动作 —— 改 petd/data/gestures.json 才能用。',
-    pressed: '模拟短按 -> {a}'
+    pressed: '模拟短按 -> {a}',
+    menuOpened: '已让设备打开游戏菜单',
+    menuOffline: '设备不在线 —— 开不了游戏菜单'
   },
 
   bg: {
     title: '背景',
     note: '宠物住的地方，铺满整屏。和宠物形象互不影响 —— 换宠物背景不动，换背景宠物不动。宠物背景和卡片背景是分开的两套。',
     cardTitle: '卡片背景',
-    cardNote: '内容卡（会话、通知、最近完成、功德、时间、主机、天气）和骰子铺的底。跟宠物背景分开两套 —— 各有各的图，互不串。不选就用卡片自己的深色渐变。',
+    cardNote: '内容卡（会话、通知、最近完成、功德、时间、主机、天气）铺的底。跟宠物背景分开两套 —— 各有各的图，互不串。不选就用卡片自己的深色渐变。',
     cardEmpty: '还没有卡片背景 —— 传一张吧。',
     cardUpload: '上传卡片背景',
     cardReset: '改回渐变底',
@@ -266,7 +279,7 @@ var T = {
       'card.next': '翻到下一张卡',
       'density.cycle': '切换信息密度',
       'state.refresh': '刷新状态',
-      'dice.roll': '摇骰子',
+      'game.menu': '打开游戏菜单',
       'session.next': '切换会话',
       'skin.next': '换一只宠物'
     },
@@ -354,6 +367,7 @@ var T = {
     whereList: [
       '<b>宠物库</b> —— 换一只宠物，或者画一只自己的。',
       '<b>宠物设定</b> —— 屏上显示什么、每张卡停多久、什么时候睡觉。',
+      '<b>游戏</b> —— 勾选设备上能玩哪些小游戏。',
       '<b>连接与诊断</b> —— 出问题了看那儿。'
     ],
     installSteps: [
@@ -410,6 +424,8 @@ var S = {
   skin: '',
   backgrounds: [],   // 宠物背景清单（GET /backgrounds）
   background: '',    // 当前宠物背景的名字
+  games: [],         // 可玩的游戏清单（GET /games）
+  deviceMode: 'idle',// 设备当前在哪个模式：idle / menu / playing
   cardBackgrounds: [],// 卡片背景清单（GET /card-backgrounds）—— 跟宠物背景各一份
   cardBackground: '',// 当前卡片背景的名字（空 = 卡片自己的渐变）
   skinDraft: null, // 新建/编辑宠物的草稿：名字 + 六个状态各自选好的图
@@ -517,6 +533,7 @@ function switchTab(name) {
   });
   if (name === 'skins') { loadSkins(); loadBackgrounds(); loadCardBackgrounds(); }
   if (name === 'settings') loadSettings();
+  if (name === 'games') loadGames();
   if (name === 'docs') loadDocs();
 }
 
@@ -577,10 +594,6 @@ function renderPet(s) {
   if (toys.merit) {
     addBadge(badges, 'dim', fill(t('pet:meritN'), { n: toys.merit }));
   }
-  if (toys.dice && toys.dice.active) {
-    addBadge(badges, 'ok', t('pet:diceOn'));
-  }
-
   renderToyLive(pet.toys);
 }
 
@@ -593,14 +606,6 @@ function renderToyLive(toys) {
 
   var mEl = el('feat-live-merit');
   if (mEl) mEl.textContent = fill(t('toys:meritLive'), { n: toys.merit || 0 });
-
-  var dice = toys.dice || {};
-  var dEl = el('feat-live-dice');
-  if (dEl) {
-    if (!dice.rolled) dEl.textContent = t('toys:diceNever');
-    else if (dice.active && dice.rolling) dEl.textContent = t('toys:rolling');
-    else dEl.textContent = fill(t('toys:diceLive'), { n: dice.value });
-  }
 
   /* 短按被映射到哪个动作 —— 照实说，不替用户猜 */
   var pEl = el('feat-live-press');
@@ -618,7 +623,7 @@ function renderToyLive(toys) {
    用户改了 petd/data/gestures.json，这个按钮跟着变。
    所以这里不直接调某个动作，只发一条「按了一下旋钮」。 */
 function pressKnob(gesture, btn) {
-  var meta = el('feat-live-roll');
+  var meta = el('games-menu-meta') || el('feat-live-roll');
   if (btn) btn.disabled = true;
   fetch(API + '/knob', {
     method: 'POST',
@@ -633,11 +638,8 @@ function pressKnob(gesture, btn) {
         return;
       }
       if (meta) {
-        if (b.result === 'opened') meta.textContent = t('toys:rolling');
-        else if (b.result === 'closed') meta.textContent = t('toys:closed');
-        else if (b.result === 'busy') meta.textContent = t('toys:busy');
-        else if (b.result === 'night') meta.textContent = t('toys:night');
-        else if (b.result === 'off') meta.textContent = t('toys:off');
+        if (b.result === 'opened') meta.textContent = t('toys:menuOpened');
+        else if (b.result === 'offline') meta.textContent = t('toys:menuOffline');
         else if (b.result === 'unassigned') meta.textContent = t('toys:pressUnmapped');
         else if (b.action) meta.textContent = fill(t('toys:pressed'), { a: actionName(b.action) });
       }
@@ -2105,6 +2107,123 @@ function setSetting(id, value) {
 
 
 
+/* ---------------- 游戏 ---------------- */
+
+/* 游戏清单 + 开关。设备连着的话，改完立刻推给设备。 */
+function loadGames() {
+  return fetch(API + '/games', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (blob) {
+      S.games = blob.games || [];
+      S.deviceMode = blob.deviceMode || 'idle';
+      renderGames();
+    })
+    .catch(function () { /* 忽略 */ });
+}
+
+function renderGames() {
+  var box = el('games-grid');
+  if (!box) return;
+  box.textContent = '';
+  if (!S.games.length) {
+    var e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = t('games:empty');
+    box.appendChild(e);
+  } else {
+    S.games.forEach(function (g) { box.appendChild(gameCard(g)); });
+  }
+  var mode = S.deviceMode || 'idle';
+  var st = el('games-device-mode');
+  if (st) {
+    st.className = 'badge ' + (mode === 'idle' ? 'dim' : 'ok');
+    st.textContent = mode === 'idle' ? t('games:deviceIdle')
+      : (mode === 'menu' ? t('games:deviceMenu') : t('games:devicePlaying'));
+  }
+}
+
+/* 一张游戏卡 —— 勾选框 + 标题 + 操作说明。 */
+function gameCard(g) {
+  var card = document.createElement('div');
+  card.className = 'set-card feat';
+
+  var head = document.createElement('label');
+  head.className = 'feat-head';
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = !!g.enabled;
+  cb.addEventListener('change', function () { toggleGame(g.id, cb.checked); });
+  head.appendChild(cb);
+  var nm = document.createElement('span');
+  nm.className = 'feat-name';
+  nm.textContent = g.title || g.id;
+  head.appendChild(nm);
+  var tag = document.createElement('span');
+  tag.className = 'badge';
+  tag.textContent = g.builtin ? t('games:builtin') : t('games:custom');
+  head.appendChild(tag);
+  card.appendChild(head);
+
+  if (g.hint) {
+    var tip = document.createElement('div');
+    tip.className = 'feat-tip';
+    tip.textContent = g.hint;
+    card.appendChild(tip);
+  }
+  return card;
+}
+
+/* 让设备打开游戏菜单 —— 没板子也能看见菜单长什么样。 */
+function openGameMenu(btn) {
+  var meta = el('games-menu-meta');
+  if (btn) btn.disabled = true;
+  fetch(API + '/knob', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gesture: 'press_short' })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (btn) btn.disabled = false;
+      if (!meta) return;
+      if (!b.ok) { meta.textContent = b.error || t('common:netError'); return; }
+      if (b.result === 'opened') meta.textContent = t('toys:menuOpened');
+      else meta.textContent = t('toys:menuOffline');
+    })
+    .catch(function () {
+      if (btn) btn.disabled = false;
+      if (meta) meta.textContent = t('common:netError');
+    });
+}
+
+/* 勾一个游戏 —— 提交勾上的那一份完整名单。 */
+function toggleGame(id, on) {
+  var cur = [];
+  S.games.forEach(function (g) { if (g.enabled) cur.push(g.id); });
+  var at = cur.indexOf(id);
+  if (on && at < 0) cur.push(id);
+  if (!on && at >= 0) cur.splice(at, 1);
+  var meta = el('games-meta');
+  meta.textContent = t('common:saving');
+  fetch(API + '/games', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: cur })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (b) {
+      if (!b.ok) {
+        meta.textContent = fill(t('games:failed'), { e: b.error || '' });
+        return;
+      }
+      meta.textContent = t('games:saved');
+      var on = b.enabled || [];
+      S.games.forEach(function (g) { g.enabled = on.indexOf(g.id) >= 0; });
+      renderGames();
+    })
+    .catch(function () { meta.textContent = t('common:netError'); });
+}
+
 /* ---------------- 相册 ---------------- */
 
 /* 一张缩略图 —— 右上角一个删除按钮。 */
@@ -2738,6 +2857,8 @@ function startDashboard() {
   el('cb-modal-cancel').addEventListener('click', function () { el('cb-modal').classList.add('hidden'); });
   el('cb-modal-save').addEventListener('click', function () { saveCardBgModal(); });
   el('cb-reset').addEventListener('click', function () { resetCardBackground(); });
+  var gmb = el('btn-game-menu');
+  if (gmb) gmb.addEventListener('click', function () { openGameMenu(gmb); });
 
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
     b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });

@@ -26,6 +26,7 @@
 #include "ws_client.h"
 #include "provision.h"
 #include "proto.h"
+#include "game.h"
 
 static const char *TAG = "pet";
 
@@ -169,7 +170,9 @@ static void screen_task(void *arg)
             }
         } else if (s_screen_dirty) {
             s_screen_dirty = false;
-            if (s_screen_state == PROV_ST_CONNECTED && !s_setup_mode) {
+            if (game_owns_screen()) {
+                /* 游戏接管屏幕 —— 宠物屏别画上去 */
+            } else if (s_screen_state == PROV_ST_CONNECTED && !s_setup_mode) {
                 char ip[16];
                 provision_get_ip(ip, sizeof(ip));
                 draw_linked_screen(ip);
@@ -242,6 +245,10 @@ static void knob_task(void *arg)
                 exit_setup_mode();
                 continue;
             }
+            /* 游戏模式：设备本地接管输入，不转给服务端 */
+            if (game_on_knob(&ev)) {
+                continue;
+            }
             if (ws_client_send_input(&ev) != ESP_OK) {
                 ESP_LOGD(TAG, "input dropped (not connected)");
             }
@@ -284,7 +291,7 @@ static void status_task(void *arg)
             "{\"type\":\"status\",\"ts\":%lld,\"fw\":\"%s\","
             "\"uptime\":%lld,\"heapFree\":%u,\"rssi\":%d,\"fps\":0,"
             "\"decodeMs\":%u,\"lastFrameMs\":%u,\"frameErrors\":0,"
-            "\"ip\":\"%s\",\"provisioned\":%s}",
+            "\"ip\":\"%s\",\"provisioned\":%s,\"mode\":\"%s\"}",
             (long long)(esp_timer_get_time() / 1000),
             PETD_FW_VERSION,
             (long long)(esp_timer_get_time() / 1000),
@@ -293,7 +300,8 @@ static void status_task(void *arg)
             (unsigned)ws_client_last_decode_ms(),
             (unsigned)ws_client_last_decode_ms(),
             ip,
-            provision_has_credentials() ? "true" : "false");
+            provision_has_credentials() ? "true" : "false",
+            game_mode_name());
         if (n > 0) {
             ws_client_send_text(buf);
         }
@@ -329,6 +337,11 @@ void app_main(void)
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(display_clear(CLR_BG));
     ESP_ERROR_CHECK(knob_init());
+
+    /* 游戏引擎。挂不上 SPIFFS 也不影响宠物 —— 引擎自己降级。 */
+    if (game_init() != ESP_OK) {
+        ESP_LOGW(TAG, "game engine unavailable");
+    }
 
     ESP_LOGI(TAG, "PSRAM total: %u KB", (unsigned)(esp_psram_get_size() / 1024));
 

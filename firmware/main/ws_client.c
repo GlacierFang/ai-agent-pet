@@ -17,6 +17,7 @@
 #include "ws_client.h"
 #include "display.h"
 #include "proto.h"
+#include "game.h"
 
 static const char *TAG = "ws";
 
@@ -32,9 +33,11 @@ static QueueHandle_t s_frame_q;
 /* WS 收包缓冲大小。32KB ≥ 协议上限（单帧 32KB），一帧一次收完。 */
 #define PETD_WS_BUFFER_BYTES (32 * 1024)
 
-/* 文本消息最长长度。服务端的文本消息都很短：
-   welcome / frame 预告 / 各种指令。 */
-#define TEXT_MSG_LEN 512
+/* 文本消息最长长度。
+   普通消息（welcome / frame 预告 / 各种指令）都很短 —— 几百字节。
+   但 pack 消息带着游戏定义和中文点阵，能到十几 KB ——
+   所以实际长度按收到的来，不截断（截了 JSON 就废了）。 */
+#define TEXT_STACK_BUF 512
 
 static esp_websocket_client_handle_t s_ws;
 static volatile bool s_connected;
@@ -57,21 +60,34 @@ typedef struct { int idx; int frame_id; } frame_item_t;
 
 static void send_hello(void)
 {
-    char buf[320];
+    char buf[768];
     /* deviceId 用 MAC 后 6 位 —— 纯标识，不含任何凭据 */
     uint8_t mac[6] = {0};
     /* IDF v5 的 esp_read_mac 要两个参数：mac + mac 类型。 */
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
+
+    /* 本地已装的游戏包 —— petd 对比后只补缺的 */
+    char ids[GAME_MAX_MENU_ITEMS][GAME_MAX_PACK_ID];
+    int nids = game_local_pack_ids(ids, GAME_MAX_MENU_ITEMS);
+    char packs[512];
+    int off = 0;
+    packs[0] = 0;
+    for (int i = 0; i < nids && off < (int)sizeof(packs) - 40; i++) {
+        off += snprintf(packs + off, sizeof(packs) - off, "%s\"%s\"",
+                        i ? "," : "", ids[i]);
+    }
+
     int n = snprintf(buf, sizeof(buf),
         "{\"type\":\"hello\",\"protocol\":%d,\"deviceId\":\"esp32s3-%02x%02x%02x\","
         "\"fw\":\"%s\",\"hostname\":\"pet-desk\","
         "\"capabilities\":{\"display\":{\"w\":%d,\"h\":%d},"
-        "\"decoder\":\"tjpgdec\",\"colorFormat\":\"rgb565\",\"rotary\":true}}",
+        "\"decoder\":\"tjpgdec\",\"colorFormat\":\"rgb565\",\"rotary\":true},"
+        "\"packs\":[%s]}",
         PETD_PROTOCOL_VERSION, mac[3], mac[4], mac[5],
-        PETD_FW_VERSION, DISP_WIDTH, DISP_HEIGHT);
+        PETD_FW_VERSION, DISP_WIDTH, DISP_HEIGHT, packs);
     if (n > 0) {
         esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(2000));
-        ESP_LOGI(TAG, "hello sent");
+        ESP_LOGI(TAG, "hello sent (%d packs)", nids);
     }
 }
 
@@ -82,19 +98,31 @@ static void send_hello(void)
    两者靠同一条回调的先后顺序配对，不能靠另一个任务去排队消费。 */
 static void handle_text(const char *text, size_t len)
 {
-    char buf[TEXT_MSG_LEN];
-    size_t n = len < (TEXT_MSG_LEN - 1) ? len : (TEXT_MSG_LEN - 1);
+    /* pack 消息可能十几 KB —— 用堆，不能用栈（WS 任务栈没那么大）。 */
+    char stack_buf[TEXT_STACK_BUF];
+    char *buf = stack_buf;
+    size_t need = len + 1;
+    if (need > sizeof(stack_buf)) {
+        buf = malloc(need);
+        if (!buf) {
+            ESP_LOGW(TAG, "oom on text msg (%u bytes)", (unsigned)len);
+            return;
+        }
+    }
+    size_t n = len < (need - 1) ? len : (need - 1);
     memcpy(buf, text, n);
     buf[n] = 0;
 
     cJSON *root = cJSON_Parse(buf);
     if (!root) {
         ESP_LOGW(TAG, "bad json");
+        if (buf != stack_buf) free(buf);
         return;
     }
     cJSON *type = cJSON_GetObjectItem(root, "type");
     if (!cJSON_IsString(type)) {
         cJSON_Delete(root);
+        if (buf != stack_buf) free(buf);
         return;
     }
     const char *t = type->valuestring;
@@ -106,6 +134,28 @@ static void handle_text(const char *text, size_t len)
             if (cJSON_IsNumber(lp)) {
                 ESP_LOGI(TAG, "server longPressMs=%d (设备只报原始 ms，不做判断)",
                          (int)lp->valueint);
+                game_set_long_press_ms((int)lp->valueint);
+            }
+        }
+        /* 启用哪些游戏 —— 设备裁掉多的、补齐缺的 */
+        cJSON *gm = cJSON_GetObjectItem(root, "games");
+        if (cJSON_IsObject(gm)) {
+            cJSON *en = cJSON_GetObjectItem(gm, "enabled");
+            if (cJSON_IsArray(en)) {
+                const char *ids[32];
+                char store[32][GAME_MAX_PACK_ID];
+                int n = 0;
+                int i = 0;
+                cJSON *it;
+                cJSON_ArrayForEach(it, en, i) {
+                    if (n >= 32) break;
+                    if (!cJSON_IsString(it)) continue;
+                    snprintf(store[n], GAME_MAX_PACK_ID, "%s", it->valuestring);
+                    ids[n] = store[n];
+                    n++;
+                }
+                game_on_enabled_list(ids, n);
+                ESP_LOGI(TAG, "enabled games: %d", n);
             }
         }
         ESP_LOGI(TAG, "welcome received");
@@ -123,6 +173,47 @@ static void handle_text(const char *text, size_t len)
         ESP_LOGI(TAG, "state %s", cJSON_IsString(s) ? s->valuestring : "?");
     } else if (!strcmp(t, PETD_T_REFRESH)) {
         ESP_LOGI(TAG, "refresh requested");
+    } else if (!strcmp(t, PETD_T_GAMES)) {
+        /* 服务端说启用哪些游戏 —— 设备裁掉多的、补齐缺的。 */
+        cJSON *en = cJSON_GetObjectItem(root, "enabled");
+        if (cJSON_IsArray(en)) {
+            static char store[32][GAME_MAX_PACK_ID];
+            const char *ids[32];
+            int n = 0;
+            int i = 0;
+            cJSON *it;
+            cJSON_ArrayForEach(it, en, i) {
+                if (n >= 32) break;
+                if (!cJSON_IsString(it)) continue;
+                snprintf(store[n], GAME_MAX_PACK_ID, "%s", it->valuestring);
+                ids[n] = store[n];
+                n++;
+            }
+            game_on_enabled_list(ids, n);
+            ESP_LOGI(TAG, "enabled games: %d", n);
+        }
+    } else if (!strcmp(t, PETD_T_GAME_COMMAND)) {
+        /* 服务端让设备干点什么 —— 目前只有「打开游戏菜单」。
+           后台的「模拟短按旋钮」按钮走这条路。 */
+        cJSON *act = cJSON_GetObjectItem(root, "action");
+        if (cJSON_IsString(act) && !strcmp(act->valuestring, "menu")) {
+            game_open_menu();
+        }
+    } else if (!strcmp(t, PETD_T_PACK)) {
+        /* 服务端下发一个游戏包。data 是完整的 pack 对象。 */
+        cJSON *data = cJSON_GetObjectItem(root, "data");
+        if (cJSON_IsObject(data)) {
+            char *txt = cJSON_PrintUnformatted(data);
+            if (txt) {
+                esp_err_t err = game_install_pack(txt, strlen(txt));
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "pack install failed: %s", esp_err_to_name(err));
+                }
+                free(txt);
+            }
+        } else {
+            ESP_LOGE(TAG, "pack message without data");
+        }
     } else if (!strcmp(t, PETD_T_ERROR)) {
         cJSON *c = cJSON_GetObjectItem(root, "code");
         cJSON *m = cJSON_GetObjectItem(root, "message");
@@ -131,6 +222,7 @@ static void handle_text(const char *text, size_t len)
                  cJSON_IsString(m) ? m->valuestring : "");
     }
     cJSON_Delete(root);
+    if (buf != stack_buf) free(buf);
 }
 
 
@@ -145,8 +237,8 @@ static void frame_task(void *arg)
         }
         int idx = item.idx;
         uint32_t ms = 0;
-        if (s_paused) {
-            /* 配网模式 —— 不画。但下面照发 ACK。 */
+        if (s_paused || game_owns_screen()) {
+            /* 配网模式或游戏中 —— 不画。但下面照发 ACK。 */
         } else {
             esp_err_t err = display_draw_jpeg(s_rx_buf[idx], s_rx_len[idx], &ms);
             if (err == ESP_OK) {
@@ -364,6 +456,37 @@ esp_err_t ws_client_send_input(const knob_event_t *ev)
     if (n <= 0) return ESP_FAIL;
     return esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000)) == n
            ? ESP_OK : ESP_FAIL;
+}
+
+
+/* 告诉服务端设备当前在哪个模式 —— 服务端据此停推帧（游戏时别抢屏） */
+esp_err_t ws_client_send_game_mode(const char *mode)
+{
+    if (!s_connected || !mode) return ESP_ERR_INVALID_STATE;
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "{\"type\":\"gameMode\",\"mode\":\"%s\"}", mode);
+    if (n <= 0) return ESP_FAIL;
+    return esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000)) == n
+           ? ESP_OK : ESP_FAIL;
+}
+
+
+/* 向服务端要一个游戏包 */
+esp_err_t ws_client_send_game_request(const char *id)
+{
+    if (!s_connected || !id) return ESP_ERR_INVALID_STATE;
+    char buf[96];
+    int n = snprintf(buf, sizeof(buf), "{\"type\":\"gameRequest\",\"id\":\"%s\"}", id);
+    if (n <= 0) return ESP_FAIL;
+    return esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000)) == n
+           ? ESP_OK : ESP_FAIL;
+}
+
+
+/* 服务端下发启用列表 —— 设备裁剪本地包并补齐缺的 */
+void ws_client_set_enabled_games(const char *const *ids, int n)
+{
+    game_on_enabled_list(ids, n);
 }
 
 
