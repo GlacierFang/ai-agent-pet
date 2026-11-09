@@ -19,6 +19,12 @@
 #include "proto.h"
 #include "game.h"
 
+/* IDF 的 cJSON_ArrayForEach 是两参数宏（element, array）。
+   这里要索引 —— 自己定义带索引的版本，走 child 链表。
+   不用 IDF 那套：它的 size 检查靠 array->size，而 cJSON 的 size 字段
+   不可靠（cJSON_CreateArray 不维护），照抄会漏元素。 */
+#define JSON_FOREACH_IDX(el, arr, idx) for ((el) = ((arr) != NULL) ? (arr)->child : NULL; (el) != NULL; (el) = (el)->next, (idx)++)
+
 static const char *TAG = "ws";
 
 /* ---- 收帧缓冲：两份，放 PSRAM，双缓冲 ---- */
@@ -147,7 +153,7 @@ static void handle_text(const char *text, size_t len)
                 int n = 0;
                 int i = 0;
                 cJSON *it;
-                cJSON_ArrayForEach(it, en, i) {
+                JSON_FOREACH_IDX(it, en, i) {
                     if (n >= 32) break;
                     if (!cJSON_IsString(it)) continue;
                     snprintf(store[n], GAME_MAX_PACK_ID, "%s", it->valuestring);
@@ -182,7 +188,7 @@ static void handle_text(const char *text, size_t len)
             int n = 0;
             int i = 0;
             cJSON *it;
-            cJSON_ArrayForEach(it, en, i) {
+            JSON_FOREACH_IDX(it, en, i) {
                 if (n >= 32) break;
                 if (!cJSON_IsString(it)) continue;
                 snprintf(store[n], GAME_MAX_PACK_ID, "%s", it->valuestring);
@@ -484,7 +490,7 @@ esp_err_t ws_client_send_game_request(const char *id)
 
 
 /* 服务端下发启用列表 —— 设备裁剪本地包并补齐缺的 */
-void ws_client_set_enabled_games(const char *const *ids, int n)
+void ws_client_set_enabled_games(const char *ids[], int n)
 {
     game_on_enabled_list(ids, n);
 }

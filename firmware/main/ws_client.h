@@ -31,7 +31,7 @@ esp_err_t ws_client_send_game_mode(const char *mode);
 esp_err_t ws_client_send_game_request(const char *id);
 
 /* 服务端下发启用列表 —— 设备裁剪本地包并补齐缺的 */
-void ws_client_set_enabled_games(const char *const *ids, int n);
+void ws_client_set_enabled_games(const char *ids[], int n);
 
 /* 通用文本发送（status / log 等） */
 esp_err_t ws_client_send_text(const char *text);

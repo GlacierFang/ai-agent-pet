@@ -189,7 +189,7 @@ static char s_pending_enabled[GAME_MAX_ENABLED][GAME_MAX_PACK_ID];
 static int s_npending;
 static volatile bool s_pending_dirty;
 
-void game_on_enabled_list(const char *const *ids, int n)
+void game_on_enabled_list(const char *ids[], int n)
 {
     int k = 0;
     for (int i = 0; i < n && k < GAME_MAX_ENABLED; i++) {
@@ -205,11 +205,15 @@ static void process_pending_enabled(void)
 {
     if (!s_pending_dirty) return;
     s_pending_dirty = false;
-    game_prune_packs((const char *const *)s_pending_enabled, s_npending);
+    const char *ids[GAME_MAX_ENABLED];
     for (int i = 0; i < s_npending; i++) {
-        if (!game_has_pack(s_pending_enabled[i])) {
-            ESP_LOGI(TAG, "request missing pack: %s", s_pending_enabled[i]);
-            ws_client_send_game_request(s_pending_enabled[i]);
+        ids[i] = s_pending_enabled[i];
+    }
+    game_prune_packs(ids, s_npending);
+    for (int i = 0; i < s_npending; i++) {
+        if (!game_has_pack(ids[i])) {
+            ESP_LOGI(TAG, "request missing pack: %s", ids[i]);
+            ws_client_send_game_request(ids[i]);
         }
     }
 }

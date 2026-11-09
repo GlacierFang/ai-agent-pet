@@ -5,7 +5,6 @@
 
 #include "game.h"
 
-static const char *TAG = "game_comp";
 
 /* ---- 能力表：引擎能承载什么的唯一真相 ----
    新增能力要先在这里加一行，再在引擎里实现它。
@@ -208,17 +207,22 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
     case GAME_FX_LOSE:
         s_pack.state = 2;
         break;
-    case GAME_FX_START_TIMER:
-        if ((int)fx->a >= 0 && (int)fx->a < s_pack.ntimers) {
-            s_pack.timers[fx->a].running = 1;
-            s_pack.timers[fx->a].next_at = game_now_ms() + s_pack.timers[fx->a].interval_ms;
+    case GAME_FX_START_TIMER: {
+        /* fx->a 是 float —— 当下标必须先转 int */
+        int ti = (int)fx->a;
+        if (ti >= 0 && ti < s_pack.ntimers) {
+            s_pack.timers[ti].running = 1;
+            s_pack.timers[ti].next_at = game_now_ms() + s_pack.timers[ti].interval_ms;
         }
         break;
-    case GAME_FX_STOP_TIMER:
-        if ((int)fx->a >= 0 && (int)fx->a < s_pack.ntimers) {
-            s_pack.timers[fx->a].running = 0;
+    }
+    case GAME_FX_STOP_TIMER: {
+        int ti = (int)fx->a;
+        if (ti >= 0 && ti < s_pack.ntimers) {
+            s_pack.timers[ti].running = 0;
         }
         break;
+    }
     default:
         break;
     }

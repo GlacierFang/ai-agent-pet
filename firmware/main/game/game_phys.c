@@ -6,7 +6,6 @@
 
 #include "game.h"
 
-static const char *TAG = "game_phys";
 
 #define CLR_BG        0x0000
 #define CLR_TEXT      0xFFFF

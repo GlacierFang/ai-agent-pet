@@ -242,14 +242,14 @@ bool game_on_knob(const knob_event_t *ev);
 void game_set_long_press_ms(int ms);
 
 /* 服务端下发的启用列表变化。裁掉不该有的，缺的主动要。 */
-void game_on_enabled_list(const char *const *ids, int n);
+void game_on_enabled_list(const char *ids[], int n);
 
 /* ---- pack ---- */
 esp_err_t game_pack_mount(void);
 esp_err_t game_install_pack(const char *json, size_t len);
 esp_err_t game_load_pack(const char *id);
 int       game_scan_index(void);
-int       game_prune_packs(const char *const *keep, int n);
+int       game_prune_packs(const char *keep[], int n);
 bool      game_has_pack(const char *id);
 int       game_local_pack_ids(char out[][GAME_MAX_PACK_ID], int max);
 

@@ -12,6 +12,12 @@
 
 #include "game.h"
 
+/* IDF 的 cJSON_ArrayForEach 是两参数宏（element, array）。
+   这里要索引 —— 自己定义带索引的版本，走 child 链表。
+   不用 IDF 那套：它的 size 检查靠 array->size，而 cJSON 的 size 字段
+   不可靠（cJSON_CreateArray 不维护），照抄会漏元素。 */
+#define JSON_FOREACH_IDX(el, arr, idx) for ((el) = ((arr) != NULL) ? (arr)->child : NULL; (el) != NULL; (el) = (el)->next, (idx)++)
+
 static const char *TAG = "game_pack";
 
 #define PACK_DIR       "/packs"
@@ -39,7 +45,7 @@ static int entity_index_by_name(const cJSON *ents, const char *name)
     if (!cJSON_IsArray(ents) || !name) return -1;
     int i = 0;
     const cJSON *e;
-    cJSON_ArrayForEach(e, ents, i) {
+    JSON_FOREACH_IDX(e, ents, i) {
         const cJSON *id = cJSON_GetObjectItem(e, "id");
         if (cJSON_IsString(id) && !strcmp(id->valuestring, name)) return i;
     }
@@ -189,7 +195,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(req)) {
         int i = 0;
         const cJSON *c;
-        cJSON_ArrayForEach(c, req, i) {
+        JSON_FOREACH_IDX(c, req, i) {
             if (!cJSON_IsString(c)) continue;
             if (!game_cap_supported(c->valuestring)) {
                 ESP_LOGE(TAG, "pack needs unsupported capability: %s", c->valuestring);
@@ -210,7 +216,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(sprs)) {
         int i = 0;
         const cJSON *s;
-        cJSON_ArrayForEach(s, sprs, i) {
+        JSON_FOREACH_IDX(s, sprs, i) {
             if (out->nsprites >= GAME_MAX_SPRITES) break;
             game_sprite_t *sp = &out->sprites[out->nsprites];
             memset(sp, 0, sizeof(*sp));
@@ -222,7 +228,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             if (cJSON_IsArray(pal)) {
                 int k = 0;
                 const cJSON *pc;
-                cJSON_ArrayForEach(pc, pal, k) {
+                JSON_FOREACH_IDX(pc, pal, k) {
                     if (sp->npal >= GAME_MAX_SPRITE_PAL) break;
                     if (!cJSON_IsString(pc)) continue;
                     sp->pal[sp->npal++] = game_parse_color(pc->valuestring, 0xFFFF);
@@ -232,7 +238,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             if (cJSON_IsArray(frames)) {
                 int k = 0;
                 const cJSON *fr;
-                cJSON_ArrayForEach(fr, frames, k) {
+                JSON_FOREACH_IDX(fr, frames, k) {
                     if (sp->nframes >= GAME_MAX_SPRITE_FRAMES) break;
                     game_sprite_frame_t *gf = &sp->frames[sp->nframes];
                     memset(gf, 0, sizeof(*gf));
@@ -246,7 +252,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
                     if (cJSON_IsArray(rows)) {
                         int r = 0;
                         const cJSON *rw;
-                        cJSON_ArrayForEach(rw, rows, r) {
+                        JSON_FOREACH_IDX(rw, rows, r) {
                             if (r >= gf->h) break;
                             if (!cJSON_IsString(rw)) continue;
                             const char *s2 = rw->valuestring;
@@ -269,7 +275,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(ints)) {
         int i = 0;
         const cJSON *it;
-        cJSON_ArrayForEach(it, ints, i) {
+        JSON_FOREACH_IDX(it, ints, i) {
             if (out->nintents >= GAME_MAX_INTENTS) break;
             const cJSON *nm = cJSON_GetObjectItem(it, "name");
             if (!cJSON_IsString(nm)) continue;
@@ -313,7 +319,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(ents)) {
         int i = 0;
         const cJSON *e;
-        cJSON_ArrayForEach(e, ents, i) {
+        JSON_FOREACH_IDX(e, ents, i) {
             if (out->nents >= GAME_MAX_ENTITIES) break;
             const cJSON *eid = cJSON_GetObjectItem(e, "id");
             if (!cJSON_IsString(eid)) continue;
@@ -408,7 +414,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(tms)) {
         int i = 0;
         const cJSON *t;
-        cJSON_ArrayForEach(t, tms, i) {
+        JSON_FOREACH_IDX(t, tms, i) {
             if (out->ntimers >= GAME_MAX_TIMERS) break;
             const cJSON *iv = cJSON_GetObjectItem(t, "intervalMs");
             out->timers[out->ntimers].interval_ms =
@@ -424,7 +430,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
     if (cJSON_IsArray(rules)) {
         int i = 0;
         const cJSON *r;
-        cJSON_ArrayForEach(r, rules, i) {
+        JSON_FOREACH_IDX(r, rules, i) {
             if (out->nrules >= GAME_MAX_RULES) break;
             const cJSON *on = cJSON_GetObjectItem(r, "on");
             if (!cJSON_IsString(on)) continue;
@@ -453,7 +459,7 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             if (cJSON_IsArray(efs)) {
                 int k = 0;
                 const cJSON *e;
-                cJSON_ArrayForEach(e, efs, k) {
+                JSON_FOREACH_IDX(e, efs, k) {
                     if (gr->nfx >= GAME_MAX_EFFECTS) break;
                     const cJSON *fn = cJSON_GetObjectItem(e, "fx");
                     if (!cJSON_IsString(fn)) continue;
@@ -563,7 +569,7 @@ bool game_has_pack(const char *id)
 }
 
 
-int game_prune_packs(const char *const *keep, int n)
+int game_prune_packs(const char *keep[], int n)
 {
     if (!s_mounted) return 0;
     DIR *d = opendir(PACK_DIR);
