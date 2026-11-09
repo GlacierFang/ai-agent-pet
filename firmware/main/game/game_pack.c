@@ -623,7 +623,8 @@ esp_err_t game_install_pack(const char *json, size_t len)
     }
 
     char path[96];
-    snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, probe.id);
+    snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
+             GAME_MAX_PACK_ID - 1, probe.id);
     FILE *f = fopen(path, "wb");
     if (!f) {
         ESP_LOGE(TAG, "open %s failed", path);
@@ -691,7 +692,8 @@ int game_prune_packs(const char *keep[], int n)
             continue;
         }
         char path[128];
-        snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, ids[i]);
+        snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
+                 GAME_MAX_PACK_ID - 1, ids[i]);
         if (remove(path) == 0) {
             ESP_LOGI(TAG, "pack removed: %s", ids[i]);
             removed++;
@@ -739,7 +741,8 @@ int game_scan_index(void)
 
     for (int i = 0; i < total && s_nindex < GAME_MAX_MENU_ITEMS; i++) {
         char path[128];
-        snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, ids[i]);
+        snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
+                 GAME_MAX_PACK_ID - 1, ids[i]);
         FILE *f = fopen(path, "rb");
         if (!f) continue;
         fseek(f, 0, SEEK_END);
@@ -784,7 +787,8 @@ esp_err_t game_load_pack(const char *id)
 {
     if (!id || !s_mounted) return ESP_ERR_INVALID_ARG;
     char path[128];
-    snprintf(path, sizeof(path), "%s/%s.json", PACK_DIR, id);
+    snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
+             GAME_MAX_PACK_ID - 1, id);
     FILE *f = fopen(path, "rb");
     if (!f) return ESP_ERR_NOT_FOUND;
     fseek(f, 0, SEEK_END);
