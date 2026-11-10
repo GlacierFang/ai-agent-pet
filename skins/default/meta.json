@@ -1,7 +1,7 @@
 {
-  "_comment": "内置素材的出处与授权。美术与代码分开授权 —— 这里的 license 只管这六张图。",
+  "_comment": "内置素材的出处与授权。这里的 license 记录这六张图自身的授权。",
   "name": "默认宠物",
-  "author": "ai-agent-pet contributors",
+  "author": "FangTao",
   "source": "维护者绘制",
-  "license": "Apache-2.0"
+  "license": "ai-agent-pet 许可证 1.0"
 }

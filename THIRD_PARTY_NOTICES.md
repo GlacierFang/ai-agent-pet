@@ -1,6 +1,6 @@
 # 第三方声明
 
-本项目自身代码采用 [Apache-2.0](LICENSE)。下面列出它依赖的第三方软件。
+本项目自身代码与美术素材采用 [ai-agent-pet 许可证 1.0](LICENSE)。下面列出它依赖的第三方软件。
 
 ## 服务端（Python）
 
@@ -52,13 +52,13 @@ TJpgDec 由 ChaN 编写，作者在源码头声明为「free software」，
 
 ## 美术素材
 
-**代码与美术分开授权。**
+**代码与美术采用同一份许可证。**
 
 | 素材 | 出处 | 授权 |
 |---|---|---|
-| `skins/default/`（六态各一张 PNG） | 维护者绘制 | Apache-2.0，见该目录的 `meta.json` |
+| `skins/default/`（六态各一张 PNG） | 维护者绘制 | ai-agent-pet 许可证 1.0，见该目录的 `meta.json` |
 
-每个素材目录的 `meta.json` 里单独声明 `license` 字段 —— 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+每个素材目录的 `meta.json` 里单独声明 `license` 字段。
 无第三方素材。
 
 ## 未收录

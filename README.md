@@ -277,13 +277,13 @@ KY-040 旋转编码器。**手势语义表在服务端**，设备只报原始测
 
 ## 参与
 
-见 [CONTRIBUTING.md](CONTRIBUTING.md)。代码与美术**分开授权** —— 见该文件。
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。本项目**不接受 Pull Request**，问题和建议请开 issue。
 
 ## 许可证
 
-**Apache-2.0** —— 见 [LICENSE](LICENSE)。比 MIT 多一层专利授权，对硬件+软件混合项目更稳。
+**ai-agent-pet 许可证 1.0** —— 见 [LICENSE](LICENSE)。
 
-美术素材**单独授权** —— 每个皮肤包的 `meta.json` 里声明 `license` 字段。见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+非商业使用可自由获取、修改、fork、分发；商业使用须事先取得版权人书面授权。
 
 ## 数据流向
 
