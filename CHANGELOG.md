@@ -90,6 +90,7 @@
 
 ### Changed
 
+- **Windows 刷机改成图形界面流程** —— 部署手册第 4 步改用乐鑫官方 Flash Download Tools（`ChipType` 选 `ESP32-S3`、`WorkMode` 选 `develop`、`LoadMode` 选 `UART`、固件勾第一行、地址 `0x0`、`SPI SPEED` 80MHz、`SPI MODE` DIO、COM 选设备管理器里那个，点 `START` 等 `FINISH`）。不按 `ERASE` 可保住 NVS 里已存的 Wi-Fi 配网信息。烧录参数与 `firmware/sdkconfig`（`FLASHMODE_DIO` / `FLASHFREQ_80M` / `FLASHSIZE_8MB`）一致；开机 5 秒自检色条（红→绿→蓝→白）与 `draw_selftest_screen()` 一致。后台「把设备装上」页与安装指引改成同一套说法，esptool 命令行降为备选
 - **许可证更换为自定义的「ai-agent-pet 许可证 1.0」** —— 版权人 FangTao（2026）
   - 非商业使用可自由获取、修改、fork、分发；商业使用须事先取得版权人书面授权
   - 代码与美术素材统一采用这一份许可证

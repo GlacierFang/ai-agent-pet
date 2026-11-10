@@ -89,7 +89,9 @@ idf.py menuconfig   # Component config → petd
 - **运行时只接充电头**，不接 PC
 - **DevKitC-1 两个 USB-C 的 5V 是相通的** —— 同时接会烧板
 
-### 方式 1：esptool（不需要装 ESP-IDF）
+> **Windows 用户**：用乐鑫官方 Flash Download Tools 图形界面刷（不用装 Python），步骤见 [部署手册](../docs/部署手册.md) 第 4 步。下面是命令行方式，作为备选。
+
+### 方式 1：esptool 命令行（备选）
 
 Linux：
 
