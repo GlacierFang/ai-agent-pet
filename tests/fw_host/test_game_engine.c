@@ -220,6 +220,36 @@ static void test_fire_sets_velocity(void)
     CHECK(ball->vy < 0 && ball->vx > 0, "发球后球往上飞、向右");
 }
 
+
+static void test_separating_overlap_keeps_velocity(void)
+{
+    printf("[重叠但已在分离 -> 不该反弹]\n");
+    load_scene();
+    game_entity_t *ball = ent("ball");
+    game_entity_t *paddle = ent("paddle");
+    /* 球压住挡板上沿、正往上飞 —— 已经在分离方向 */
+    ball->x = paddle->x;
+    ball->y = paddle->y - paddle->h / 2.0f + 1.0f;
+    ball->vx = 0; ball->vy = -3;
+    step_n(1);
+    CHECK(ball->vy < 0, "分离中的球速度没被翻回去");
+}
+
+
+static void test_wall_keeps_inward_velocity(void)
+{
+    printf("[在墙外但朝里走 -> 速度不该被翻回去]\n");
+    load_scene();
+    game_entity_t *ball = ent("ball");
+    ball->x = 0.5f;      /* 左边缘在墙外 */
+    ball->y = 150;
+    ball->vx = 0.1f;     /* 朝墙内走 */
+    ball->vy = 0;
+    step_n(1);
+    CHECK(ball->vx > 0, "朝墙内走的速度没被翻成朝外");
+    CHECK(ball->x >= 3.9f, "球被夹回墙内侧");
+}
+
 int main(void)
 {
     test_wall_bounce();
@@ -230,6 +260,8 @@ int main(void)
     test_bottom_escape_loses();
     test_move_fx();
     test_fire_sets_velocity();
+    test_separating_overlap_keeps_velocity();
+    test_wall_keeps_inward_velocity();
     printf("\n%d 项检查，%d 项失败\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

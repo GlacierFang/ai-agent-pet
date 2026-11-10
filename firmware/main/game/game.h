@@ -33,7 +33,7 @@
 #define GAME_MAX_EFFECTS    8
 #define GAME_MAX_INTENTS    8
 #define GAME_MAX_INPUT_MAP  4
-#define GAME_MAX_CAPS       12
+#define GAME_MAX_CAPS       20   /* 要 >= game_comp.c 里 s_caps[] 的长度 */
 #define GAME_MAX_PACK_ID    32
 #define GAME_MAX_TITLE      64
 #define GAME_MAX_HINT       128

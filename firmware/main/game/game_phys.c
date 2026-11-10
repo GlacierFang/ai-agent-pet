@@ -173,6 +173,9 @@ static void resolve_bounce(game_entity_t *e, float nx, float ny, float depth)
     e->x += nx * depth;
     e->y += ny * depth;
     float dot = e->vx * nx + e->vy * ny;
+    /* 只在迎面相撞时反射速度。dot >= 0 表示已经在往分离方向走 ——
+       再反射一次会把速度打回去，物体就贴在障碍上抖动。 */
+    if (dot >= 0.0f) return;
     float rest = e->restitution > 0.0f ? e->restitution : 1.0f;
     e->vx -= (1.0f + rest) * dot * nx;
     e->vy -= (1.0f + rest) * dot * ny;
@@ -252,18 +255,32 @@ static void handle_bounds(game_pack_t *p, game_entity_t *e, int idx)
     game_entity_extent(e, &hw, &hh);
     int escaped = 0;
 
+    /* 反弹只处理「往外撞」的那一侧速度。物体已经在往墙里走时不再翻速度 ——
+       否则会被锁死在墙里来回抖。 */
     if (e->x - hw < e->bx0) {
-        if (e->walls & 1) { e->x = e->bx0 + hw; e->vx = -e->vx; }
+        if (e->walls & 1) {
+            e->x = e->bx0 + hw;
+            if (e->vx < 0.0f) e->vx = -e->vx;
+        }
         else escaped = 1;
     } else if (e->x + hw > e->bx1) {
-        if (e->walls & 2) { e->x = e->bx1 - hw; e->vx = -e->vx; }
+        if (e->walls & 2) {
+            e->x = e->bx1 - hw;
+            if (e->vx > 0.0f) e->vx = -e->vx;
+        }
         else escaped = 1;
     }
     if (e->y - hh < e->by0) {
-        if (e->walls & 4) { e->y = e->by0 + hh; e->vy = -e->vy; }
+        if (e->walls & 4) {
+            e->y = e->by0 + hh;
+            if (e->vy < 0.0f) e->vy = -e->vy;
+        }
         else escaped = 1;
     } else if (e->y + hh > e->by1) {
-        if (e->walls & 8) { e->y = e->by1 - hh; e->vy = -e->vy; }
+        if (e->walls & 8) {
+            e->y = e->by1 - hh;
+            if (e->vy > 0.0f) e->vy = -e->vy;
+        }
         else escaped = 1;
     }
 
