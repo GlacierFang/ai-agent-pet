@@ -56,6 +56,9 @@ class PetApp:
         self.devices = DeviceManager()
         self.gestures = gestures_mod.load()
         self.density = int(cfg.get("ui", {}).get("density", 1))
+        # 屏幕亮度 —— 透射式 TFT 的背光常亮，软件只能压内容。
+        # "auto" 跟着睡觉时段走，固定档位则一直生效。
+        self.brightness = str(cfg.get("ui", {}).get("brightness") or "auto")
         self.skin = cfg.get("ui", {}).get("skin", "default")
         # 背景 —— 和宠物形象解耦。换宠物不动背景，换背景不动宠物。
         self.background = str(cfg.get("ui", {}).get("background") or "default")
@@ -405,6 +408,16 @@ class PetApp:
             ("%s ~ %s" % (self.sleep_start, self.sleep_end))
             if self.sleep_enabled else "不睡"))
 
+    def set_brightness(self, value):
+        """屏幕亮度档位。改完下一帧就用新值，也写进配置。"""
+        v = str(value or "auto").strip()
+        if v != "auto" and v not in render_mod.BRIGHTNESS_FACTORS:
+            raise ValueError("未知的亮度档位：%s" % v)
+        self.brightness = v
+        self.cfg.setdefault("ui", {})["brightness"] = v
+        self._persist_config()
+        self.log("info", "屏幕亮度 -> %s" % v)
+
     async def set_density(self, level):
         level = max(0, min(2, int(level)))
         self.density = level
@@ -663,8 +676,12 @@ class PetApp:
         # 防烧屏 —— 只在睡觉时段开。
         # 夜里屏上是一张不动的睡觉图，一挂就是好几个小时；
         # 白天有卡片轮播，内容本来就在变，不需要。
-        anti_burn = render_mod.anti_burn_state(now) if self.is_night(now) else None
+        night = self.is_night(now)
+        anti_burn = render_mod.anti_burn_state(now) if night else None
         # 卡片在夜里不会出现（导演先判睡觉），所以只有 render_frame 要接这个参数。
+
+        # 压暗系数 —— 跟着「屏幕亮度」那一项走。"auto" 档夜里压、白天不压。
+        dim = render_mod.brightness_factor(self.brightness, night=night)
 
         # 卡片背景 —— 内容层用的底。跟宠物背景是分开的两套：
         # 读的是卡片背景自己的目录，宠物背景那张图它看不见。
@@ -692,17 +709,17 @@ class PetApp:
             photo = str(card.get("photo") or "")
             if photo:
                 jpeg = render_mod.render_photo_card(
-                    self.cfg, photo, str(card.get("counter") or ""))
+                    self.cfg, photo, str(card.get("counter") or ""), dim=dim)
                 if jpeg is None:
                     # 照片读不出来 —— 退回普通卡片，别让屏上开天窗
                     jpeg = render_mod.render_card(self.cfg, card,
-                                                  background_image=card_bg_img)
+                                                  background_image=card_bg_img, dim=dim)
             else:
                 cstate = str(card.get("state") or state)
                 skin_img = skins_mod.load_image(root, self.skin, cstate)
                 jpeg = render_mod.render_card(self.cfg, card, skin_image=skin_img,
                                               overlay=overlay,
-                                              background_image=card_bg_img)
+                                              background_image=card_bg_img, dim=dim)
         else:
             face = str(view.get("face") or state)
             sub = self._subtitle()
@@ -714,7 +731,7 @@ class PetApp:
                                            overlay=overlay,
                                            merit=self.merit.value if self.merit_on() else 0,
                                            background_image=bg_img,
-                                           anti_burn=anti_burn)
+                                           anti_burn=anti_burn, dim=dim)
         self.last_jpeg = jpeg
         self.last_jpeg_ts = time.time()
         return jpeg

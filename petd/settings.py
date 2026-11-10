@@ -17,6 +17,21 @@ from . import features as feature_mod
 
 DENSITY_LABELS = {0: "简洁", 1: "标准", 2: "详细"}
 
+# 屏幕亮度档位 —— 值就是配置里存的那个字符串。
+# "auto" 跟着睡觉时段走：夜里压暗，白天原样。固定档位则不管白天黑夜。
+BRIGHTNESS_OPTIONS = [
+    {"value": "auto", "label": "自动",
+     "desc": "夜里压到 50%，白天不压 —— 跟着睡觉时段走"},
+    {"value": "100", "label": "100%",
+     "desc": "不压暗，跟以前一样"},
+    {"value": "70", "label": "70%",
+     "desc": "轻微压暗，白天看着也舒服"},
+    {"value": "50", "label": "50%",
+     "desc": "半亮，适合夜里放桌上"},
+    {"value": "30", "label": "30%",
+     "desc": "很暗，只在很暗的环境里用"},
+]
+
 DENSITY_DESCS = {
     0: "只有宠物形象",
     1: "加一行状态说明",
@@ -118,6 +133,19 @@ def _density_item(pet):
                          "desc": DENSITY_DESCS.get(d, "")} for d in (0, 1, 2)]}
 
 
+def _brightness_item(pet):
+    """屏幕亮度 —— 压暗整屏内容。
+
+    这块屏是透射式 TFT，背光常亮且没法在软件里关。所以「压暗」压的是**内容**：
+    像素画得越暗，透过去的光越少。压不掉的是背光漏光的底噪。
+    """
+    value = str(pet.brightness or "auto")
+    return {"id": "brightness", "name": "屏幕亮度",
+            "desc": "压暗屏上内容，夜里不刺眼。背光本身调不了，这一项只压画面。",
+            "value": value, "type": "radio",
+            "options": [dict(o) for o in BRIGHTNESS_OPTIONS]}
+
+
 def _sleep_item(pet):
     """睡觉时段 —— 起止两个钟点在一张卡里选。
 
@@ -153,5 +181,5 @@ def build(pet):
     selected = set(pet.features_enabled)
     features = [_feature(pet, c, selected) for c in feature_mod.catalog()]
     settings = [_dwell_item(pet), _hold_item(pet),
-                _density_item(pet), _sleep_item(pet)]
+                _density_item(pet), _brightness_item(pet), _sleep_item(pet)]
     return {"features": features, "settings": settings}

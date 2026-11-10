@@ -46,7 +46,7 @@ def test_settings_shape(client):
     assert "clock" in names
     assert "weather" in names
     ids = [s["id"] for s in body["settings"]]
-    assert ids == ["dwell", "hold", "density", "sleep"]
+    assert ids == ["dwell", "hold", "density", "brightness", "sleep"]
 
 
 def test_feature_has_checkbox_and_tip(client):

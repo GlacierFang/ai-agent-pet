@@ -49,6 +49,10 @@ def defaults():
             # 空 = 用卡片自己的深色渐变（跟宠物背景无关）。
             "cardBackground": "",
             "density": 1,
+            # 屏幕亮度 —— 这块屏是透射式 TFT，背光常亮，软件只能压内容压不了背光。
+            # "auto" = 夜里压到 50%、白天不压；其余是固定档位（百分比）。
+            # 认不出来的值一律当 auto —— 宁可夜里暗一点，别半夜突然亮起来。
+            "brightness": "auto",
             # 空闲时参与轮播的 feature（名字见 petd/features/）
             "features": ["sessions", "notify", "recent_done", "merit",
                          "clock", "host", "album"],

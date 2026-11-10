@@ -199,7 +199,8 @@ def draw_standard_card(img, draw, box, card, pet=None):
         img.paste(pet, (x, y + h - pet.size[1]), pet)
 
 
-def render_card(cfg, card, skin_image=None, overlay=None, background_image=None):
+def render_card(cfg, card, skin_image=None, overlay=None, background_image=None,
+                dim=1.0):
     """内容层：一张 feature 整屏卡片。
 
     内容层和消息层互斥 —— 屏上永远只有一样东西。
@@ -308,7 +309,86 @@ def render_card(cfg, card, skin_image=None, overlay=None, background_image=None)
     img = big.resize((width, height), Image.LANCZOS)
     if overlay is not None:
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    # 压暗 —— 和主帧、照片卡同一套，整屏内容一致地暗下去。
+    img = _apply_dim(img, dim)
     return _encode_jpeg(img, quality, subsampling)
+
+
+# ---------- 亮度（压暗） ----------
+
+# 这块屏是**透射式 TFT** —— 背光常亮。软件压暗只能压**内容**，压不了背光本身：
+# 像素画得越暗，透过去的光越少，所以「把画面压暗」对夜里刺眼是实打实有效的。
+# 压不掉的是背光漏光那点底噪 —— 全黑时屏仍是个微微发灰的方块。
+#
+# 压暗必须在**线性光**里做：直接乘 sRGB 数值，暗部会整体塌掉、颜色跑掉
+# （宠物的橙和金黄最先崩）。sRGB 是给眼睛看的非线性编码，乘它等于把暗部压过头。
+#
+# LUT 走 256 项：sRGB → 线性光 → ×k → sRGB。和防烧屏的 _level_lut 同一套机制。
+
+# 档位 —— 对应后台「屏幕亮度」那一项的取值。
+BRIGHTNESS_FACTORS = {
+    "100": 1.0,
+    "70": 0.7,
+    "50": 0.5,
+    "30": 0.3,
+}
+
+# 「自动」档：夜里压到 50%，白天不压。
+BRIGHTNESS_AUTO_NIGHT = 0.5
+
+_DIM_LUTS = {}
+
+
+def _srgb_to_linear(v):
+    c = v / 255.0
+    if c <= 0.04045:
+        return c / 12.92
+    return ((c + 0.055) / 1.055) ** 2.4
+
+
+def _linear_to_srgb(v):
+    c = max(0.0, min(1.0, v))
+    if c <= 0.0031308:
+        return c * 12.92
+    return 1.055 * (c ** (1.0 / 2.4)) - 0.055
+
+
+def _dim_lut(factor):
+    """压暗查找表。缓存起来 —— 每帧重算 256 个数没必要。
+
+    多通道图要 3*256 项 —— Pillow 自己处理 callable 时也是这么拼的。
+    """
+    lut = _DIM_LUTS.get(factor)
+    if lut is None:
+        one = [int(round(_linear_to_srgb(_srgb_to_linear(v) * factor) * 255))
+               for v in range(256)]
+        lut = one * 3
+        _DIM_LUTS[factor] = lut
+    return lut
+
+
+def brightness_factor(setting, night=False):
+    """后台那一项的值 → 实际用的压暗系数。
+
+    setting 是字符串（"auto" / "100" / "70" / "50" / "30"）。
+    认不出来就当「自动」 —— 宁可在夜里暗一点，也不要半夜突然亮起来。
+    """
+    s = str(setting or "auto").strip()
+    if s != "auto" and s not in BRIGHTNESS_FACTORS:
+        # 认不出来的值当自动 —— 宁可在夜里暗一点，也不要半夜突然亮起来。
+        # （配置文件被手改过时会走到这里，所以这一层兜底不能省。）
+        s = "auto"
+    if s == "auto":
+        return BRIGHTNESS_AUTO_NIGHT if night else 1.0
+    return BRIGHTNESS_FACTORS[s]
+
+
+def _apply_dim(img, factor):
+    """把整帧压暗。factor >= 1.0 时原样返回 —— 不做任何多余动作。"""
+    f = float(factor)
+    if f >= 1.0:
+        return img
+    return img.point(_dim_lut(f))
 
 
 # ---------- 防烧屏 ----------
@@ -382,7 +462,7 @@ def anti_burn_state(now):
 
 def render_frame(cfg, state, subtitle="", session_name="", density=1,
                  skin_image=None, overlay=None, merit=0, background_image=None,
-                 anti_burn=None):
+                 anti_burn=None, dim=1.0):
     width = int(cfg.get("render", {}).get("width", 240))
     height = int(cfg.get("render", {}).get("height", 320))
     quality = int(cfg.get("render", {}).get("quality", 85))
@@ -459,6 +539,16 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
 
     img = big.resize((width, height), Image.LANCZOS)
 
+    if overlay is not None:
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+    # 压暗 —— 排在防烧屏**之前**，这一步的顺序是有讲究的：
+    # 1. 反过来的话，防烧屏那 ±4 色阶会被压暗曲线吃掉一半（30% 档只剩 ±1.8），
+    #    「纯色背景也得动一动」这层兜底就废了。
+    # 2. 满亮度时白底 +4 会先被截断在 255 —— 压暗之后白底不再是 255，
+    #    截断没了，防烧屏才真的在工作。
+    img = _apply_dim(img, dim)
+
     # 防烧屏 —— 放在缩到屏尺寸之后，位移量就是屏幕上的实际像素。
     # 整幅一起移：文字带、宠物、背景都在里面，每一个像素都被轮到。
     # 文字也移 —— 文字带占 31% 屏面、还带最亮的像素，静止一整夜
@@ -471,8 +561,6 @@ def render_frame(cfg, state, subtitle="", session_name="", density=1,
         if level:
             img = img.point(_level_lut(int(level)))
 
-    if overlay is not None:
-        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     return _encode_jpeg(img, quality, subsampling)
 
 # ---------- 飘字（一次性覆盖层） ----------
@@ -553,7 +641,7 @@ def _photo_scaled(path, tw, th):
     return big
 
 
-def render_photo_card(cfg, path, counter=""):
+def render_photo_card(cfg, path, counter="", dim=1.0):
 
     """整屏照片。没有宠物形象 —— 照片就是屏上全部的东西。
 
@@ -591,4 +679,6 @@ def render_photo_card(cfg, path, counter=""):
         big = Image.alpha_composite(big.convert("RGBA"), ov).convert("RGB")
 
     img = big.resize((width, height), Image.LANCZOS)
+    # 压暗 —— 照片卡也是屏上内容，一样压。
+    img = _apply_dim(img, dim)
     return _encode_jpeg(img, quality, subsampling)

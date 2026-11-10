@@ -533,6 +533,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 pet.set_sleep_window(start, end, enabled)
             elif fid == "density":
                 await pet.set_density(int(value))
+            elif fid == "brightness":
+                pet.set_brightness(str(value or "auto"))
             elif fid == "skin":
                 await pet.set_skin(str(value))
             elif fid == "background":
