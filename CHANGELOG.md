@@ -98,6 +98,11 @@
   - 配网路径上的 `ESP_ERROR_CHECK` 换成记日志不 abort —— 原来一出错就 abort → 重启 → 再失败 → 再重启，设备永远出不来配网页
   - 退出配网模式时把 STA 连接接回去（配网期间为了能扫描停掉了它）
   - 资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
+- **Release `fw-v0.4.8`** —— 修掉旋钮事件全被丢掉：服务端 `app.py` 调 `devices.ack()`，但 `ack` 只挂在 `DeviceSession` 上，`DeviceManager` 没有这个方法，设备回第一帧 frameAck 就抛 `AttributeError`，WS 处理循环的 `except Exception` 把整条连接掐掉 —— 现象是「旋钮不工作」，根因在服务端。补上 `DeviceManager.ack()`，再让单条消息处理失败只记日志、不连累整条连接。同版还上了设备端游戏引擎（游戏跑在固件里，断网也能玩）：骰子接入引擎、贪吃蛇新增、后台「游戏」页可勾选下发。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`。⚠️ **这一版已作废** —— 游戏包解析的临时对象当时开在栈上（约 15KB），在 3KB/4KB 栈的任务里会栈溢出导致设备崩溃，改用 `fw-v0.4.9`
+- **Release `fw-v0.4.9`** —— 修掉 `fw-v0.4.8` 的栈溢出：游戏 pack 的临时对象改走堆分配（此前约占 15KB 栈空间，在小栈任务里会溢出）。版本号跟到 0.4.9，刷完能看出装的是哪一版。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
+- **Release `fw-v0.5.0`** —— 引擎新增四个通用原语：`vel`（速度与加速度）、`collide`（像素空间碰撞与反弹）、`bounds`（撞边界反弹）、`pattern`（网格图样）；新增消砖块 `petd/packs/brickout.json`；屏幕软件压暗档位（背光不可控时压内容）；修引擎碰撞手感（重叠但已在分离时不再反射速度，撞墙只翻朝墙里走的那一侧）；许可证换成自定义的「ai-agent-pet 许可证 1.0」（版权人 FangTao）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
+- **Release `fw-v0.5.1`** —— 修设备在 CONNECTING 和宠物卡之间无限刷屏：固件在 WebSocket 回调栈里装游戏包（回调栈只有 4KB，而装包要做 JSON 序列化 + 解析 + 写 SPIFFS），栈一溢设备就 panic 重启，重启后后台又推一遍，于是无限重启。装包挪到独立任务（8KB 栈），pack 本体改走 binary（设备原样写盘，不重新序列化 JSON）。服务端另加一道闸：固件低于 0.5.1 一根 pack 都不下发。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
+- **Release `fw-v0.5.2`** —— 修菜单打开时屏上留着一层黑遮罩/宠物残影：引擎接管屏幕时画布清成黑、影子缓冲也是黑，逐行 diff 认为没变化、一行都不推，屏上残留的宠物 JPEG 原封不动。绘制层加整屏失效状态，进菜单/进游戏时强制推一次完整画布并同步影子，之后恢复逐行 diff。引擎另补 `set_frame` 效果与精灵帧号解析（翻牌用；配套的翻牌 pack 还没做）。资产：`petd.bin` / `merged-binary.bin` / `uf2.bin` / `flash_args` / `flasher_args.json`
 
 ### Changed
 
