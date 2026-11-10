@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -14,6 +15,263 @@
 
 static const int DX[4] = {0, 1, 0, -1};
 static const int DY[4] = {-1, 0, 1, 0};
+
+
+/* ---- 实体尺寸 / 网格查询 ---- */
+
+/* 实体的半宽半高 —— 圆用半径，矩形用尺寸的一半。 */
+void game_entity_extent(const game_entity_t *e, float *hw, float *hh)
+{
+    if (!e) { *hw = 0.0f; *hh = 0.0f; return; }
+    if (e->shape == GAME_SHAPE_CIRCLE) { *hw = e->r; *hh = e->r; return; }
+    *hw = e->w * 0.5f;
+    *hh = e->h * 0.5f;
+}
+
+
+/* 网格某格是否实心（pattern 里有字符就是实心）。 */
+int game_grid_cell_solid(const game_pack_t *p, int gx, int gy)
+{
+    if (!p) return 0;
+    const game_grid_t *g = &p->grid;
+    if (gx < 0 || gy < 0 || gx >= g->pat_cols || gy >= g->pat_rows) return 0;
+    return g->pat[gy][gx] ? 1 : 0;
+}
+
+
+/* 网格某格的颜色 —— 按 pattern 里的字符找 colors。 */
+uint16_t game_grid_cell_color(const game_pack_t *p, int gx, int gy)
+{
+    if (!p) return 0xFFFF;
+    const game_grid_t *g = &p->grid;
+    if (gx < 0 || gy < 0 || gx >= g->pat_cols || gy >= g->pat_rows) return 0xFFFF;
+    char k = g->pat[gy][gx];
+    if (!k) return 0xFFFF;
+    for (int i = 0; i < g->ncolors; i++) {
+        if (g->colors[i].key == k) return g->colors[i].color;
+    }
+    return 0xFFFF;
+}
+
+
+/* 销毁一个实心格。 */
+void game_grid_destroy_cell(game_pack_t *p, int gx, int gy)
+{
+    if (!p) return;
+    game_grid_t *g = &p->grid;
+    if (gx < 0 || gy < 0 || gx >= g->pat_cols || gy >= g->pat_rows) return;
+    if (!g->pat[gy][gx]) return;
+    g->pat[gy][gx] = 0;
+    if (g->n_alive > 0) g->n_alive--;
+    /* 最后一格没了 —— 发一次 empty。销毁和事件放一处，只发一次。 */
+    if (g->n_alive == 0) game_fire(p, GAME_EV_EMPTY, -1, -1, -1, 0, -1);
+}
+
+
+/* ---- 碰撞 ---- */
+
+/* 圆心落在矩形内时，找最小推出方向。 */
+static void push_out_rect(float cx, float cy, float rx, float ry, float rw, float rh,
+                          float *nx, float *ny, float *depth)
+{
+    float left = cx - rx, right = rx + rw - cx;
+    float top = cy - ry, bottom = ry + rh - cy;
+    float m = left;
+    *nx = 1.0f; *ny = 0.0f;
+    if (right < m) { m = right; *nx = -1.0f; *ny = 0.0f; }
+    if (top < m)   { m = top;   *nx = 0.0f; *ny = 1.0f; }
+    if (bottom < m){ m = bottom; *nx = 0.0f; *ny = -1.0f; }
+    *depth = m;
+}
+
+
+/* 圆心到矩形最近点。 */
+static void closest_on_rect(float cx, float cy, float rx, float ry, float rw, float rh,
+                            float *ox, float *oy)
+{
+    *ox = (cx < rx) ? rx : ((cx > rx + rw) ? (rx + rw) : cx);
+    *oy = (cy < ry) ? ry : ((cy > ry + rh) ? (ry + rh) : cy);
+}
+
+
+/* 两个像素实体是否重叠。normal 从障碍指向 a，depth 是穿透深度。 */
+static int collide_pair(const game_entity_t *a, const game_entity_t *b,
+                         float *nx, float *ny, float *depth)
+{
+    float ahw, ahh, bhw, bhh;
+    game_entity_extent(a, &ahw, &ahh);
+    game_entity_extent(b, &bhw, &bhh);
+
+    if (a->shape == GAME_SHAPE_CIRCLE && b->shape == GAME_SHAPE_CIRCLE) {
+        float dx = a->x - b->x, dy = a->y - b->y;
+        float d2 = dx * dx + dy * dy;
+        float rr = ahw + bhw;
+        if (d2 >= rr * rr) return 0;
+        if (d2 <= 0.0001f) { *nx = 1.0f; *ny = 0.0f; *depth = rr; return 1; }
+        float d = (float)sqrtf(d2);
+        *nx = dx / d; *ny = dy / d; *depth = rr - d;
+        return 1;
+    }
+
+    if (a->shape == GAME_SHAPE_CIRCLE) {
+        float rx = b->x - bhw, ry = b->y - bhh;
+        float cx, cy;
+        closest_on_rect(a->x, a->y, rx, ry, bhw * 2.0f, bhh * 2.0f, &cx, &cy);
+        float dx = a->x - cx, dy = a->y - cy;
+        float d2 = dx * dx + dy * dy;
+        if (d2 >= ahw * ahw) return 0;
+        if (d2 > 0.0001f) {
+            float d = (float)sqrtf(d2);
+            *nx = dx / d; *ny = dy / d; *depth = ahw - d;
+        } else {
+            push_out_rect(a->x, a->y, rx, ry, bhw * 2.0f, bhh * 2.0f, nx, ny, depth);
+            *depth += ahw;
+        }
+        return 1;
+    }
+
+    if (b->shape == GAME_SHAPE_CIRCLE) {
+        float rx = a->x - ahw, ry = a->y - ahh;
+        float cx, cy;
+        closest_on_rect(b->x, b->y, rx, ry, ahw * 2.0f, ahh * 2.0f, &cx, &cy);
+        float dx = b->x - cx, dy = b->y - cy;
+        float d2 = dx * dx + dy * dy;
+        if (d2 >= bhw * bhw) return 0;
+        if (d2 > 0.0001f) {
+            float d = (float)sqrtf(d2);
+            *nx = -dx / d; *ny = -dy / d; *depth = bhw - d;
+        } else {
+            push_out_rect(b->x, b->y, rx, ry, ahw * 2.0f, ahh * 2.0f, nx, ny, depth);
+            *nx = -(*nx); *ny = -(*ny);
+            *depth += bhw;
+        }
+        return 1;
+    }
+
+    /* 矩形 vs 矩形 —— 沿穿透最浅的轴分开。 */
+    float ax0 = a->x - ahw, ax1 = a->x + ahw, ay0 = a->y - ahh, ay1 = a->y + ahh;
+    float bx0 = b->x - bhw, bx1 = b->x + bhw, by0 = b->y - bhh, by1 = b->y + bhh;
+    if (ax1 <= bx0 || bx1 <= ax0 || ay1 <= by0 || by1 <= ay0) return 0;
+    float ox = (ax1 - bx0) < (bx1 - ax0) ? (ax1 - bx0) : (bx1 - ax0);
+    float oy = (ay1 - by0) < (by1 - ay0) ? (ay1 - by0) : (by1 - ay0);
+    if (ox < oy) {
+        *nx = (a->x < b->x) ? -1.0f : 1.0f;
+        *ny = 0.0f;
+        *depth = ox;
+    } else {
+        *nx = 0.0f;
+        *ny = (a->y < b->y) ? -1.0f : 1.0f;
+        *depth = oy;
+    }
+    return 1;
+}
+
+
+/* 推出重叠区并沿法线反射速度。restitution=1 是完全弹性。 */
+static void resolve_bounce(game_entity_t *e, float nx, float ny, float depth)
+{
+    e->x += nx * depth;
+    e->y += ny * depth;
+    float dot = e->vx * nx + e->vy * ny;
+    float rest = e->restitution > 0.0f ? e->restitution : 1.0f;
+    e->vx -= (1.0f + rest) * dot * nx;
+    e->vy -= (1.0f + rest) * dot * ny;
+}
+
+
+/* 实体是否压到网格实心格。命中就返回格坐标与法线。 */
+static int entity_hits_grid(const game_pack_t *p, const game_entity_t *e,
+                             int *hit_gx, int *hit_gy,
+                             float *nx, float *ny, float *depth)
+{
+    const game_grid_t *g = &p->grid;
+    if (g->pat_cols <= 0 || g->pat_rows <= 0) return 0;
+    int cw = g->cell_w > 0 ? g->cell_w : g->cell;
+    int ch = g->cell_h > 0 ? g->cell_h : g->cell;
+    if (cw <= 0 || ch <= 0) return 0;
+
+    float hw, hh;
+    game_entity_extent(e, &hw, &hh);
+    int x0 = (int)floorf((e->x - hw - g->ox) / (float)cw);
+    int x1 = (int)floorf((e->x + hw - g->ox) / (float)cw);
+    int y0 = (int)floorf((e->y - hh - g->oy) / (float)ch);
+    int y1 = (int)floorf((e->y + hh - g->oy) / (float)ch);
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 >= g->pat_cols) x1 = g->pat_cols - 1;
+    if (y1 >= g->pat_rows) y1 = g->pat_rows - 1;
+
+    for (int gy = y0; gy <= y1; gy++) {
+        for (int gx = x0; gx <= x1; gx++) {
+            if (!game_grid_cell_solid(p, gx, gy)) continue;
+            float rx = g->ox + gx * cw, ry = g->oy + gy * ch;
+            if (e->shape == GAME_SHAPE_CIRCLE) {
+                float cx, cy;
+                closest_on_rect(e->x, e->y, rx, ry, (float)cw, (float)ch, &cx, &cy);
+                float dx = e->x - cx, dy = e->y - cy;
+                float d2 = dx * dx + dy * dy;
+                if (d2 >= hw * hw) continue;
+                if (d2 > 0.0001f) {
+                    float d = (float)sqrtf(d2);
+                    *nx = dx / d; *ny = dy / d; *depth = hw - d;
+                } else {
+                    push_out_rect(e->x, e->y, rx, ry, (float)cw, (float)ch, nx, ny, depth);
+                    *depth += hw;
+                }
+            } else {
+                float ax0 = e->x - hw, ax1 = e->x + hw;
+                float ay0 = e->y - hh, ay1 = e->y + hh;
+                float bx1 = rx + cw, by1 = ry + ch;
+                if (ax1 <= rx || bx1 <= ax0 || ay1 <= ry || by1 <= ay0) continue;
+                float ox = (ax1 - rx) < (bx1 - ax0) ? (ax1 - rx) : (bx1 - ax0);
+                float oy = (ay1 - ry) < (by1 - ay0) ? (ay1 - ry) : (by1 - ay0);
+                if (ox < oy) {
+                    *nx = (e->x < rx + cw * 0.5f) ? -1.0f : 1.0f;
+                    *ny = 0.0f;
+                    *depth = ox;
+                } else {
+                    *nx = 0.0f;
+                    *ny = (e->y < ry + ch * 0.5f) ? -1.0f : 1.0f;
+                    *depth = oy;
+                }
+            }
+            *hit_gx = gx;
+            *hit_gy = gy;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+
+/* 边界：墙反弹，非墙的一侧掉出去就发一次 bounds 事件。 */
+static void handle_bounds(game_pack_t *p, game_entity_t *e, int idx)
+{
+    if (!e->has_bounds) return;
+    float hw, hh;
+    game_entity_extent(e, &hw, &hh);
+    int escaped = 0;
+
+    if (e->x - hw < e->bx0) {
+        if (e->walls & 1) { e->x = e->bx0 + hw; e->vx = -e->vx; }
+        else escaped = 1;
+    } else if (e->x + hw > e->bx1) {
+        if (e->walls & 2) { e->x = e->bx1 - hw; e->vx = -e->vx; }
+        else escaped = 1;
+    }
+    if (e->y - hh < e->by0) {
+        if (e->walls & 4) { e->y = e->by0 + hh; e->vy = -e->vy; }
+        else escaped = 1;
+    } else if (e->y + hh > e->by1) {
+        if (e->walls & 8) { e->y = e->by1 - hh; e->vy = -e->vy; }
+        else escaped = 1;
+    }
+
+    if (escaped && !e->oob) {
+        e->oob = 1;
+        game_fire(p, GAME_EV_BOUNDS, -1, idx, -1, 0, -1);
+    }
+}
 
 
 /* 网格坐标 -> 像素左上角 */
@@ -169,6 +427,50 @@ void game_step(int64_t now, float dt)
             }
         }
     }
+
+    /* ---- 像素碰撞：实体 vs 实体 ----
+       只有一边是实心体（solid）才碰撞。每对实体只判一次 ——
+       事件发两遍（target=i / target=j），规则靠 target 挑自己关心的那一遍。
+       法线方向：collide_pair 给的是「从 j 指向 i」，被弹开的一方沿它退。 */
+    for (int i = 0; i < p->nents; i++) {
+        for (int j = i + 1; j < p->nents; j++) {
+            game_entity_t *e = &p->ents[i];
+            game_entity_t *o = &p->ents[j];
+            if (!e->visible || !o->visible) continue;
+            if (e->shape != GAME_SHAPE_RECT && e->shape != GAME_SHAPE_CIRCLE) continue;
+            if (o->shape != GAME_SHAPE_RECT && o->shape != GAME_SHAPE_CIRCLE) continue;
+            if (!o->solid && !e->solid) continue;
+            float nx, ny, depth;
+            if (!collide_pair(e, o, &nx, &ny, &depth)) continue;
+            game_fire(p, GAME_EV_HIT, -1, i, j, 0, -1);
+            game_fire(p, GAME_EV_HIT, -1, j, i, 0, -1);
+            if (e->bounce) resolve_bounce(e, nx, ny, depth);
+            else if (o->bounce) resolve_bounce(o, -nx, -ny, depth);
+        }
+    }
+
+    /* ---- 像素碰撞：实体 vs 网格实心格 ----
+       命中的格坐标写进 grid.hit_gx/hit_gy，规则里的 destroy_cell 就用它。 */
+    for (int i = 0; i < p->nents; i++) {
+        game_entity_t *e = &p->ents[i];
+        if (!e->visible) continue;
+        if (e->shape != GAME_SHAPE_RECT && e->shape != GAME_SHAPE_CIRCLE) continue;
+        int hgx = -1, hgy = -1;
+        float nx = 0.0f, ny = 0.0f, depth = 0.0f;
+        if (!entity_hits_grid(p, e, &hgx, &hgy, &nx, &ny, &depth)) continue;
+        p->grid.hit_gx = hgx;
+        p->grid.hit_gy = hgy;
+        game_fire(p, GAME_EV_GRID_HIT, -1, i, -1, 0, -1);
+        if (e->bounce) resolve_bounce(e, nx, ny, depth);
+    }
+
+    /* ---- 边界 ---- */
+    for (int i = 0; i < p->nents; i++) {
+        game_entity_t *e = &p->ents[i];
+        if (!e->visible) continue;
+        if (e->shape == GAME_SHAPE_CELL || e->shape == GAME_SHAPE_TRAIL) continue;
+        handle_bounds(p, e, i);
+    }
 }
 
 
@@ -246,14 +548,27 @@ void game_draw_scene(void)
 
     game_draw_clear(CLR_BG);
 
-    if (p->grid.show_border && p->grid.cell > 0) {
-        int w = p->grid.cols * p->grid.cell;
-        int h = p->grid.rows * p->grid.cell;
+    int cw = p->grid.cell_w > 0 ? p->grid.cell_w : p->grid.cell;
+    int chh = p->grid.cell_h > 0 ? p->grid.cell_h : p->grid.cell;
+
+    if (p->grid.show_border && cw > 0) {
+        int w = p->grid.cols * cw;
+        int h = p->grid.rows * chh;
         uint16_t bc = p->grid.border_color ? p->grid.border_color : CLR_DIM;
         game_draw_rect(p->grid.ox - 2, p->grid.oy - 2, w + 4, 1, bc);
         game_draw_rect(p->grid.ox - 2, p->grid.oy + h + 1, w + 4, 1, bc);
         game_draw_rect(p->grid.ox - 2, p->grid.oy - 2, 1, h + 4, bc);
         game_draw_rect(p->grid.ox + w + 1, p->grid.oy - 2, 1, h + 4, bc);
+    }
+
+    /* 网格图样 —— 每个实心格按 pattern 里的字符上色。 */
+    for (int gy = 0; gy < p->grid.pat_rows; gy++) {
+        for (int gx = 0; gx < p->grid.pat_cols; gx++) {
+            if (!p->grid.pat[gy][gx]) continue;
+            int px = p->grid.ox + gx * cw;
+            int py = p->grid.oy + gy * chh;
+            game_draw_rect(px, py, cw - 1, chh - 1, game_grid_cell_color(p, gx, gy));
+        }
     }
 
     for (int i = 0; i < p->nents; i++) {

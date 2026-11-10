@@ -1,0 +1,163 @@
+{
+  "id": "brickout",
+  "version": 1,
+  "order": 10,
+  "title": "消砖块",
+  "hint": "旋转移挡板 · 按下发球 · 长按退出",
+  "requires": [
+    "rect",
+    "circle",
+    "vel",
+    "collide",
+    "bounds",
+    "pattern",
+    "grid",
+    "score"
+  ],
+  "grid": {
+    "cols": 9,
+    "rows": 5,
+    "x": 12,
+    "y": 30,
+    "cell": 24,
+    "cellW": 24,
+    "cellH": 12,
+    "border": true,
+    "borderColor": "#5C4033",
+    "pattern": [
+      "111111111",
+      "111111111",
+      "111111111",
+      "111111111",
+      "111111111"
+    ],
+    "colors": {
+      "1": "#C80000"
+    }
+  },
+  "intents": [
+    {
+      "name": "move_x",
+      "target": "paddle"
+    },
+    {
+      "name": "fire",
+      "target": "ball"
+    }
+  ],
+  "input": {
+    "rot": {
+      "intent": "move_x"
+    },
+    "press": {
+      "intent": "fire"
+    }
+  },
+  "entities": [
+    {
+      "id": "paddle",
+      "shape": "rect",
+      "x": 120,
+      "y": 292,
+      "w": 44,
+      "h": 8,
+      "color": "#5C4033",
+      "solid": true
+    },
+    {
+      "id": "ball",
+      "shape": "circle",
+      "x": 120,
+      "y": 270,
+      "r": 4,
+      "vx": 0,
+      "vy": 0,
+      "color": "#E8B000",
+      "bounce": true,
+      "restitution": 1.0,
+      "bounds": {
+        "x0": 0,
+        "y0": 0,
+        "x1": 240,
+        "y1": 320,
+        "walls": "lrt"
+      }
+    }
+  ],
+  "rules": [
+    {
+      "on": "intent",
+      "intent": "move_x",
+      "target": "paddle",
+      "effects": [
+        {
+          "fx": "move",
+          "target": "paddle",
+          "value": 6,
+          "value2": 0
+        }
+      ]
+    },
+    {
+      "on": "intent",
+      "intent": "fire",
+      "target": "ball",
+      "effects": [
+        {
+          "fx": "set_vel",
+          "target": "ball",
+          "value": 1.6,
+          "value2": -2.0
+        }
+      ]
+    },
+    {
+      "on": "grid_hit",
+      "target": "ball",
+      "effects": [
+        {
+          "fx": "destroy_cell"
+        },
+        {
+          "fx": "add_score",
+          "value": 10
+        }
+      ]
+    },
+    {
+      "on": "empty",
+      "effects": [
+        {
+          "fx": "win"
+        }
+      ]
+    },
+    {
+      "on": "bounds",
+      "target": "ball",
+      "effects": [
+        {
+          "fx": "lose"
+        }
+      ]
+    }
+  ],
+  "glyphs": {
+    "消": "QQAtIAVgAQBP4CwgD+AsIC/gLCBMIEzg",
+    "砖": "AQB/4CEAYwBv8EoAy+BIQEqAe4BAgABA",
+    "块": "IQAhACfgcSAhICEgL+AzgHKARkAMYAgg",
+    "旋": "MgD/8CQAI+A4oCqAauBKgEqATYC08AAA",
+    "转": "IID74CEAcQBX8FEAe+AQQDhA8YAQwBBA",
+    "移": "c+AmQCfAeYA2gHHgYiDlQCDAIwAuAAAA",
+    "挡": "IQAlICUg/UAhACfgcCAn4CAgICAv4GAg",
+    "板": "J8B0AHQAN+A3IG1AZUCkwC3AK2AuIAAA",
+    "·": "AAAAAAAABgAGAAAAAAAAAAAAAAAAAAAA",
+    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
+    "下": "f+AEAAQABgAHgATABAAEAAQABAAEAAAA",
+    "发": "BIAkQCQAf+AMAA/AHEAUgDOAYwBOwBhg",
+    "球": "AUDxICEAL/AhgHWgI8AhwCPAfWBJMAMA",
+    "长": "EEAQgBEAFgAQAH/gEgATABEAEMAeYBAA",
+    "退": "AABHwCRAB8AEQGfAJWAkwCdALiB4AE/g",
+    "出": "BgAmQCZAJkAmQD/ABgBGIEYgRiB/4AAg"
+  }
+}

@@ -15,6 +15,17 @@
 
 ### Added
 
+**引擎原语** —— 设备端游戏引擎新增四个通用原语，pack 可以在 `requires` 里声明：
+
+- `vel` —— 实体带速度（vx, vy）和加速度（ax, ay），每逻辑步积分
+- `collide` —— 像素空间实体碰撞：圆↔圆、圆↔矩形、矩形↔矩形；`bounce` 的一侧由引擎推出重叠区并沿法线反射速度，`restitution` 是恢复系数
+- `bounds` —— 实体撞边界反弹；没设成墙的那一侧掉出去触发 `bounds` 事件
+- `pattern` —— 网格图样：一组实心格（`pattern` 字符串数组 + `colors` 字符到颜色的映射），实心格参与碰撞，可被 `destroy_cell` 销毁
+
+对应的新事件：`hit`、`grid_hit`、`bounds`、`empty`。对应的新效果：`move`、`destroy_cell`。
+
+**消砖块** —— 新增 `petd/packs/brickout.json`：旋钮移挡板，按下发球，砖清空即通关。
+
 **背景**
 
 - **背景图** —— 宠物住在一张背景上，铺满整屏。仓库自带 `backgrounds/default.png`，用户可在后台「宠物库」上传自己的

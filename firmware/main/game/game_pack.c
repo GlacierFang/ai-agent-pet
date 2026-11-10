@@ -109,6 +109,8 @@ static int fx_from_name(const char *name)
     if (!strcmp(name, "lose"))        return GAME_FX_LOSE;
     if (!strcmp(name, "start_timer")) return GAME_FX_START_TIMER;
     if (!strcmp(name, "stop_timer"))  return GAME_FX_STOP_TIMER;
+    if (!strcmp(name, "move"))         return GAME_FX_MOVE;
+    if (!strcmp(name, "destroy_cell")) return GAME_FX_DESTROY_CELL;
     return GAME_FX_NONE;
 }
 
@@ -122,6 +124,10 @@ static uint8_t ev_from_name(const char *name)
     if (!strcmp(name, "self"))    return GAME_EV_SELF;
     if (!strcmp(name, "oob"))     return GAME_EV_OOB;
     if (!strcmp(name, "timer"))   return GAME_EV_TIMER;
+    if (!strcmp(name, "hit"))      return GAME_EV_HIT;
+    if (!strcmp(name, "grid_hit")) return GAME_EV_GRID_HIT;
+    if (!strcmp(name, "bounds"))   return GAME_EV_BOUNDS;
+    if (!strcmp(name, "empty"))    return GAME_EV_EMPTY;
     return GAME_EV_START;
 }
 
@@ -381,6 +387,47 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
 
             const cJSON *sp = cJSON_GetObjectItem(e, "speed");
             ge->speed = cJSON_IsNumber(sp) ? (float)sp->valuedouble : 0.0f;
+
+            /* 速度与加速度 */
+            const cJSON *vx = cJSON_GetObjectItem(e, "vx");
+            const cJSON *vy = cJSON_GetObjectItem(e, "vy");
+            const cJSON *ax = cJSON_GetObjectItem(e, "ax");
+            const cJSON *ay = cJSON_GetObjectItem(e, "ay");
+            ge->vx = cJSON_IsNumber(vx) ? (float)vx->valuedouble : 0.0f;
+            ge->vy = cJSON_IsNumber(vy) ? (float)vy->valuedouble : 0.0f;
+            ge->ax = cJSON_IsNumber(ax) ? (float)ax->valuedouble : 0.0f;
+            ge->ay = cJSON_IsNumber(ay) ? (float)ay->valuedouble : 0.0f;
+
+            /* 碰撞属性 */
+            const cJSON *rst = cJSON_GetObjectItem(e, "restitution");
+            ge->restitution = cJSON_IsNumber(rst) ? (float)rst->valuedouble : 1.0f;
+            const cJSON *bnc = cJSON_GetObjectItem(e, "bounce");
+            ge->bounce = cJSON_IsTrue(bnc) ? 1 : 0;
+            const cJSON *sld = cJSON_GetObjectItem(e, "solid");
+            ge->solid = cJSON_IsTrue(sld) ? 1 : 0;
+
+            /* 边界矩形 —— walls 里 l/r/t/b 表示那几条边是墙 */
+            const cJSON *bnd = cJSON_GetObjectItem(e, "bounds");
+            if (cJSON_IsObject(bnd)) {
+                const cJSON *b0 = cJSON_GetObjectItem(bnd, "x0");
+                const cJSON *b1 = cJSON_GetObjectItem(bnd, "y0");
+                const cJSON *b2 = cJSON_GetObjectItem(bnd, "x1");
+                const cJSON *b3 = cJSON_GetObjectItem(bnd, "y1");
+                ge->bx0 = cJSON_IsNumber(b0) ? (float)b0->valuedouble : 0.0f;
+                ge->by0 = cJSON_IsNumber(b1) ? (float)b1->valuedouble : 0.0f;
+                ge->bx1 = cJSON_IsNumber(b2) ? (float)b2->valuedouble : (float)GAME_CANVAS_W;
+                ge->by1 = cJSON_IsNumber(b3) ? (float)b3->valuedouble : (float)GAME_CANVAS_H;
+                ge->has_bounds = 1;
+                const cJSON *wl = cJSON_GetObjectItem(bnd, "walls");
+                if (cJSON_IsString(wl)) {
+                    for (const char *q = wl->valuestring; *q; q++) {
+                        if (*q == 'l') ge->walls |= 1;
+                        else if (*q == 'r') ge->walls |= 2;
+                        else if (*q == 't') ge->walls |= 4;
+                        else if (*q == 'b') ge->walls |= 8;
+                    }
+                }
+            }
             const cJSON *tr = cJSON_GetObjectItem(e, "trail");
             ge->trail_len = cJSON_IsNumber(tr) ? tr->valueint : 0;
             if (ge->trail_len > GAME_MAX_TRAIL) ge->trail_len = GAME_MAX_TRAIL;
@@ -426,6 +473,44 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
         v = cJSON_GetObjectItem(grid, "x");    out->grid.ox = cJSON_IsNumber(v) ? v->valueint : 0;
         v = cJSON_GetObjectItem(grid, "y");    out->grid.oy = cJSON_IsNumber(v) ? v->valueint : 0;
         v = cJSON_GetObjectItem(grid, "cell"); out->grid.cell = cJSON_IsNumber(v) ? v->valueint : 0;
+        v = cJSON_GetObjectItem(grid, "cellW");
+        out->grid.cell_w = cJSON_IsNumber(v) ? v->valueint : out->grid.cell;
+        v = cJSON_GetObjectItem(grid, "cellH");
+        out->grid.cell_h = cJSON_IsNumber(v) ? v->valueint : out->grid.cell;
+
+        /* pattern：每行一个字符串，字符就是颜色键；'.' 和空格是空格 */
+        const cJSON *pat = cJSON_GetObjectItem(grid, "pattern");
+        if (cJSON_IsArray(pat)) {
+            int r = 0;
+            const cJSON *row;
+            JSON_FOREACH_IDX(row, pat, r) {
+                if (r >= GAME_MAX_GRID_PAT_ROWS) break;
+                if (!cJSON_IsString(row)) continue;
+                const char *s2 = row->valuestring;
+                int c = 0;
+                for (; s2[c] && c < GAME_MAX_GRID_PAT_COLS; c++) {
+                    char k = s2[c];
+                    if (k == '.' || k == ' ') continue;
+                    out->grid.pat[r][c] = (uint8_t)k;
+                    out->grid.n_alive++;
+                }
+                if (c > out->grid.pat_cols) out->grid.pat_cols = c;
+                if (r + 1 > out->grid.pat_rows) out->grid.pat_rows = r + 1;
+            }
+        }
+
+        /* colors：{"1": "#C80000"} —— 字符到颜色的映射 */
+        const cJSON *cols = cJSON_GetObjectItem(grid, "colors");
+        if (cJSON_IsObject(cols)) {
+            for (cJSON *child = cols->child; child; child = child->next) {
+                if (!child->string || !child->string[0]) continue;
+                if (out->grid.ncolors >= GAME_MAX_GRID_COLORS) break;
+                if (!cJSON_IsString(child)) continue;
+                game_grid_color_t *gc = &out->grid.colors[out->grid.ncolors++];
+                gc->key = child->string[0];
+                gc->color = game_parse_color(child->valuestring, 0xFFFF);
+            }
+        }
         v = cJSON_GetObjectItem(grid, "border");
         out->grid.show_border = cJSON_IsTrue(v) ? 1 : 0;
         out->grid.border_color = pick_color(grid, "borderColor", 0x8410);

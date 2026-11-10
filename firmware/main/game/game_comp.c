@@ -24,6 +24,10 @@ static const char *s_caps[] = {
     "timer",
     "score",
     "oob",
+    "vel",
+    "collide",
+    "bounds",
+    "pattern",
 };
 static const int s_ncaps = (int)(sizeof(s_caps) / sizeof(s_caps[0]));
 
@@ -206,6 +210,23 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
         break;
     case GAME_FX_LOSE:
         s_pack.state = 2;
+        break;
+    case GAME_FX_MOVE:
+        if (fx->target >= 0 && fx->target < s_pack.nents) {
+            game_entity_t *e = &s_pack.ents[fx->target];
+            e->x += fx->a * (float)input_dir;
+            e->y += fx->b * (float)input_dir;
+            /* 别把实体推出画布 */
+            float hw, hh;
+            game_entity_extent(e, &hw, &hh);
+            if (e->x - hw < 0.0f) e->x = hw;
+            if (e->x + hw > GAME_CANVAS_W) e->x = GAME_CANVAS_W - hw;
+            if (e->y - hh < 0.0f) e->y = hh;
+            if (e->y + hh > GAME_CANVAS_H) e->y = GAME_CANVAS_H - hh;
+        }
+        break;
+    case GAME_FX_DESTROY_CELL:
+        game_grid_destroy_cell(&s_pack, s_pack.grid.hit_gx, s_pack.grid.hit_gy);
         break;
     case GAME_FX_START_TIMER: {
         /* fx->a 是 float —— 当下标必须先转 int */

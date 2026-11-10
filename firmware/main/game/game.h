@@ -40,6 +40,9 @@
 #define GAME_MAX_MENU_ITEMS 12
 #define GAME_MAX_GLYPHS     256
 #define GAME_MAX_TIMERS     2
+#define GAME_MAX_GRID_PAT_COLS 32
+#define GAME_MAX_GRID_PAT_ROWS 16
+#define GAME_MAX_GRID_COLORS   8
 
 /* ---- sprite（位图精灵）---- */
 #define GAME_MAX_SPRITES      4
@@ -81,6 +84,10 @@
 #define GAME_EV_SELF       3
 #define GAME_EV_OOB        4
 #define GAME_EV_TIMER      5
+#define GAME_EV_HIT       6   /* 实体撞实体（像素空间）*/
+#define GAME_EV_GRID_HIT  7   /* 实体撞网格实心格 */
+#define GAME_EV_BOUNDS    8   /* 实体飞出画布 */
+#define GAME_EV_EMPTY     9   /* 网格里的实心格全清空 */
 
 /* ---- 效果 ---- */
 #define GAME_FX_NONE        0
@@ -99,6 +106,8 @@
 #define GAME_FX_LOSE       13
 #define GAME_FX_START_TIMER 14
 #define GAME_FX_STOP_TIMER  15
+#define GAME_FX_MOVE        16  /* 按输入位移：a = 每步 dx，b = 每步 dy */
+#define GAME_FX_DESTROY_CELL 17 /* 销毁刚被命中的网格格 */
 
 /* 网格朝向：0=上 1=右 2=下 3=左 */
 #define GAME_DIR_UP    0
@@ -149,6 +158,13 @@ typedef struct {
     int   value, value_min, value_max;
     float speed;         /* 格/秒 */
     float move_accum;
+    float restitution;   /* 碰撞恢复系数，1 = 完全反弹 */
+    uint8_t bounce;      /* 1 = 撞到实心体时由引擎反弹 */
+    uint8_t solid;       /* 1 = 作为实心体被撞 */
+    uint8_t oob;         /* 1 = 已经飞出画布（bounds 事件只发一次）*/
+    uint8_t has_bounds;  /* 1 = 有 bounds 矩形 */
+    float bx0, by0, bx1, by1;
+    uint8_t walls;       /* 位：1 左 2 右 4 上 8 下 */
 } game_entity_t;
 
 typedef struct {
@@ -178,12 +194,25 @@ typedef struct {
     float scale;         /* 输入幅度缩放 */
 } game_input_map_t;
 
+/* 网格图样里的一个颜色 —— 字符 -> 颜色 */
+typedef struct {
+    char     key;
+    uint16_t color;
+} game_grid_color_t;
+
 typedef struct {
     int   cols, rows;
     int   ox, oy;        /* 网格左上角像素位置 */
     int   cell;          /* 格边长（像素）*/
+    int   cell_w, cell_h;/* 图样格宽高 —— 不给就用 cell */
     uint8_t show_border;
     uint16_t border_color;
+    uint8_t pat[GAME_MAX_GRID_PAT_ROWS][GAME_MAX_GRID_PAT_COLS]; /* 0 = 空 */
+    int    pat_cols, pat_rows;
+    game_grid_color_t colors[GAME_MAX_GRID_COLORS];
+    int    ncolors;
+    int    n_alive;       /* 还剩多少实心格 */
+    int    hit_gx, hit_gy;/* 最近命中的格子 */
 } game_grid_t;
 
 typedef struct {
@@ -282,6 +311,10 @@ const char *game_cap_name(int i);
 uint16_t     game_parse_color(const char *s, uint16_t dflt);
 
 int          game_find_entity(const game_pack_t *p, const char *id);
+int          game_grid_cell_solid(const game_pack_t *p, int gx, int gy);
+uint16_t     game_grid_cell_color(const game_pack_t *p, int gx, int gy);
+void         game_grid_destroy_cell(game_pack_t *p, int gx, int gy);
+void         game_entity_extent(const game_entity_t *e, float *hw, float *hh);
 int          game_find_intent(const game_pack_t *p, const char *name);
 game_pack_t *game_current_pack(void);
 
