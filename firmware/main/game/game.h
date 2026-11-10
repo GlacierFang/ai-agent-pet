@@ -44,6 +44,9 @@
 #define GAME_MAX_GRID_PAT_ROWS 16
 #define GAME_MAX_GRID_COLORS   8
 
+/* pack 原文上限 —— 设备收包缓冲和写盘都按这个截断 */
+#define GAME_MAX_PACK_BYTES (24 * 1024)
+
 /* ---- sprite（位图精灵）---- */
 #define GAME_MAX_SPRITES      4
 #define GAME_MAX_SPRITE_FRAMES 8

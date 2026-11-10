@@ -22,7 +22,7 @@ static const char *TAG = "game_pack";
 
 #define PACK_DIR       "/packs"
 #define PACK_PARTITION "storage"
-#define PACK_MAX_BYTES (24 * 1024)
+#define PACK_MAX_BYTES GAME_MAX_PACK_BYTES
 /* 已装 pack 的清单。SPIFFS 是扁平文件系统（官方文档明说不支持目录），
    而且 IDF v5 的 newlib 不保证给 dirent.h —— 所以不扫目录，用清单记账。 */
 #define PACK_MANIFEST "/packs/manifest.json"

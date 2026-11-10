@@ -36,6 +36,25 @@ static int     s_rx_cur;
 /* 已收完的帧队列 */
 static QueueHandle_t s_frame_q;
 
+/* ---- 游戏包：回调只收字节，解析和写盘挪到 pack_task ----
+   WS 回调跑在 esp_websocket_client 自己的任务里，栈只有 4KB。
+   在那里解析 pack + 写 SPIFFS 会撑爆栈 —— 设备 panic 重启，
+   开机又报「本地没装这些包」，后台再推一遍，于是无限重启。 */
+#define PACK_QUEUE_LEN 2
+
+typedef struct {
+    char  *data;                    /* 堆上的 pack 原文 */
+    size_t len;
+    char   id[GAME_MAX_PACK_ID];
+} pack_item_t;
+
+static QueueHandle_t s_pack_q;
+static uint8_t     *s_pack_buf;     /* 收 pack 本体的缓冲（PSRAM） */
+static size_t       s_pack_len;     /* 已收到多少字节 */
+static size_t       s_pack_expect;  /* 预告说一共多少字节 */
+static char         s_pack_id[GAME_MAX_PACK_ID];
+static volatile bool s_pending_pack; /* 下一条 binary 是 pack 本体 */
+
 /* WS 收包缓冲大小。32KB ≥ 协议上限（单帧 32KB），一帧一次收完。 */
 #define PETD_WS_BUFFER_BYTES (32 * 1024)
 
@@ -94,6 +113,78 @@ static void send_hello(void)
     if (n > 0) {
         esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(2000));
         ESP_LOGI(TAG, "hello sent (%d packs)", nids);
+    }
+}
+
+
+/* 丢掉没收齐的 pack 缓冲。 */
+static void pack_buf_drop(void)
+{
+    if (s_pack_buf) {
+        free(s_pack_buf);
+        s_pack_buf = NULL;
+    }
+    s_pack_len = 0;
+    s_pending_pack = false;
+}
+
+
+/* 按预告的长度开缓冲。返回 false 表示开不出来。 */
+static bool pack_buf_begin(size_t n)
+{
+    if (s_pack_buf) {
+        free(s_pack_buf);
+        s_pack_buf = NULL;
+    }
+    s_pack_len = 0;
+    s_pack_expect = n;
+    s_pack_buf = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_pack_buf) {
+        s_pack_buf = heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (!s_pack_buf) {
+        ESP_LOGE(TAG, "pack alloc failed (%u bytes)", (unsigned)n);
+        return false;
+    }
+    return true;
+}
+
+
+/* 收到 pack 本体的一段。收齐了复制一份交给安装任务。 */
+static void pack_binary_chunk(const uint8_t *p, size_t len,
+                              size_t offset, size_t total)
+{
+    if (!s_pack_buf) return;
+    if (offset + len > s_pack_expect) {
+        ESP_LOGE(TAG, "pack overflow");
+        pack_buf_drop();
+        return;
+    }
+    if (offset == 0) s_pack_len = 0;
+    memcpy(s_pack_buf + offset, p, len);
+    if (offset + len > s_pack_len) s_pack_len = offset + len;
+    /* 收齐的判据：驱动报的 payload_len 和预告的字节数，谁先到按谁算。
+       两个数在正常情况下相等；不等时取先到的那个，避免其中一个不准就卡住。 */
+    if (s_pack_len < total && s_pack_len < s_pack_expect) return;
+
+    size_t got = s_pack_len;
+    char *copy = malloc(got + 1);
+    if (!copy) {
+        ESP_LOGE(TAG, "pack copy failed");
+        pack_buf_drop();
+        return;
+    }
+    memcpy(copy, s_pack_buf, got);
+    copy[got] = 0;
+    pack_buf_drop();                 /* 缓冲马上要留给下一个包 */
+
+    pack_item_t item;
+    item.data = copy;
+    item.len = got;
+    snprintf(item.id, sizeof(item.id), "%s", s_pack_id);
+    if (xQueueSend(s_pack_q, &item, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "pack queue full, dropped");
+        free(copy);
     }
 }
 
@@ -206,19 +297,25 @@ static void handle_text(const char *text, size_t len)
             game_open_menu();
         }
     } else if (!strcmp(t, PETD_T_PACK)) {
-        /* 服务端下发一个游戏包。data 是完整的 pack 对象。 */
-        cJSON *data = cJSON_GetObjectItem(root, "data");
-        if (cJSON_IsObject(data)) {
-            char *txt = cJSON_PrintUnformatted(data);
-            if (txt) {
-                esp_err_t err = game_install_pack(txt, strlen(txt));
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "pack install failed: %s", esp_err_to_name(err));
-                }
-                free(txt);
-            }
+        /* 服务端下发一个游戏包 —— 预告一条文本，本体一条 binary。
+           这里只记下长度；字节由随后的 binary 消息带来。 */
+        const cJSON *id = cJSON_GetObjectItem(root, "id");
+        const cJSON *by = cJSON_GetObjectItem(root, "bytes");
+        if (!cJSON_IsNumber(by)) {
+            ESP_LOGE(TAG, "pack preview without bytes");
         } else {
-            ESP_LOGE(TAG, "pack message without data");
+            size_t n = (size_t)by->valueint;
+            if (n == 0 || n > GAME_MAX_PACK_BYTES) {
+                ESP_LOGE(TAG, "pack size out of range: %u", (unsigned)n);
+            } else if (!pack_buf_begin(n)) {
+                ESP_LOGE(TAG, "no room for pack (%u bytes)", (unsigned)n);
+            } else {
+                snprintf(s_pack_id, sizeof(s_pack_id), "%s",
+                         cJSON_IsString(id) ? id->valuestring : "");
+                s_pending_pack = true;
+                ESP_LOGI(TAG, "pack preview: %s (%u bytes)",
+                         s_pack_id, (unsigned)n);
+            }
         }
     } else if (!strcmp(t, PETD_T_ERROR)) {
         cJSON *c = cJSON_GetObjectItem(root, "code");
@@ -229,6 +326,42 @@ static void handle_text(const char *text, size_t len)
     }
     cJSON_Delete(root);
     if (buf != stack_buf) free(buf);
+}
+
+
+/* 装包结果报给服务端 —— 后台日志里能看到哪个包装上了。 */
+static void pack_ack(const char *id, bool ok)
+{
+    if (!s_connected) return;
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf),
+                     "{\"type\":\"" PETD_T_PACK_ACK "\",\"id\":\"%s\",\"ok\":%s}",
+                     id ? id : "", ok ? "true" : "false");
+    if (n > 0) {
+        esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(1000));
+    }
+}
+
+
+/* pack 安装任务 —— 解析 + 写盘都在这里做。
+   栈 8KB：pack 解析要递归走 cJSON。临时 pack 对象（15KB）走堆，不占栈。
+   这块刻意不在 WS 回调栈上 —— 回调栈只有 4KB，装不下。 */
+static void pack_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        pack_item_t item;
+        if (xQueueReceive(s_pack_q, &item, pdMS_TO_TICKS(1000)) != pdTRUE) {
+            continue;
+        }
+        ESP_LOGI(TAG, "pack received (%u bytes), installing", (unsigned)item.len);
+        esp_err_t err = game_install_pack(item.data, item.len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "pack install failed: %s", esp_err_to_name(err));
+        }
+        free(item.data);
+        pack_ack(item.id, err == ESP_OK);
+    }
 }
 
 
@@ -284,6 +417,9 @@ static void reset_rx_state(void)
     }
     s_rx_cur = 0;
     s_pending_frame_id = 0;
+    /* 收到一半的 pack 也要丢 —— 重连后服务端会重发整个包，
+       留着旧半截会把新包拼坏。 */
+    pack_buf_drop();
 }
 
 
@@ -318,6 +454,13 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
         if (ev->op_code == 0x01) {   /* text */
             handle_text((const char *)ev->data_ptr, ev->data_len);
         } else if (ev->op_code == 0x02) {   /* binary */
+            if (s_pending_pack) {
+                /* pack 本体 —— 跟推帧的 binary 分开收 */
+                pack_binary_chunk((const uint8_t *)ev->data_ptr, ev->data_len,
+                                  (size_t)ev->payload_offset,
+                                  (size_t)ev->payload_len);
+                break;
+            }
             int idx = s_rx_cur;
             uint8_t *buf = s_rx_buf[idx];
             /* payload_offset 是这一条消息**内部**的偏移（驱动每条消息从 0 开始）。
@@ -387,6 +530,8 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
 
     s_frame_q = xQueueCreate(4, sizeof(frame_item_t));
     ESP_ERROR_CHECK(s_frame_q ? ESP_OK : ESP_ERR_NO_MEM);
+    s_pack_q = xQueueCreate(PACK_QUEUE_LEN, sizeof(pack_item_t));
+    ESP_ERROR_CHECK(s_pack_q ? ESP_OK : ESP_ERR_NO_MEM);
 
     char uri[128];
     snprintf(uri, sizeof(uri), "ws://%s:%u%s", host, (unsigned)port, PETD_WS_PATH);
@@ -412,6 +557,7 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
     ESP_ERROR_CHECK(esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY,
                                      ws_event_handler, NULL));
     xTaskCreate(frame_task, "frame", 8192, NULL, 4, NULL);
+    xTaskCreate(pack_task, "pack", 8192, NULL, 3, NULL);
     ESP_LOGI(TAG, "ws client ready: %s", uri);
     return ESP_OK;
 }

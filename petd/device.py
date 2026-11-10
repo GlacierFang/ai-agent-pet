@@ -13,6 +13,28 @@ from .render import MAX_FRAME_BYTES
 
 log = logging.getLogger("petd.device")
 
+# 支持游戏包的最低固件版本。
+# 0.5.0 在 WS 回调里装包会撑爆 4KB 的回调栈 —— 设备 panic 重启，
+# 重启后报「本地没装这些包」，后台再推一遍，于是永远重启。
+# 所以低于这个版本一律不下发游戏包。
+MIN_PACK_FW = (0, 5, 1)
+
+
+def fw_tuple(fw):
+    """把 '0.5.1' 拆成 (0, 5, 1)。认不出的段当 0。"""
+    out = []
+    for part in str(fw or "").split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            out.append(0)
+    return tuple(out)
+
+
+def fw_supports_packs(fw):
+    """这个固件版本能不能收游戏包。"""
+    return fw_tuple(fw) >= MIN_PACK_FW
+
 
 class DeviceSession:
     def __init__(self, ws, info):
@@ -37,9 +59,26 @@ class DeviceSession:
         # 设备当前在哪个模式：idle / menu / playing。
         # 设备在游戏里时服务端停推帧 —— 抢屏。
         self.mode = str(info.get("mode") or "idle")
+        # 「预告 + 本体」成对发，中途不能被别的 binary 插进来。
+        self._tx_lock = asyncio.Lock()
 
     async def send_json(self, obj):
         await self.ws.send_text(json.dumps(obj, ensure_ascii=False))
+
+    async def send_pack(self, pack_id, version, raw):
+        """下发一个游戏包 —— 文本预告 + binary 本体。
+
+        本体走 binary：设备要把它原样写进 SPIFFS，不用在设备上把 JSON
+        重新序列化一遍（那条路会走 newlib 的浮点 printf，几百字节栈）。
+
+        两条消息必须挨着发 —— 设备靠预告知道「下一条 binary 是 pack」，
+        中间夹一条别的 binary 就会串包。所以和推帧共用一把锁。
+        """
+        async with self._tx_lock:
+            await self.send_json({"type": "pack", "id": pack_id,
+                                  "version": version, "bytes": len(raw)})
+            await self.ws.send_bytes(raw)
+        return True
 
     async def send_frame(self, jpeg, frame_id, mime="image/jpeg"):
         """文本预告 + binary，紧挨着发。"""
@@ -52,9 +91,10 @@ class DeviceSession:
             return False
         if self.inflight >= 2:
             return False
-        await self.send_json({"type": "frame", "id": frame_id,
-                              "bytes": len(jpeg), "mime": mime})
-        await self.ws.send_bytes(jpeg)
+        async with self._tx_lock:
+            await self.send_json({"type": "frame", "id": frame_id,
+                                  "bytes": len(jpeg), "mime": mime})
+            await self.ws.send_bytes(jpeg)
         self.inflight += 1
         self.pending[frame_id] = len(jpeg)
         self.frame_count += 1
@@ -143,3 +183,13 @@ class DeviceManager:
             return False
         await s.ack(frame_id)
         return True
+
+    async def send_pack(self, pack_id, version, raw):
+        """下发一个游戏包。没有设备就什么都不做。"""
+        if not self.session:
+            return False
+        try:
+            await self.session.send_pack(pack_id, version, raw)
+            return True
+        except Exception:
+            return False

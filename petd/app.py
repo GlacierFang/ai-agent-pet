@@ -24,7 +24,7 @@ from . import settings as settings_mod
 from . import skins as skins_mod
 from . import state as state_mod
 from . import toys as toys_mod
-from .device import DeviceManager
+from .device import DeviceManager, fw_supports_packs
 from .state import DEFAULT_RULES, StateEngine, epoch_s
 
 log = logging.getLogger("petd.app")
@@ -201,8 +201,16 @@ class PetApp:
         # 启用哪些游戏 —— 单独一条消息，不塞在 welcome 里。
         # welcome 是协议固定字段，塞进去老固件会多出一个没见过的键（无害，
         # 但协议文档要跟着改；单独一条更清楚，老固件直接忽略）。
-        await self.devices.send_json({"type": "games",
-                                      "enabled": sorted(self.games_enabled)})
+        #
+        # 固件太老就发空列表：老固件装不了游戏包（装了就重启），
+        # 给它空列表，它会把本地包裁掉，也不会再要包。
+        if fw_supports_packs(s.fw):
+            enabled = sorted(self.games_enabled)
+        else:
+            enabled = []
+            self.log("warn", "固件 %s 不支持游戏包，已关闭下发"
+                     % (s.fw or "未知"))
+        await self.devices.send_json({"type": "games", "enabled": enabled})
         self.log("info", "设备握手完成: " + s.device_id)
         self._mark_device_seen(s)
 
@@ -234,6 +242,11 @@ class PetApp:
             if s:
                 s.mode = str(msg.get("mode") or "idle")
                 self.log("info", "设备模式 -> %s" % s.mode)
+        elif t == "packAck":
+            pid = str(msg.get("id") or "")
+            ok = bool(msg.get("ok"))
+            self.log("info" if ok else "error",
+                     ("游戏包已安装: " if ok else "游戏包安装失败: ") + pid)
         elif t == "gameRequest":
             await self.send_pack(str(msg.get("id") or ""))
         elif t == "log":
@@ -243,21 +256,30 @@ class PetApp:
 
     # ---------- 游戏 ----------
     async def send_pack(self, pack_id):
-        """把一个游戏包推给设备。"""
+        """把一个游戏包推给设备 —— 一条文本预告 + 一条 binary 本体。
+
+        本体走 binary：设备那边要把它原样写进 SPIFFS，而且 JSON 重新
+        序列化会走 newlib 的浮点 printf（%g）—— 装包那条回调栈只有 4KB。
+        """
         if not pack_id:
+            return False
+        s = self.devices.session
+        if s is None:
+            return False
+        if not fw_supports_packs(s.fw):
+            self.log("warn", "固件 %s 不支持游戏包，已跳过: %s"
+                     % (s.fw or "未知", pack_id))
             return False
         raw = packs_mod.read_pack(pack_id)
         if raw is None:
             self.log("warn", "找不到游戏包: " + pack_id)
             return False
-        try:
-            data = json.loads(raw)
-        except Exception as exc:
-            self.log("error", "游戏包 %s 解析失败: %s" % (pack_id, exc))
+        data = packs_mod.pack_data(pack_id)
+        if data is None:
+            self.log("error", "游戏包 %s 解析失败" % pack_id)
             return False
-        ok = await self.devices.send_json({
-            "type": "pack", "id": data.get("id", pack_id),
-            "version": data.get("version", 1), "data": data})
+        ok = await self.devices.send_pack(pack_id, int(data.get("version", 1)),
+                                          raw.encode("utf-8"))
         if ok:
             self.log("info", "游戏包已下发: " + pack_id)
         return bool(ok)
@@ -267,6 +289,13 @@ class PetApp:
 
         设备收到后自己裁剪（多的删掉）+ 主动要缺的 —— 不用服务端逐个推。
         """
+        s = self.devices.session
+        # 固件太老就别给 —— 老固件装包会重启。
+        if s is not None and not fw_supports_packs(s.fw):
+            self.log("warn", "固件 %s 不支持游戏包，已关闭下发"
+                     % (s.fw or "未知"))
+            await self.devices.send_json({"type": "games", "enabled": []})
+            return
         await self.devices.send_json({"type": "games",
                                       "enabled": sorted(self.games_enabled)})
 
