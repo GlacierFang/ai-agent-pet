@@ -228,6 +228,16 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
     case GAME_FX_DESTROY_CELL:
         game_grid_destroy_cell(&s_pack, s_pack.grid.hit_gx, s_pack.grid.hit_gy);
         break;
+    case GAME_FX_SET_FRAME: {
+        if (fx->target >= 0 && fx->target < s_pack.nents) {
+            game_entity_t *e = &s_pack.ents[fx->target];
+            int f = (int)fx->a;
+            if (f < 0) f = 0;
+            e->frame = (uint8_t)f;
+            e->frame_from_value = 0;  /* 显式设帧后不再由数值决定帧号 */
+        }
+        break;
+    }
     case GAME_FX_START_TIMER: {
         /* fx->a 是 float —— 当下标必须先转 int */
         int ti = (int)fx->a;

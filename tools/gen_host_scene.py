@@ -16,7 +16,7 @@ EV = {"start": 0, "intent": 1, "overlap": 2, "self": 3, "oob": 4, "timer": 5,
 FX = {"set_pos": 1, "set_vel": 2, "add_vel": 3, "turn": 4, "reverse": 5,
       "show": 6, "hide": 7, "grow": 8, "add_score": 9, "randomize": 10,
       "destroy": 11, "win": 12, "lose": 13, "start_timer": 14, "stop_timer": 15,
-      "move": 16, "destroy_cell": 17}
+      "move": 16, "destroy_cell": 17, "set_frame": 18}
 SHAPE = {"rect": 0, "circle": 1, "cell": 2, "trail": 3, "value": 4, "sprite": 5}
 
 Q = chr(34)

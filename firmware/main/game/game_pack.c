@@ -111,6 +111,7 @@ static int fx_from_name(const char *name)
     if (!strcmp(name, "stop_timer"))  return GAME_FX_STOP_TIMER;
     if (!strcmp(name, "move"))         return GAME_FX_MOVE;
     if (!strcmp(name, "destroy_cell")) return GAME_FX_DESTROY_CELL;
+    if (!strcmp(name, "set_frame"))    return GAME_FX_SET_FRAME;
     return GAME_FX_NONE;
 }
 
@@ -443,6 +444,8 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             }
             const cJSON *sc2 = cJSON_GetObjectItem(e, "scale");
             ge->scale = cJSON_IsNumber(sc2) ? (uint8_t)sc2->valueint : 1;
+            const cJSON *fr2 = cJSON_GetObjectItem(e, "frame");
+            ge->frame = cJSON_IsNumber(fr2) ? (uint8_t)fr2->valueint : 0;
             const cJSON *ffv = cJSON_GetObjectItem(e, "frameFromValue");
             ge->frame_from_value = cJSON_IsTrue(ffv) ? 1 : 0;
 

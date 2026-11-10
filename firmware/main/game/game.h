@@ -111,6 +111,7 @@
 #define GAME_FX_STOP_TIMER  15
 #define GAME_FX_MOVE        16  /* 按输入位移：a = 每步 dx，b = 每步 dy */
 #define GAME_FX_DESTROY_CELL 17 /* 销毁刚被命中的网格格 */
+#define GAME_FX_SET_FRAME   18 /* 设置精灵实体当前帧（翻牌用） */
 
 /* 网格朝向：0=上 1=右 2=下 3=左 */
 #define GAME_DIR_UP    0

@@ -21,7 +21,7 @@ CAPS_C = REPO / "firmware" / "main" / "game" / "game_comp.c"
 FX_NAMES = {
     "set_pos", "set_vel", "add_vel", "turn", "reverse", "show", "hide",
     "grow", "add_score", "randomize", "destroy", "win", "lose",
-    "start_timer", "stop_timer", "move", "destroy_cell",
+    "start_timer", "stop_timer", "move", "destroy_cell", "set_frame",
 }
 EVENT_NAMES = {
     "start", "intent", "overlap", "self", "oob", "timer",
