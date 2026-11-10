@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 /* VFS 声明在 esp_spiffs.h 里 —— IDF v5.5 没有 esp_vfs_spiffs.h 这个头。
    IDF 自己的 spiffs 示例也是只 include esp_spiffs.h。 */
 #include "esp_spiffs.h"
@@ -32,6 +33,19 @@ static bool s_mounted;
 /* 菜单索引（按清单里的 pack 逐个读出来）*/
 static game_index_t s_index[GAME_MAX_MENU_ITEMS];
 static int s_nindex;
+
+/* game_pack_t 约 15KB（sprite 帧矩阵占大头）——绝不能开在栈上：
+   ws 任务栈 4KB、knob 任务栈 3KB，一开就爆。统一走堆，优先 PSRAM。
+   8 字节对齐：结构体里有 int64_t（timer.next_at）。 */
+static game_pack_t *pack_alloc(void)
+{
+    game_pack_t *p = heap_caps_aligned_alloc(8, sizeof(game_pack_t),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) {
+        p = heap_caps_aligned_alloc(8, sizeof(game_pack_t), MALLOC_CAP_8BIT);
+    }
+    return p;
+}
 
 
 static uint16_t pick_color(const cJSON *obj, const char *key, uint16_t dflt)
@@ -614,45 +628,51 @@ esp_err_t game_install_pack(const char *json, size_t len)
     esp_err_t err = game_pack_mount();
     if (err != ESP_OK) return err;
 
-    /* 先解析一遍 —— 能力不支持就别写盘了 */
-    game_pack_t probe;
-    err = parse_pack(json, len, &probe);
+    /* 先解析一遍 —— 能力不支持就别写盘了。
+       game_pack_t 约 15KB，放栈上会打爆调用方（ws 任务 4KB / knob 任务 3KB）—— 走堆。 */
+    game_pack_t *probe = pack_alloc();
+    if (!probe) return ESP_ERR_NO_MEM;
+    err = parse_pack(json, len, probe);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "pack rejected: %s", esp_err_to_name(err));
+        free(probe);
         return err;
     }
 
     char path[96];
     snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
-             GAME_MAX_PACK_ID - 1, probe.id);
+             GAME_MAX_PACK_ID - 1, probe->id);
     FILE *f = fopen(path, "wb");
     if (!f) {
         ESP_LOGE(TAG, "open %s failed", path);
+        free(probe);
         return ESP_FAIL;
     }
     size_t n = fwrite(json, 1, len, f);
     fclose(f);
     if (n != len) {
         ESP_LOGE(TAG, "write %s incomplete", path);
+        free(probe);
         return ESP_FAIL;
     }
-    ESP_LOGI(TAG, "pack installed: %s (%u bytes)", probe.id, (unsigned)len);
+    ESP_LOGI(TAG, "pack installed: %s (%u bytes)", probe->id, (unsigned)len);
 
     /* 记进清单 */
     char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
     int total = manifest_load(ids, PACK_MAX_IDS);
     int found = 0;
     for (int i = 0; i < total; i++) {
-        if (!strcmp(ids[i], probe.id)) { found = 1; break; }
+        if (!strcmp(ids[i], probe->id)) { found = 1; break; }
     }
     if (!found && total < PACK_MAX_IDS) {
-        snprintf(ids[total], GAME_MAX_PACK_ID, "%s", probe.id);
+        snprintf(ids[total], GAME_MAX_PACK_ID, "%s", probe->id);
         total++;
         const char *lp[PACK_MAX_IDS];
         for (int i = 0; i < total; i++) lp[i] = ids[i];
         manifest_save(lp, total);
     }
 
+    free(probe);
     game_scan_index();
     return ESP_OK;
 }
@@ -739,6 +759,10 @@ int game_scan_index(void)
     char ids[PACK_MAX_IDS][GAME_MAX_PACK_ID];
     int total = manifest_load(ids, PACK_MAX_IDS);
 
+    /* 解析用的临时 pack —— 约 15KB，不能开在栈上（game_task 栈只有 4KB）。 */
+    game_pack_t *tmp = pack_alloc();
+    if (!tmp) return 0;
+
     for (int i = 0; i < total && s_nindex < GAME_MAX_MENU_ITEMS; i++) {
         char path[128];
         snprintf(path, sizeof(path), "%s/%.*s.json", PACK_DIR,
@@ -754,18 +778,18 @@ int game_scan_index(void)
         size_t rd = fread(buf, 1, (size_t)sz, f);
         fclose(f);
         buf[rd] = 0;
-        game_pack_t tmp;
-        if (parse_pack(buf, rd, &tmp) == ESP_OK) {
+        if (parse_pack(buf, rd, tmp) == ESP_OK) {
             game_index_t *gi = &s_index[s_nindex];
             memset(gi, 0, sizeof(*gi));
-            snprintf(gi->id, sizeof(gi->id), "%s", tmp.id);
-            snprintf(gi->title, sizeof(gi->title), "%s", tmp.title);
-            snprintf(gi->hint, sizeof(gi->hint), "%s", tmp.hint);
-            gi->order = tmp.order;
+            snprintf(gi->id, sizeof(gi->id), "%s", tmp->id);
+            snprintf(gi->title, sizeof(gi->title), "%s", tmp->title);
+            snprintf(gi->hint, sizeof(gi->hint), "%s", tmp->hint);
+            gi->order = tmp->order;
             s_nindex++;
         }
         free(buf);
     }
+    free(tmp);
 
     /* 按 order 排 */
     for (int i = 1; i < s_nindex; i++) {
@@ -801,12 +825,19 @@ esp_err_t game_load_pack(const char *id)
     fclose(f);
     buf[rd] = 0;
 
-    game_pack_t tmp;
-    esp_err_t err = parse_pack(buf, rd, &tmp);
+    /* 解析到临时 pack，成功才覆盖当前 pack —— 保留失败原子性。
+       约 15KB，不能开在栈上（knob_task 栈只有 3KB）。 */
+    game_pack_t *tmp = pack_alloc();
+    if (!tmp) { free(buf); return ESP_ERR_NO_MEM; }
+    esp_err_t err = parse_pack(buf, rd, tmp);
     free(buf);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        free(tmp);
+        return err;
+    }
 
     game_pack_t *cur = game_current_pack();
-    *cur = tmp;
+    *cur = *tmp;
+    free(tmp);
     return ESP_OK;
 }
