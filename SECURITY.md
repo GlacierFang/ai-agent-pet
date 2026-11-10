@@ -8,7 +8,7 @@
 | `operator.write` | v2 的「按一下回话」 | v1 不要 |
 | 网关 token | 连接 gateway | 必选 |
 
-🟡 v1 只申请 `operator.read`。
+v1 只申请 `operator.read`。
 
 ## 数据流向
 

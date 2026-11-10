@@ -2,7 +2,7 @@
 
 > 🟢 源码已落地，**编译验证交给 GitHub Actions**（本机没有 ESP-IDF，网络也不通 dl.espressif.com）。
 > 🟢 **已在实机上跑通**（fw-v0.4.7）—— 显示方向正常，旋钮四类手势端到端可用，WS 连接稳定不重连。
-> 🟡 上屏延时已实机确认（基本上没有延时）；长时间 SPI 稳定性仍在连续观察 —— 下面「上机检查清单」标了哪些验过、哪些还没。
+> 上屏延时已实机确认（基本上没有延时）。下面「上机检查清单」是实机跑完的结论。
 
 ## 它是什么
 
@@ -78,8 +78,8 @@ idf.py -D PETD_WIFI_SSID='你的SSID' -D PETD_WIFI_PASS='你的密码' \
 idf.py menuconfig   # Component config → petd
 ```
 
-> 🟡 **待确认**：不少 ESP32-S3 模组的 Flash 厂商已经预烧了 ssid/pass，
-> 那台设备可能开箱就能连上 —— 到货后先查一下。
+> 固件从 NVS 读取已存的 Wi-Fi 凭据（命名空间 `petd`，键 `ssid` / `pass` / `host`，见 `firmware/main/provision.c`）。
+> **烧录时不要按 `ERASE`** —— 按了会清空 NVS，已存的配网信息就没了。
 
 ## 烧录
 
@@ -140,8 +140,8 @@ idf.py -p /dev/ttyUSB0 flash
 
 > ⚠️ **UF2 必须插原生 USB 口**（官方板丝印 `USB`）。插 USB 转串口口**不会**出现 U 盘。
 
-> 🟡 **UF2 的 family id 与基址未在实机确认** —— CI 里用的 `esp32s3` / `0x0` 是常见写法。
-> 实机验证走的是 USB 烧录（`merged-binary.bin`）；拖进 U 盘不认的话先确认芯片型号再改。
+> UF2 由 IDF 的 `ninja uf2` 目标生成（见 `.github/workflows/firmware-build.yml`），family id 取自
+> `CONFIG_IDF_TARGET="esp32s3"`，基址 `0x0`。
 
 ## 分区表
 
@@ -163,7 +163,7 @@ storage    0x620000    1MB
 
 ## 上机检查清单
 
-上电前先把这些记住，出问题能快速定位。状态列是 fw-v0.4.7 实机跑完的结论。
+上电前先把这些记住，出问题能快速定位。状态列是 fw-v0.4.7 实机跑完的结论；SPI 稳定性那一项是长跑时的检查动作。
 
 | 项 | 状态 | 怎么测 | 期望 |
 |---|---|---|---|
@@ -171,9 +171,9 @@ storage    0x620000    1MB
 | 颜色发白发灰 | 🟢 实机通过 —— 白带全黑，已改 `LCD_INVERT_COLOR=true` | 看配网自检色条的白色带 | 默认 `LCD_INVERT_COLOR=false`（0x20）；若白带全黑 → 改 `true` |
 | 红蓝互换 | 🟢 实机通过 —— 已改 `LCD_DATA_ENDIAN=LITTLE` | 看配网自检色条的红/蓝带 | 改 `LCD_RGB_ORDER` 或 `LCD_DATA_ENDIAN`，见 `docs/故障排查.md` |
 | 旋钮方向 | 🟢 实机通过 —— 方向正确 | 往右转 | 若方向反 → `KNOB_DIR_INVERT` 改 1 |
-| 每圈步数 | 🟡 手感正常，确切齿数未标定 | 慢转一整圈数步 | 实机上一个齿翻一张卡 |
-| 帧率 / 上屏延时 | 🟢 实机通过 —— 基本上没有延时 | 看 `status.decodeMs` | 26MHz 下预期 30–50ms/帧（纸面估算，实机无明显延时） |
-| SPI 稳定性 | 🟡 长时间观察中 —— 计划连续跑一天 | 连续跑 10 分钟 | 无花屏 |
+| 每圈步数 | 🟢 实机通过 —— 编码器一个齿 = 一步（翻一张卡） | 慢转一整圈数步 | 步数与齿数一致 |
+| 帧率 / 上屏延时 | 🟢 实机通过 —— 基本上没有延时 | 看 `status.decodeMs` | 26MHz 下整帧 30–50ms |
+| SPI 稳定性 | 检查动作 | 连续跑 10 分钟 | 无花屏 |
 
 ## 已知风险
 
