@@ -1,7 +1,7 @@
 {
   "id": "brickout",
   "version": 1,
-  "order": 10,
+  "order": 30,
   "title": "消砖块",
   "hint": "旋转移挡板 · 按下发球 · 长按退出",
   "requires": [
