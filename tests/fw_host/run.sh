@@ -26,3 +26,17 @@ gcc -std=c11 -O1 -Wall \
     -lm -o "$OUT/test_engine"
 
 "$OUT/test_engine"
+
+# 画层测试 —— 验证「引擎接管屏幕时强制整屏刷新」。
+OUT2="${TMPDIR:-/tmp}/petd_host_draw"
+mkdir -p "$OUT2"
+
+gcc -std=c11 -O1 -Wall \
+    -I"$ROOT/tests/fw_host/stubs" \
+    -I"$ROOT/firmware/main/game" \
+    "$ROOT/firmware/main/game/game_draw.c" \
+    "$ROOT/tests/fw_host/test_draw_layer.c" \
+    "$ROOT/tests/fw_host/draw_stubs.c" \
+    -lm -o "$OUT2/test_draw_layer"
+
+"$OUT2/test_draw_layer"

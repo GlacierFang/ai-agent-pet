@@ -303,6 +303,9 @@ int64_t game_now_ms(void);
 esp_err_t game_draw_init(void);
 void game_draw_flush(void);
 void game_draw_clear(uint16_t color);
+/* 让下一次 flush 整屏推一次 —— 引擎接管屏幕时必须调，
+   否则逐行 diff 看不见宠物 JPEG 留在屏上的内容。 */
+void game_draw_invalidate(void);
 void game_draw_rect(int x, int y, int w, int h, uint16_t color);
 void game_draw_circle(int cx, int cy, int r, uint16_t color);
 void game_draw_text(int x, int y, const char *s, uint16_t color, int scale);

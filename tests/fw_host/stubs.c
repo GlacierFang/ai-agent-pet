@@ -11,8 +11,8 @@ void *heap_caps_aligned_alloc(size_t align, size_t n, uint32_t caps)
 { (void)align; (void)caps; return malloc(n); }
 esp_err_t esp_vfs_spiffs_register(const esp_vfs_spiffs_conf_t *conf) { (void)conf; return ESP_OK; }
 esp_err_t esp_vfs_spiffs_unregister(const char *label) { (void)label; return ESP_OK; }
-void display_push_region(int x, int y, int w, int h, const uint16_t *buf, int stride)
-{ (void)x; (void)y; (void)w; (void)h; (void)buf; (void)stride; }
+esp_err_t display_push_region(int x, int y, int w, int h, const uint16_t *buf, int stride)
+{ (void)x; (void)y; (void)w; (void)h; (void)buf; (void)stride; return ESP_OK; }
 const uint8_t *ascii_font_glyph(char c) { (void)c; return NULL; }
 int64_t game_now_ms(void) { return 0; }
 

@@ -15,6 +15,13 @@ static const char *TAG = "game_draw";
 static uint16_t *s_canvas;
 static uint16_t *s_shadow;
 
+/* 整屏强推标记 —— 引擎接管屏幕时置位，下一次 flush 不走逐行 diff，直接推满屏。
+   影子只记录「引擎自己推过的行」：宠物屏是 JPEG 管线直接刷屏的，
+   影子那边一行都没记。所以引擎第一次接管时，逐行 diff 会认为
+   「纯黑的画布 == 纯黑的影子」，一行都不推，宠物画面原封不动留在屏上，
+   菜单像贴在宠物脸上。 */
+static bool s_full_push;
+
 
 esp_err_t game_draw_init(void)
 {
@@ -31,6 +38,15 @@ esp_err_t game_draw_init(void)
     ESP_LOGI(TAG, "canvas ready: %dx%d (%u B x2)",
              GAME_CANVAS_W, GAME_CANVAS_H, (unsigned)bytes);
     return ESP_OK;
+}
+
+
+/* 让下一次 flush 整屏推一次。
+   引擎接管屏幕时必须调 —— 屏上的真实内容不归影子管，
+   影子对不上真实画面时，逐行 diff 会漏掉一大片。 */
+void game_draw_invalidate(void)
+{
+    s_full_push = true;
 }
 
 
@@ -194,6 +210,23 @@ void game_draw_flush(void)
     if (!s_canvas || !s_shadow) return;
 
     const int row_bytes = GAME_CANVAS_W * 2;
+
+    /* 整屏强推 —— 接管屏幕后的第一帧必须把整块画布盖上去。
+       不然屏上残留的宠物 JPEG 还在，逐行 diff 看不见它。 */
+    if (s_full_push) {
+        esp_err_t err = display_push_region(0, 0, GAME_CANVAS_W, GAME_CANVAS_H,
+                                            s_canvas, GAME_CANVAS_W);
+        if (err != ESP_OK) {
+            /* 推失败就留着标记 —— 下次 flush 再推整屏。
+               影子不能动：影子一改，逐行 diff 就以为屏上已经是新内容了。 */
+            ESP_LOGE(TAG, "full push failed: %d", (int)err);
+            return;
+        }
+        memcpy(s_shadow, s_canvas, (size_t)GAME_CANVAS_W * GAME_CANVAS_H * 2);
+        s_full_push = false;
+        return;
+    }
+
     int y = 0;
     while (y < GAME_CANVAS_H) {
         const uint16_t *c = s_canvas + (size_t)y * GAME_CANVAS_W;

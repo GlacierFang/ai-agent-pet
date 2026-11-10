@@ -60,6 +60,9 @@ void game_open_menu(void)
     if (s_mode == GAME_MODE_PLAYING) return;
     s_mode = GAME_MODE_MENU;
     s_menu_dirty = true;
+    /* 接管屏幕 —— 屏上还留着宠物 JPEG，影子那边一行都没记。
+       不强推一次，菜单就跟宠物画面叠在一起。 */
+    game_draw_invalidate();
     ESP_LOGI(TAG, "menu opened, %d packs", game_index_count());
     notify_mode();
 }
@@ -93,6 +96,7 @@ void game_start_game(int idx)
     }
     s_accum = 0;
     s_mode = GAME_MODE_PLAYING;
+    game_draw_invalidate();
     ESP_LOGI(TAG, "game started: %s", gi->id);
     game_fire(p, GAME_EV_START, -1, -1, -1, 0, -1);
     notify_mode();
