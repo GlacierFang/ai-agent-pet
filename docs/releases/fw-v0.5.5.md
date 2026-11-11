@@ -1,3 +1,16 @@
+> ## ⚠️ 这一版已作废 —— 别刷
+>
+> **hello 握手撑爆了 WebSocket 回调栈**：设备能连上 TCP、完成 HTTP 升级，
+> 却一个 hello 帧都发不出去，服务端等 5 秒收不到就回 `CLOSE 1002`，设备重连，
+> 屏上永远 CONNECTING。
+>
+> **改用 [`fw-v0.5.7`](https://github.com/GlacierFang/ai-agent-pet/releases/tag/fw-v0.5.7)**
+> —— 同一处握手重构：hello 挪出回调栈、缓冲走堆、WS 任务栈显式 8KB。
+>
+> 这一版的文件只留给考古，别拿去刷机。
+
+---
+
 ## 0.5.5
 
 相对 0.5.4 **只有一处改动**：`PETD_FW_VERSION` 从 `0.5.4` 改成 `0.5.5`。
