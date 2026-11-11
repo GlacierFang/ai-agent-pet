@@ -34,6 +34,8 @@ import time
 import urllib.parse
 import urllib.request
 
+from . import config as config_mod
+
 log = logging.getLogger("petd.ota")
 
 # 支持 OTA 的最低固件版本。0.5.4 才有 OTA 模块和协议消息 ——
@@ -48,7 +50,9 @@ FETCH_TIMEOUT = 120
 
 
 def ota_dir():
-    return pathlib.Path(__file__).resolve().parent / "data" / "ota"
+    # 路径在**调用时**取 DATA_DIR，不在 import 时绑死：
+    # 测试会把它换到临时目录，否则测试上传的假固件会落进仓库。
+    return pathlib.Path(config_mod.DATA_DIR) / "ota"
 
 
 def registry_path():
