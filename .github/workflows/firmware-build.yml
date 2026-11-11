@@ -139,6 +139,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 发布说明放在仓库里（docs/releases/<tag>.md）—— 要 checkout 才有文件。
+      # 少了这一步，body 会退化成自动生成的变更日志（0.5.6 就这么丢过一次正文）。
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: firmware-bin
