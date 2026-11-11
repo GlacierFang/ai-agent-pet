@@ -1,6 +1,7 @@
 /* OTA —— 设备端固件自更新。骨架见 ota.h。 */
 #include "ota.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,9 +18,13 @@
 
 static const char *TAG = "petd.ota";
 
-/* esp_ota_write 要求写入 offset 按扇区对齐（4KB）。
-   所以攒够一个扇区再写 —— 攒不够的那一截在收尾时补写。 */
-#define OTA_SECTOR 4096
+/* 写盘的扇区大小 —— 用分区自己的 erase_size，不写死。
+   esp_ota_write 的顺序擦除逻辑要求写入 offset 按扇区对齐：
+   wrote_size 落在扇区边界上，它才会把要写的那几个扇区擦掉；
+   落在扇区中间且首尾同扇区时，IDF 那一段代码**根本不擦** ——
+   旧数据会留在 flash 里。所以攒满一整个扇区再写，不能攒一半。
+   收尾那一截不满扇区的，补写（此时 wrote_size 仍然对齐）。 */
+#define OTA_MAX_SECTOR (64 * 1024)
 
 static ota_state_t s_state = OTA_IDLE;
 static char s_version[16];
@@ -32,6 +37,8 @@ static size_t s_written;
 static size_t s_expect;
 static uint8_t *s_buf;
 static size_t s_buf_len;
+static size_t s_buf_cap;     /* s_buf 实际分配了多大 */
+static size_t s_sector;      /* 分区的 erase_size */
 static bool s_pending_verify;
 
 /* ---- 收包队列 ---- */
@@ -58,9 +65,12 @@ void ota_init(void)
     s_written = 0;
     s_expect = 0;
     s_buf_len = 0;
+    s_buf_cap = 0;
+    s_sector = 0;
     s_pending_verify = false;
-    if (!s_buf) {
-        s_buf = malloc(OTA_SECTOR);
+    if (s_buf) {
+        free(s_buf);
+        s_buf = NULL;
     }
 }
 
@@ -117,14 +127,6 @@ bool ota_handle_start(const char *version, size_t size)
         ota_fail("镜像大小不对");
         return false;
     }
-    if (!s_buf) {
-        s_buf = malloc(OTA_SECTOR);
-        if (!s_buf) {
-            ota_fail("内存不够");
-            return false;
-        }
-    }
-
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part) {
         ota_fail("没有可写的 OTA 分区");
@@ -135,9 +137,37 @@ bool ota_handle_start(const char *version, size_t size)
         return false;
     }
 
-    /* OTA_SIZE_UNKNOWN：不在这里整片擦除，而是边写边擦对应扇区。
-       整片擦除 2MB 要二十几秒，放在这里会把 WS 回调卡死。 */
-    esp_err_t err = esp_ota_begin(part, OTA_SIZE_UNKNOWN, &s_handle);
+    /* 扇区大小用分区自己的 erase_size。 */
+    s_sector = part->erase_size ? (size_t)part->erase_size : 4096;
+    if (s_sector > OTA_MAX_SECTOR) {
+        s_sector = OTA_MAX_SECTOR;
+    }
+    /* 缓冲大小跟着分区走 —— 上一次可能是别的分区（大小不同）。
+       拿旧缓冲接着用会越界写。 */
+    if (!s_buf || s_buf_cap != s_sector) {
+        if (s_buf) {
+            free(s_buf);
+            s_buf = NULL;
+        }
+        /* 缓冲可能到 64KB —— 内部 RAM 装不下，优先 PSRAM。 */
+        s_buf = heap_caps_malloc(s_sector, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_buf) {
+            s_buf = heap_caps_malloc(s_sector, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+        if (!s_buf) {
+            s_buf_cap = 0;
+            ota_fail("内存不够");
+            return false;
+        }
+        s_buf_cap = s_sector;
+    }
+
+    /* OTA_WITH_SEQUENTIAL_WRITES —— 边写边擦，不要 OTA_SIZE_UNKNOWN。
+       OTA_SIZE_UNKNOWN 会让 esp_ota_begin **整片擦掉 2MB 分区**，
+       那要二十几秒，而这一行跑在 WS 回调里 —— 回调一卡，
+       设备这二十几秒内什么都干不了（连心跳都发不出去）。
+       顺序写是 esp_ota_write 自己按扇区擦，擦除发生在 ota_task 里。 */
+    esp_err_t err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &s_handle);
     if (err != ESP_OK) {
         ota_fail("开分区失败");
         return false;
@@ -164,22 +194,22 @@ bool ota_handle_chunk(uint32_t seq, const uint8_t *data, size_t len)
         return false;
     }
     while (len > 0) {
-        size_t room = OTA_SECTOR - s_buf_len;
+        size_t room = s_sector - s_buf_len;
         size_t n = (len < room) ? len : room;
         memcpy(s_buf + s_buf_len, data, n);
         s_buf_len += n;
         data += n;
         len -= n;
-        if (s_buf_len == OTA_SECTOR) {
-            if (s_written + OTA_SECTOR > s_expect) {
+        if (s_buf_len == s_sector) {
+            if (s_written + s_sector > s_expect) {
                 ota_fail("收到的数据比说好的多");
                 return false;
             }
-            if (esp_ota_write(s_handle, s_buf, OTA_SECTOR) != ESP_OK) {
+            if (esp_ota_write(s_handle, s_buf, s_sector) != ESP_OK) {
                 ota_fail("写入失败");
                 return false;
             }
-            s_written += OTA_SECTOR;
+            s_written += s_sector;
             s_buf_len = 0;
             if (s_expect > 0) {
                 s_percent = (int)((s_written * 100) / s_expect);

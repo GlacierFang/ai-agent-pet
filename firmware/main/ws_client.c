@@ -89,7 +89,10 @@ typedef struct { int idx; int frame_id; } frame_item_t;
 
 static void send_hello(void)
 {
-    char buf[768];
+    /* 1280 不是随手写的：packs 列表最长 512 字节，加上 deviceId / fw /
+       ota 状态 / capabilities 这些固定段，768 会被截断 —— 截断的 JSON
+       是非法 JSON，握手直接失败。 */
+    char buf[1280];
     /* deviceId 用 MAC 后 6 位 —— 纯标识，不含任何凭据 */
     uint8_t mac[6] = {0};
     /* IDF v5 的 esp_read_mac 要两个参数：mac + mac 类型。 */
@@ -453,6 +456,9 @@ static void reset_rx_state(void)
     /* 收到一半的 pack 也要丢 —— 重连后服务端会重发整个包，
        留着旧半截会把新包拼坏。 */
     pack_buf_drop();
+    /* 固件片同理 —— 半截固件绝不能接上下半截。 */
+    ota_on_preview_drop();
+    s_pending_ota = false;
 }
 
 
