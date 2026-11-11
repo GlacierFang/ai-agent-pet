@@ -148,10 +148,24 @@ jobs:
           name: firmware-uf2
           path: artifacts-uf2
         continue-on-error: true
+      # 发布说明放在仓库里（docs/releases/<tag>.md），跟着代码一起 review。
+      # 标题只留 tag，说明全在正文 —— 标题不重复正文已经说过的事。
+      - name: 取发布说明
+        id: notes
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ -f "docs/releases/$tag.md" ]; then
+            echo "path=docs/releases/$tag.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "::warning::没有 docs/releases/$tag.md，改用自动生成的变更日志"
+          fi
+
       - name: 发 Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/*
             artifacts-uf2/*
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
