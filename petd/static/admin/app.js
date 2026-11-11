@@ -85,6 +85,7 @@ var T = {
     upgrade: '升级到可用版本',
     upgradeTo: '升级到',
     minFw: 'OTA 需要固件',
+    appSize: 'app 分区上限 {v}',
     downloading: '下载中',
     verifying: '校验中',
     ready: '写完了，等重启',
@@ -94,7 +95,8 @@ var T = {
     uploadTag: '上传',
     fromUrlTag: 'URL',
     registerTitle: '登记一个固件',
-    registerNote: '上传 petd.bin（app 镜像），或填一个 URL 让 petd 自己去取。',
+    registerNote: '上传 petd.bin（app 镜像），或填一个 URL 让 petd 自己去取。'
+      + '不要上传 merged-binary.bin —— 那是整片镜像（从 0x0 起），走不了 OTA。',
     version: '版本号',
     file: '上传 bin',
     url: 'URL',
@@ -359,18 +361,14 @@ var T = {
     title: '把设备装上',
     unavailable: '暂时读不到设备状态',
     guide: [
-      '把固件刷进设备：从 Releases 下 fw-v0.4.9 的 merged-binary.bin，用乐鑫官方 Flash Download Tools 图形界面刷进 ESP32-S3 开发板 —— ChipType 选 ESP32-S3，勾上 merged-binary.bin，地址填 0x0，COM 选设备管理器里看到的那个，点 START。<b>烧录时只接 PC，不接充电头。</b>详细步骤见后台「文档」页的《部署手册》。',
+      '把固件刷进设备：从 Releases 下 fw-v0.5.4 的 merged-binary.bin，用乐鑫官方 Flash Download Tools 图形界面刷进 ESP32-S3 开发板 —— ChipType 选 ESP32-S3，勾上 merged-binary.bin，地址填 0x0，COM 选设备管理器里看到的那个，点 START。<b>烧录时只接 PC，不接充电头。</b>详细步骤见后台「文档」页的《部署手册》。',
       '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。',
       '在电脑上把 petd 跑起来（<code>python -m petd</code>），它会监听设备并接收画面。',
       '设备连上后打开后台页面，「我的宠物」里能看到设备屏幕上的画面。'
     ],
     addrTitle: '设备怎么找到这台电脑',
-    addrHint: '在设备上填下面任意一个地址：',
-    addrHost: '{v}',
-    addrIp: '{v}',
+    addrHint: '在设备的配网页面里，填下面任意一个地址：',
     addrNone: '暂时没拿到地址',
-    addrMdnsOff: '本机名字发现没开',
-    addrUnknown: '还没有拿到设备地址 —— petd 起来后会自动显示。'
   },
 
   /* 使用说明 —— 这页只讲「怎么用」，不讲系统状态 */
@@ -410,9 +408,9 @@ var T = {
       '<b>连接与诊断</b> —— 出问题了看那儿。'
     ],
     installSteps: [
-      { title: '刷固件', body: '从 Releases 下 fw-v0.4.9 的 merged-binary.bin，用乐鑫官方 Flash Download Tools 图形界面刷进 ESP32-S3 开发板 —— ChipType 选 ESP32-S3，勾上 merged-binary.bin，地址填 0x0，COM 选设备管理器里看到的那个，点 START。<b>烧录时只接 PC，不接充电头</b>。详细步骤见后台「文档」页的《部署手册》。' },
+      { title: '刷固件', body: '从 Releases 下 fw-v0.5.4 的 merged-binary.bin，用乐鑫官方 Flash Download Tools 图形界面刷进 ESP32-S3 开发板 —— ChipType 选 ESP32-S3，勾上 merged-binary.bin，地址填 0x0，COM 选设备管理器里看到的那个，点 START。<b>烧录时只接 PC，不接充电头</b>。详细步骤见后台「文档」页的《部署手册》。' },
       { title: '配网', body: '设备开机后会开一个热点 <code>petd-setup-XXXX</code>，用手机连上，打开 <code>http://192.168.4.1</code> 把家里的 WiFi 填进去。' },
-      { title: '连上这台电脑', body: '设备和这台电脑要在同一个网段（mDNS 不跨路由器）。地址留空就是走 petd.local 自动找；也可以填下面这个 IP。' },
+      { title: '连上这台电脑', body: '设备跟这台电脑要在同一个路由器下面。在设备的配网页面里，填下面这个 IP（带端口也可以）。' },
       { title: '看它动起来', body: '打开你的 AI 助手，让它说句话，宠物就醒了。' }
     ],
     doneBadge: '已完成',
@@ -776,35 +774,38 @@ function renderGuide(boxId) {
 
 /* 每一步没完成时，人该做什么。 */
 /* 设备地址 —— 用户要靠这个让设备找到服务端。 */
+/* 设备地址 —— 用户要靠这个让设备找到服务端。
+   只给真实网卡 IP。petd.local 这类名字在很多网络里解析不了，
+   让用户填一个连不上的地址比不给更糟。 */
 function renderSetupAddr(boxId, data) {
   var box = el(boxId || 'setup-addr');
   if (!box) return;
   box.textContent = '';
   var d = data || S.setup || {};
-  var m = d.mdns || {};
-  var lines = [];
-  /* 服务端还没这个接口 —— 别显示一堆「暂时没拿到」的灰字，
-     一句话说清楚就行。 */
-  if (!d.mdns) {
+  var servers = d.servers || {};
+  var addrs = servers.addresses || [];
+  if (!addrs.length) {
     var none = document.createElement('div');
     none.className = 'addr-line muted';
-    none.textContent = t('setup:addrUnknown');
+    none.textContent = t('setup:addrNone');
     box.appendChild(none);
     return;
   }
-  if (m.enabled) {
-    lines.push(fill(t('setup:addrHost'), { v: m.hostname || t('common:dash') }));
-  } else {
-    lines.push(t('setup:addrMdnsOff'));
-  }
-  var addrs = m.addresses || [];
-  lines.push(fill(t('setup:addrIp'), { v: addrs.length ? addrs.join('、') : t('setup:addrNone') }));
-  lines.forEach(function (txt) {
+  var port = servers.port || 0;
+  var head = document.createElement('div');
+  head.className = 'addr-line';
+  head.textContent = t('setup:addrHint');
+  box.appendChild(head);
+  addrs.forEach(function (ip) {
     var line = document.createElement('div');
     line.className = 'addr-line';
-    line.textContent = txt;
+    line.textContent = port ? (ip + ':' + port) : ip;
     box.appendChild(line);
   });
+  var tip = document.createElement('div');
+  tip.className = 'addr-line muted';
+  tip.textContent = t('setup:addrTip');
+  box.appendChild(tip);
 }
 
 /* 把 /setup 的结果画成四步清单。 */
@@ -2985,9 +2986,13 @@ function renderFirmware() {
 
   var meta = el('fw-meta');
   if (meta) {
-    meta.textContent = o.minFw
-      ? (t('firmware:minFw') + ' ' + o.minFw)
-      : '';
+    var bits = [];
+    if (o.minFw) bits.push(t('firmware:minFw') + ' ' + o.minFw);
+    if (o.appPartitionSize) {
+      bits.push(fill(t('firmware:appSize'), {
+        v: fmtBytes(o.appPartitionSize)}));
+    }
+    meta.textContent = bits.join(' · ');
   }
 
   var box = el('fw-versions');

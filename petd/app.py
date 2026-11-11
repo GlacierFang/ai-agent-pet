@@ -19,6 +19,7 @@ from . import features as feature_mod
 from . import backgrounds as bg_mod
 from . import gestures as gestures_mod
 from . import ota as ota_mod
+from .mdns import local_ipv4_addresses
 from . import packs as packs_mod
 from . import render as render_mod
 from . import screen as screen_mod
@@ -334,6 +335,7 @@ class PetApp:
             "latest": latest,
             "available": available,
             "minFw": ".".join(str(p) for p in ota_mod.MIN_OTA_FW),
+            "appPartitionSize": ota_mod.APP_PARTITION_SIZE,
         }
 
     async def start_ota_upgrade(self, version):
@@ -1298,19 +1300,32 @@ class PetApp:
     def _mdns_view(self):
         """mDNS 广播现状。
 
-        enabled 取配置（用户关了就是 false）；addresses 取广播器实际广播的地址 ——
-        广播器没起来时是空列表，页面据此告诉用户「设备还连不上」。
+        addresses 始终来自本机真实网卡 —— 广播器没起来也要给地址，
+        因为设备配网要填的是 IP。
         """
         adv = self.mdns
         cfg_mdns = self.cfg.get("mdns", {}) or {}
         addresses = []
         if adv is not None and adv.running:
             addresses = adv.addresses()
+        if not addresses:
+            addresses = local_ipv4_addresses()
         return {
             "enabled": bool(cfg_mdns.get("enabled", True)),
             "hostname": (adv.hostname if adv is not None
                          else str(cfg_mdns.get("hostname") or "petd.local")),
             "addresses": addresses,
+            "port": self.listen_port,
+        }
+
+    def _server_view(self):
+        """设备该连到哪 —— 配网页面里让用户填的地址。
+
+        只给真实局域网 IP。hostname（petd.local）在很多网络里解析不了，
+        让用户填一个连不上的名字比不给更糟 —— 所以不推荐它。
+        """
+        return {
+            "addresses": local_ipv4_addresses(),
             "port": self.listen_port,
         }
 
@@ -1379,6 +1394,7 @@ class PetApp:
             "steps": steps,
             "manual": self._manual_view(),
             "mdns": self._mdns_view(),
+            "servers": self._server_view(),
             "provisioning": self._provisioning_view(),
         }
 
@@ -1400,5 +1416,6 @@ class PetApp:
         """
         return {
             "mdns": self._mdns_view(),
+            "servers": self._server_view(),
             "provisioning": self._provisioning_view(),
         }

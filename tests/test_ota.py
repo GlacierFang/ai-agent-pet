@@ -18,6 +18,24 @@ sys.path.insert(0, str(ROOT))
 from petd import ota as ota_mod  # noqa: E402
 
 
+def make_app_image(payload=b"payload"):
+    """造一个结构合法的 ESP32 app 镜像。
+
+    OTA 登记现在会校验镜像结构（不然整片镜像混进来就是变砖），
+    所以测试得用真的镜像格式，不能随便塞几个字节。
+    """
+    head = bytearray(24)
+    head[0] = 0xE9
+    head[1] = 1                      # 一个段
+    seg = bytearray(8)
+    seg[0:4] = (0x40000000).to_bytes(4, "little")
+    seg[4:8] = len(payload).to_bytes(4, "little")
+    body = bytes(seg) + payload
+    body += bytes((4 - len(body) % 4) % 4)
+    return bytes(head) + body + bytes(16)
+
+
+
 # ---------- 版本闸门 ----------
 def test_ota_needs_fw_054():
     """0.5.3 没有 OTA 模块 —— 下去也是白下。"""
@@ -41,7 +59,7 @@ def ota_home(tmp_path, monkeypatch):
 
 
 def test_register_upload_computes_sha256(ota_home):
-    data = b"fake firmware bytes"
+    data = make_app_image()
     ver, err = ota_mod.register_upload("0.5.5", data)
     assert err == ""
     assert ver == "0.5.5"
@@ -70,16 +88,16 @@ def test_register_upload_rejects_oversized(ota_home):
 
 
 def test_versions_sorted_newest_first(ota_home):
-    ota_mod.register_upload("0.5.4", b"a")
-    ota_mod.register_upload("0.5.10", b"b")
-    ota_mod.register_upload("0.5.9", b"c")
+    ota_mod.register_upload("0.5.4", make_app_image(b"a"))
+    ota_mod.register_upload("0.5.10", make_app_image(b"b"))
+    ota_mod.register_upload("0.5.9", make_app_image(b"c"))
     vs = [v["version"] for v in ota_mod.list_versions()]
     assert vs == ["0.5.10", "0.5.9", "0.5.4"]
     assert ota_mod.latest_version() == "0.5.10"
 
 
 def test_delete_version_removes_file(ota_home):
-    ota_mod.register_upload("0.5.5", b"payload")
+    ota_mod.register_upload("0.5.5", make_app_image(b"payload"))
     rec = ota_mod.get_version("0.5.5")
     path = pathlib.Path(rec["file"])
     assert path.exists()
@@ -90,7 +108,7 @@ def test_delete_version_removes_file(ota_home):
 
 
 def test_read_firmware_returns_bytes(ota_home):
-    data = b"\x00\x01\x02payload"
+    data = make_app_image(b"payload-bytes")
     ota_mod.register_upload("0.5.5", data)
     assert ota_mod.read_firmware("0.5.5") == data
     assert ota_mod.read_firmware("0.9.9") is None
@@ -145,7 +163,7 @@ def test_ota_api_upload_registers_version(tmp_path, monkeypatch):
     cfg = config.defaults()
     cfg["_repo_root"] = str(tmp_path)
     with TestClient(create_app(cfg, start_gateway=False)) as c:
-        raw = base64.b64encode(b"fake firmware").decode()
+        raw = base64.b64encode(make_app_image()).decode()
         r = c.post("/admin/api/ota", json={"action": "upload",
                                            "version": "0.5.5",
                                            "data": raw})
@@ -182,3 +200,51 @@ def test_upgrade_without_device_fails(tmp_path, monkeypatch):
                                            "version": "0.5.5"})
         assert r.status_code == 400
         assert r.json()["ok"] is False
+
+
+# ---------- 镜像校验（防止变砖） ----------
+
+def test_check_rejects_random_file():
+    """随便一个文件 —— 不能当 app 镜像下发。"""
+    err = ota_mod._check_app_image(b"this is not a firmware at all")
+    assert err
+    assert "petd.bin" in err
+
+
+def test_check_rejects_too_big():
+    """超过 app 分区大小 —— 写不进去。"""
+    err = ota_mod._check_app_image(b"\xe9" + bytes(ota_mod.APP_PARTITION_SIZE + 1))
+    assert err
+    assert "app 分区" in err
+
+
+def test_check_rejects_merged_binary():
+    """整片镜像 —— 0x20000 处是 app 段的那种。
+
+    这是最危险的错：整片镜像拿去做 OTA，设备写崩，直接变砖。
+    """
+    fake = bytearray(ota_mod.APP_PARTITION_SIZE + 0x1000)
+    fake[0] = 0xE9
+    fake[ota_mod.FACTORY_OFFSET] = 0xE9
+    err = ota_mod._check_app_image(bytes(fake))
+    assert err
+    assert "merged-binary" in err
+
+
+def test_check_accepts_real_app_image():
+    """真 app 镜像 —— 放行。"""
+    assert ota_mod._check_app_image(make_app_image()) == ""
+
+
+def test_register_upload_rejects_non_image(ota_home):
+    ver, err = ota_mod.register_upload("0.5.5", b"not a firmware")
+    assert ver == ""
+    assert err
+    assert ota_mod.get_version("0.5.5") is None
+
+
+def test_register_upload_rejects_oversized_image(ota_home):
+    ver, err = ota_mod.register_upload(
+        "0.5.5", b"\xe9" + bytes(ota_mod.APP_PARTITION_SIZE + 1))
+    assert ver == ""
+    assert err

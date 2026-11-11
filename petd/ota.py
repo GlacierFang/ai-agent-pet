@@ -48,6 +48,16 @@ CHUNK_SIZE = 16 * 1024
 # 下载固件的超时（秒）。内网 NAS 慢一点也没关系，但不能无限等。
 FETCH_TIMEOUT = 120
 
+# app 分区的大小 —— OTA 只能往 app 分区写，超过就是写不进去。
+# 跟 firmware/partitions.csv 里的 ota_0 / ota_1 对齐（各 0x200000 = 2MB）。
+APP_PARTITION_SIZE = 2 * 1024 * 1024
+
+# ESP32 镜像的 magic 字节（image header 第 0 字节）。
+ESP_IMAGE_MAGIC = 0xE9
+
+# 整片镜像里 app 段的偏移 —— factory 分区起点（partitions.csv）。
+FACTORY_OFFSET = 0x20000
+
 
 def ota_dir():
     # 路径在**调用时**取 DATA_DIR，不在 import 时绑死：
@@ -134,6 +144,62 @@ def get_version(ver):
     return None
 
 
+def _esp_image_layout_ok(data):
+    """这个文件是一个结构完整的 ESP32 镜像吗？返回 (ok, 错误信息)。
+
+    只看头几个字节不够 —— bootloader 也是 0xE9 开头，
+    merged-binary.bin 的开头也是 bootloader。所以要走一遍段表：
+    段表走完必须正好落在文件末尾附近，后面多出一大截就不是单个镜像。
+    """
+    if len(data) < 24 or data[0] != ESP_IMAGE_MAGIC:
+        return False, "开头不是 ESP32 镜像（第一字节应为 0xE9）"
+    seg_count = data[1]
+    if seg_count <= 0 or seg_count > 16:
+        return False, "镜像头里的段数不对"
+    off = 24
+    for _ in range(seg_count):
+        if off + 8 > len(data):
+            return False, "段表被截断了 —— 文件不完整"
+        data_len = int.from_bytes(data[off + 4:off + 8], "little")
+        off += 8 + data_len
+        off = (off + 3) & ~3
+        if off > len(data):
+            return False, "段数据超出了文件长度 —— 文件不完整"
+    # 段表走完，后面只该剩校验和和 app 描述段（几百字节）。
+    # merged-binary.bin 在这儿会剩下一整个 app 镜像 —— 一兆多。
+    if len(data) - off > 4096:
+        return False, "镜像后面还跟着一大截数据 —— 这不是一个单独的 app 镜像"
+    return True, ""
+
+
+def _check_app_image(data):
+    """这个文件能当 app 镜像写进 OTA 分区吗？返回错误信息，空串 = 能。
+
+    两个坑都在这儿挡着：
+
+    1. 整片镜像（merged-binary.bin）—— 那是从 0x0 起的整片布局，
+       拿它当 app 镜像登记，下发下去设备写崩，直接变砖。
+    2. 随便一个文件 —— 没有 ESP32 镜像的段表，写进去设备也不认。
+    """
+    if not data:
+        return "文件是空的"
+    if len(data) > APP_PARTITION_SIZE:
+        return ("文件太大（%d 字节）—— app 分区只有 %d 字节。"
+                % (len(data), APP_PARTITION_SIZE)
+                + "你要登记的是 app 镜像 petd.bin，不是整片镜像 "
+                  "merged-binary.bin。")
+    # merged-binary.bin 的 app 段落在 0x20000（factory 分区起点）。
+    # 直接认出来，给一句人话。
+    if len(data) > 0x20000 and data[0x20000] == ESP_IMAGE_MAGIC:
+        return ("这是整片镜像 merged-binary.bin（0x20000 处是 app 段）。"
+                "请上传 Release 里的 petd.bin —— 只有它能走 OTA。")
+    ok, err = _esp_image_layout_ok(data)
+    if not ok:
+        return (err + "。请上传 Release 里的 petd.bin（app 镜像），"
+                "不要上传 merged-binary.bin。")
+    return ""
+
+
 def register_upload(version, data):
     """登记一个上传来的固件。
 
@@ -142,10 +208,9 @@ def register_upload(version, data):
     version = str(version or "").strip()
     if not version:
         return "", "版本号不能为空"
-    if not data:
-        return "", "文件是空的"
-    if len(data) > 4 * 1024 * 1024:
-        return "", "文件太大（上限 4MB）"
+    err = _check_app_image(data)
+    if err:
+        return "", err
     d = ota_dir()
     d.mkdir(parents=True, exist_ok=True)
     path = d / ("%s.bin" % version)
@@ -188,8 +253,6 @@ def register_url(version, url):
         return "", "下载失败：%s" % exc
     if not data:
         return "", "下载到的是空文件"
-    if len(data) > 4 * 1024 * 1024:
-        return "", "文件太大（上限 4MB）"
     ver, err = register_upload(version, data)
     if err:
         return "", err

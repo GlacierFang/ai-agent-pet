@@ -283,7 +283,7 @@ def test_public_setup_needs_no_auth(monkeypatch):
         r = c.get("/admin/api/setup/public")
         assert r.status_code == 200
         body = r.json()
-        assert set(body.keys()) == {"mdns", "provisioning"}
+        assert set(body.keys()) == {"mdns", "provisioning", "servers"}
 
 
 def test_public_setup_hides_private_data(monkeypatch):

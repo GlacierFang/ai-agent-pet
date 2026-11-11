@@ -48,7 +48,8 @@ def test_setup_requires_auth_when_password_set(monkeypatch):
 
 def test_setup_shape(client):
     body = client.get("/admin/api/setup").json()
-    assert set(body.keys()) == {"steps", "manual", "mdns", "provisioning"}
+    assert set(body.keys()) == {"steps", "manual", "mdns", "provisioning",
+                          "servers"}
 
 
 def test_steps_have_fixed_ids_and_labels(client):

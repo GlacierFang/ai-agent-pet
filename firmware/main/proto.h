@@ -21,7 +21,6 @@
 
 /* ---- 传输 ---- */
 #define PETD_DEFAULT_PORT     18860
-#define PETD_DEFAULT_HOST     "petd.local"
 #define PETD_WS_PATH          "/device"
 #define PETD_HELLO_TIMEOUT_MS 5000
 
