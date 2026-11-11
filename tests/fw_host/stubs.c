@@ -21,6 +21,7 @@ int64_t game_now_ms(void) { return 0; }
 int g_draw_calls = 0;
 int g_rect_count = 0;
 int g_rects[512][4];   /* x, y, w, h */
+uint16_t g_rect_colors[512];
 void game_draw_clear(uint16_t c) { (void)c; g_draw_calls++; }
 void game_draw_rect(int x, int y, int w, int h, uint16_t c)
 {
@@ -31,6 +32,7 @@ void game_draw_rect(int x, int y, int w, int h, uint16_t c)
         g_rects[g_rect_count][1] = y;
         g_rects[g_rect_count][2] = w;
         g_rects[g_rect_count][3] = h;
+        g_rect_colors[g_rect_count] = c;
         g_rect_count++;
     }
 }

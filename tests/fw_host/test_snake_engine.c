@@ -16,6 +16,10 @@
 #include "game.h"
 #include "scene_snake.h"
 
+/* 绘制层记下的矩形 —— 用来核对画出来的盒子。 */
+extern int g_rect_count;
+extern int g_rects[512][4];
+
 static int g_fail = 0;
 static int g_checks = 0;
 
@@ -218,6 +222,53 @@ static void test_frozen_after_lose(void)
 }
 
 
+
+
+/* 画出来的盒子必须跟碰撞盒一致 —— 「碰撞框有问题」最终要落在画面上。
+ * 蛇头占满一格，身体缩一圈留缝，食物缩一圈，边框贴场地外侧。
+ * 这些用肉眼看比用单测说更清楚，但单测能守住：改了绘制几何，这里就红。
+ */
+static void test_draw_geometry(void)
+{
+    printf("[画出来的盒子 == 碰撞盒]\n");
+    load_scene();
+    game_entity_t *snake = ent("snake");
+    game_entity_t *food = ent("food");
+    snake->gx = 12; snake->gy = 9; snake->heading = 1;
+    for (int t = 0; t < snake->trail_len; t++) {
+        snake->trail_gx[t] = 12;
+        snake->trail_gy[t] = 9;
+    }
+    food->gx = 13; food->gy = 8;
+
+    g_rect_count = 0;
+    game_draw_scene();
+
+    const int cell = SCENE_CELL;
+    const int ox = SCENE_GX, oy = SCENE_GY;
+    const int head_x = ox + snake->gx * cell;
+    const int head_y = oy + snake->gy * cell;
+
+    int head_ok = 0, food_ok = 0, border_ok = 0, inset_ok = 0;
+    for (int i = 0; i < g_rect_count; i++) {
+        const int *r = g_rects[i];
+        if (r[0] == head_x && r[1] == head_y && r[2] == cell && r[3] == cell)
+            head_ok = 1;
+        if (r[0] == ox + food->gx * cell + 1 && r[1] == oy + food->gy * cell + 1 &&
+            r[2] == cell - 2 && r[3] == cell - 2)
+            food_ok = 1;
+        if (r[0] == ox - 1 && r[1] == oy - 1)
+            border_ok = 1;
+        if (r[0] == head_x + 1 && r[1] == head_y + 1 &&
+            r[2] == cell - 2 && r[3] == cell - 2)
+            inset_ok = 1;
+    }
+    CHECK(head_ok, "蛇头画满一格 —— 跟碰撞盒一模一样");
+    CHECK(inset_ok, "蛇身比格子小一圈 —— 节与节之间留缝");
+    CHECK(food_ok, "食物比格子小一圈 —— 不跟蛇头看着像已经吃到了");
+    CHECK(border_ok, "边框画在场地外侧一像素 —— 蛇头贴边正好贴住框线");
+}
+
 int main(void)
 {
     test_turn_is_90();
@@ -226,6 +277,7 @@ int main(void)
     test_self_hit_loses();
     test_eat_food();
     test_frozen_after_lose();
+    test_draw_geometry();
     printf("\n%d 项检查，%d 项失败\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
