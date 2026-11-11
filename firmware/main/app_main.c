@@ -26,6 +26,7 @@
 #include "ws_client.h"
 #include "provision.h"
 #include "proto.h"
+#include "addr.h"
 #include "game.h"
 #include "ota.h"
 
@@ -373,6 +374,13 @@ void app_main(void)
         strncpy(creds.ssid, PETD_WIFI_SSID, sizeof(creds.ssid) - 1);
         strncpy(creds.pass, PETD_WIFI_PASS, sizeof(creds.pass) - 1);
         strncpy(creds.host, PETD_HOST, sizeof(creds.host) - 1);
+        /* 编译期兜底的地址也可能带端口 */
+        char host_only[PROV_HOST_MAX] = {0};
+        uint16_t built_port = 0;
+        if (petd_split_addr(creds.host, host_only, sizeof(host_only), &built_port)) {
+            strncpy(creds.host, host_only, sizeof(creds.host) - 1);
+            creds.port = built_port;
+        }
         have_creds = true;
         ESP_LOGI(TAG, "using compile-time wifi credentials");
     }
@@ -396,12 +404,15 @@ void app_main(void)
     }
 
     const char *target_host = creds.host;
-    ESP_LOGI(TAG, "connecting to server %s:%d (ssid=%s)", target_host, PETD_PORT, creds.ssid);
+    /* 端口跟着配网的地址走 —— 用户填 IP:端口 就得真的连那个端口，
+       不能钉死在编译期的默认值上（每台机器的 petd 端口都不一样）。 */
+    uint16_t target_port = creds.port ? creds.port : (uint16_t)PETD_PORT;
+    ESP_LOGI(TAG, "connecting to server %s:%u (ssid=%s)", target_host, target_port, creds.ssid);
     s_screen_state = PROV_ST_CONNECTING;
     s_screen_dirty = true;
     ESP_ERROR_CHECK(provision_start_sta(creds.ssid, creds.pass));
 
-    ESP_ERROR_CHECK(ws_client_init(target_host, PETD_PORT));
+    ESP_ERROR_CHECK(ws_client_init(target_host, target_port));
     xTaskCreate(connect_task, "connect", 3072, NULL, 4, NULL);
 
     xTaskCreate(knob_task, "knob_rpt", 3072, NULL, 4, NULL);

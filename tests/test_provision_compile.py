@@ -354,6 +354,7 @@ int httpd_req_recv(httpd_req_t *req, char *buf, int len);
 STUB_NVS_H = r"""
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 #include "esp_err.h"
 typedef unsigned int nvs_handle_t;
 #define NVS_READONLY  0
@@ -362,6 +363,8 @@ esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *out);
 void nvs_close(nvs_handle_t handle);
 esp_err_t nvs_get_str(nvs_handle_t handle, const char *key, char *out, size_t *len);
 esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *value);
+esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *out);
+esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value);
 esp_err_t nvs_commit(nvs_handle_t handle);
 """
 
@@ -457,6 +460,8 @@ void esp_restart(void) { }
 static char g_nvs_ssid[64];
 static char g_nvs_pass[64];
 static char g_nvs_host[64];
+static uint16_t g_nvs_port;
+static int g_nvs_port_set;
 
 esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *out) {
     (void)ns; (void)mode; *out = 1; return ESP_OK;
@@ -484,6 +489,19 @@ esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *value) {
     else if (strcmp(key, "host") == 0) dst = g_nvs_host;
     else return ESP_ERR_NOT_FOUND;
     snprintf(dst, 64, "%s", value ? value : "");
+    return ESP_OK;
+}
+esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *out) {
+    (void)handle;
+    if (strcmp(key, "port") != 0 || !g_nvs_port_set) return ESP_ERR_NOT_FOUND;
+    if (out) *out = g_nvs_port;
+    return ESP_OK;
+}
+esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value) {
+    (void)handle;
+    if (strcmp(key, "port") != 0) return ESP_ERR_NOT_FOUND;
+    g_nvs_port = value;
+    g_nvs_port_set = 1;
     return ESP_OK;
 }
 esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return ESP_OK; }
@@ -686,7 +704,7 @@ int main(void)
 def harness(tmp_path_factory):
     """把 provision.c 连同桩头文件编出来，返回可执行文件路径。"""
     d = tmp_path_factory.mktemp("fwprov")
-    for name in ("provision.c", "provision.h", "proto.h"):
+    for name in ("provision.c", "provision.h", "proto.h", "addr.c", "addr.h"):
         shutil.copy(FW / name, d / name)
 
     headers = {
@@ -716,7 +734,7 @@ def harness(tmp_path_factory):
     exe = d / "harness"
     r = subprocess.run(
         [gcc, "-std=c99", "-Wall", "-Wextra", "-I", str(d), "-o", str(exe),
-         str(d / "harness_main.c"), str(d / "stub_impl.c")],
+         str(d / "harness_main.c"), str(d / "stub_impl.c"), str(d / "addr.c")],
         capture_output=True, text=True, timeout=180,
     )
     assert r.returncode == 0, f"编译失败：\n{r.stderr}"

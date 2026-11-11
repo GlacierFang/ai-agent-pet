@@ -18,6 +18,7 @@
 
 #include "provision.h"
 #include "proto.h"
+#include "addr.h"
 
 static const char *TAG = "prov";
 
@@ -25,6 +26,7 @@ static const char *TAG = "prov";
 #define NVS_KEY_SSID    "ssid"
 #define NVS_KEY_PASS    "pass"
 #define NVS_KEY_HOST    "host"
+#define NVS_KEY_PORT    "port"
 
 #define AP_SSID_PREFIX  "petd-setup-"
 #define AP_IP           "192.168.4.1"
@@ -77,6 +79,17 @@ static esp_err_t nvs_read_str(const char *key, char *buf, size_t len)
 }
 
 
+static esp_err_t nvs_read_u16(const char *key, uint16_t *out)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READONLY, &h);
+    if (err != ESP_OK) return err;
+    err = nvs_get_u16(h, key, out);
+    nvs_close(h);
+    return err;
+}
+
+
 esp_err_t provision_load_credentials(prov_creds_t *out, bool *found)
 {
     if (!out) return ESP_ERR_INVALID_ARG;
@@ -96,6 +109,20 @@ esp_err_t provision_load_credentials(prov_creds_t *out, bool *found)
     if (nvs_read_str(NVS_KEY_HOST, buf, sizeof(buf)) == ESP_OK) {
         strncpy(out->host, buf, sizeof(out->host) - 1);
     }
+    /* 端口单独存。读不到 = 老版本的 NVS —— 那时端口可能跟在 host 后面，
+       那里再拆一次。两种情况都得认：用户重新配一次网就都是新的。 */
+    uint16_t stored_port = 0;
+    if (nvs_read_u16(NVS_KEY_PORT, &stored_port) == ESP_OK) {
+        out->port = stored_port;
+    }
+    if (out->port == 0 && out->host[0]) {
+        char host_only[PROV_HOST_MAX] = {0};
+        if (petd_split_addr(out->host, host_only, sizeof(host_only), &stored_port)
+            && stored_port) {
+            strncpy(out->host, host_only, sizeof(out->host) - 1);
+            out->port = stored_port;
+        }
+    }
 
     if (found) *found = true;
     s_has_creds = true;
@@ -109,10 +136,20 @@ esp_err_t provision_save_credentials(const char *ssid, const char *pass, const c
     esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
 
+    /* 地址里可能带着端口 —— 拆开分别存。
+       端口总是写（没填就写 0）：用户重新配网时不带端口，
+       就该回到默认端口，而不是留着上一次的。 */
+    char host_only[PROV_HOST_MAX] = {0};
+    uint16_t port = 0;
+    petd_split_addr(host, host_only, sizeof(host_only), &port);
+
     err = nvs_set_str(h, NVS_KEY_SSID, ssid ? ssid : "");
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_PASS, pass ? pass : "");
     if (err == ESP_OK) {
-        err = nvs_set_str(h, NVS_KEY_HOST, host ? host : "");
+        err = nvs_set_str(h, NVS_KEY_HOST, host_only);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_u16(h, NVS_KEY_PORT, port);
     }
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
@@ -332,8 +369,8 @@ static const char SETUP_HTML[] =
     "<label for=\"pass\">Wi-Fi 密码</label>"
     "<input id=\"pass\" name=\"pass\" type=\"password\" placeholder=\"无密码请留空\">"
     "<label for=\"host\">电脑服务器 IP 地址</label>"
-    "<input id=\"host\" name=\"host\" placeholder=\"例如：192.168.1.100\" required>"
-    "<div class=\"hint\">请确保填写的是局域网 IPv4 地址，且电脑与设备处于同一路由器下。</div>"
+    "<input id=\"host\" name=\"host\" placeholder=\"例如：192.168.1.100:18860\" required>"
+    "<div class=\"hint\">填电脑的局域网 IPv4 地址。端口可以一起写（如 192.168.1.100:18860），不写就用默认端口。电脑与设备需在同一个路由器下。</div>"
     "<button type=\"submit\" class=\"submit-btn\">保存并重启设备</button>"
     "</form>"
     "<script>"

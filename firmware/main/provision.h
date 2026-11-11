@@ -26,7 +26,8 @@
 typedef struct {
     char ssid[PROV_SSID_MAX];
     char pass[PROV_PASS_MAX];
-    char host[PROV_HOST_MAX];   /* 留空 = 用默认 petd.local */
+    char host[PROV_HOST_MAX];   /* 只存主机名/IP，不含端口 */
+    uint16_t port;              /* 0 = 用默认端口 */
 } prov_creds_t;
 
 /* 扫描到的一个热点。 */

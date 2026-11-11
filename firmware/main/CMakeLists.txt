@@ -1,4 +1,5 @@
 set(srcs "app_main.c"
+    "addr.c"
     "display.c"
     "knob.c"
     "screen_text.c"

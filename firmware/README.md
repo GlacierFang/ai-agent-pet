@@ -74,11 +74,15 @@ idf.py build
 idf.py -D PETD_WIFI_SSID='你的SSID' -D PETD_WIFI_PASS='你的密码' \
       -D PETD_HOST='192.168.1.100' build
 
+# 地址也能带端口：-D PETD_HOST='192.168.1.100:18861'
+# 不带就用编译期默认端口（PETD_PORT / PETD_DEFAULT_PORT）
+
 # 方式 B：写进本地 sdkconfig（该文件已被 .gitignore 排除）
 idf.py menuconfig   # Component config → petd
 ```
 
-> 固件从 NVS 读取已存的 Wi-Fi 凭据（命名空间 `petd`，键 `ssid` / `pass` / `host`，见 `firmware/main/provision.c`）。
+> 固件从 NVS 读取已存的 Wi-Fi 凭据（命名空间 `petd`，键 `ssid` / `pass` / `host` / `port`，见 `firmware/main/provision.c`）。
+> 配网页填的地址可以带端口（`192.168.1.100:18861`），固件会拆开存 —— 端口不写就用默认端口。
 > **烧录时不要按 `ERASE`** —— 按了会清空 NVS，已存的配网信息就没了。
 
 ## 烧录
