@@ -85,6 +85,12 @@ class PetApp:
             ui_cfg["features"] = sorted(self.features_enabled)
         self.card_dwell_sec = int(cfg.get("ui", {}).get("cardDwellSec", 8))
         self.message_hold_sec = int(cfg.get("ui", {}).get("messageHoldSec", 3))
+        # 屏保 —— 忙多久之后上相册轮播。0 = 关掉。
+        self.screensaver_after_sec = int(cfg.get("ui", {}).get(
+            "screensaverAfterSec", 60))
+        # 屏保期间多久换一张照片。
+        self.screensaver_dwell_sec = int(cfg.get("ui", {}).get(
+            "screensaverDwellSec", 15))
         self.sleep_start = str(cfg.get("ui", {}).get(
             "sleepStart", config_mod.DEFAULT_SLEEP_START))
         self.sleep_end = str(cfg.get("ui", {}).get(
@@ -149,6 +155,8 @@ class PetApp:
         """设置改了，仲裁参数跟着改。"""
         self.director.message_hold_ms = self.message_hold_sec * 1000
         self.director.content_dwell_ms = self.card_dwell_sec * 1000
+        self.director.screensaver_after_ms = self.screensaver_after_sec * 1000
+        self.director.screensaver_dwell_ms = self.screensaver_dwell_sec * 1000
 
     def log(self, level, msg):
         self._log_seq += 1
@@ -447,6 +455,25 @@ class PetApp:
         self._persist_config()
         self._sync_director()
         self.log("info", "工作结束后保留 -> %d 秒" % seconds)
+
+    def set_screensaver_after(self, seconds):
+        """忙多久之后上屏保。0 = 关掉。"""
+        seconds = max(0, int(seconds))
+        self.screensaver_after_sec = seconds
+        self.cfg.setdefault("ui", {})["screensaverAfterSec"] = seconds
+        self._persist_config()
+        self._sync_director()
+        self.log("info", "屏保门槛 -> %s"
+                 % ("关" if seconds == 0 else "%d 秒" % seconds))
+
+    def set_screensaver_dwell(self, seconds):
+        """屏保期间多久换一张照片。"""
+        seconds = max(3, int(seconds))
+        self.screensaver_dwell_sec = seconds
+        self.cfg.setdefault("ui", {})["screensaverDwellSec"] = seconds
+        self._persist_config()
+        self._sync_director()
+        self.log("info", "屏保换图间隔 -> %d 秒" % seconds)
 
     def set_sleep_window(self, start, end, enabled=None):
         """设置睡觉时段。起止两个钟点 —— 跨午夜也认。"""
@@ -756,8 +783,27 @@ class PetApp:
                                                 bubble["phrase"], alpha)
 
         view = self.director.update(now, state, self._feature_ctx(),
-                                    self._features(), night=self.is_night(now))
-        if view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
+                                    self._features(), night=self.is_night(now),
+                                    saver=self.album)
+        if view["layer"] == screen_mod.SCREENSAVER_LAYER and view.get("card"):
+            # 屏保 —— 整屏相册 + 宠物小窗。小窗放当前状态那张脸，
+            # 别让主人以为宠物没了。
+            card = view["card"]
+            face = str(view.get("face") or state)
+            skin_img = skins_mod.load_image(root, self.skin, face)
+            jpeg = render_mod.render_screensaver(
+                self.cfg, str(card.get("photo") or ""),
+                str(card.get("counter") or ""), face=face,
+                skin_image=skin_img, dim=dim)
+            if jpeg is None:
+                # 照片读不出来 —— 退回整屏宠物，别让屏上开天窗
+                jpeg = render_mod.render_frame(
+                    self.cfg, face, self._subtitle(), self._session_name(),
+                    density=self.density, skin_image=skin_img,
+                    overlay=overlay,
+                    merit=self.merit.value if self.merit_on() else 0,
+                    background_image=bg_img, anti_burn=anti_burn, dim=dim)
+        elif view["layer"] == screen_mod.CONTENT_LAYER and view.get("card"):
             card = view["card"]
             # 照片卡 —— 整屏一张图，没有宠物形象，也没有飘字。
             # 照片上飘一行字太乱，压住。

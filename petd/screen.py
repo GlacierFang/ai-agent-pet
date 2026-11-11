@@ -15,6 +15,9 @@
 
 睡眠只有一个来源 —— 用户配的时段。没有「空闲多久算睡着」那回事：
 空闲的时候宠物在轮播卡片里，一直醒着。
+
+还有一层：忙了很久（默认 60 秒）之后，屏上换成相册轮播 + 宠物小窗 ——
+宠物还在干活，但屏上不该一张图挂几个小时。门槛后台可调，0 = 关掉。
 """
 import logging
 import time
@@ -23,10 +26,16 @@ log = logging.getLogger("petd.screen")
 
 MESSAGE_LAYER = "message"
 CONTENT_LAYER = "content"
+# 屏保 —— 忙了很久之后顶上来的画面：整屏相册 + 宠物小窗。
+SCREENSAVER_LAYER = "screensaver"
 
 DEFAULT_BUSY_STATES = ("working", "waiting", "error")
 DEFAULT_MESSAGE_HOLD_MS = 3000
 DEFAULT_CONTENT_DWELL_MS = 8000
+# 忙多久之后上屏保。0 = 不上。
+DEFAULT_SCREENSAVER_AFTER_MS = 60000
+# 屏保期间多久换一张照片。
+DEFAULT_SCREENSAVER_DWELL_MS = 15000
 
 
 class ScreenDirector:
@@ -49,6 +58,15 @@ class ScreenDirector:
         self._hold_until = 0.0
         self._state = None
         self._force_next = False
+        # 屏保：门槛、翻页间隔，以及「现在正在忙」的起点。
+        self.screensaver_after_ms = int(
+            screen.get("screensaverAfterMs", DEFAULT_SCREENSAVER_AFTER_MS))
+        self.screensaver_dwell_ms = int(
+            screen.get("screensaverDwellMs", DEFAULT_SCREENSAVER_DWELL_MS))
+        self._busy_since = 0.0
+        self._saver_since = 0.0
+        self._saver_feature = None
+        self._saver_ctx = None
 
     def snapshot(self):
         """给后台看的：现在屏上是哪一层、谁在上。"""
@@ -60,20 +78,38 @@ class ScreenDirector:
 
     # ---------- 对外 ----------
     def next_card(self):
-        """手动切到下一张卡。宠物在忙（消息层）时不切 —— 它没空翻卡。"""
+        """手动切到下一张卡。宠物在忙（消息层）时不切 —— 它没空翻卡。
+
+        屏保里例外 —— 转旋钮换下一张照片，那是屏上唯一能动的事。
+        """
+        if self.layer == SCREENSAVER_LAYER:
+            return self._saver_photo_next()
         if self.layer != CONTENT_LAYER:
             return False
         self._force_next = True
         self._layer_since = 0.0
         return True
 
-    def update(self, now, state, ctx, features=None, night=False):
+    def update(self, now, state, ctx, features=None, night=False, saver=None):
         """决定这一帧显示什么。返回 {layer, feature, card, face}。"""
         busy = state in self.busy_states
         prev = self._state
         self._state = state
 
         if busy:
+            if prev not in self.busy_states:
+                # 刚开始忙 —— 记住起点，屏保要拿它算「忙了多久」
+                self._busy_since = now
+            # 忙了很久 —— 上屏保：整屏相册，宠物缩到小窗里。
+            card, feature = self._saver_pick(now, ctx, features, saver)
+            if card is not None:
+                self.layer = SCREENSAVER_LAYER
+                self.feature = feature
+                self._face = state
+                self._layer_since = now
+                self._hold_until = 0.0
+                return {"layer": SCREENSAVER_LAYER, "feature": feature,
+                        "card": card, "face": state}
             # OpenClaw 在干活 —— 宠物整屏接管，直接打断当前卡片
             self.layer = MESSAGE_LAYER
             self.feature = None
@@ -85,6 +121,9 @@ class ScreenDirector:
         # 刚忙完 —— 给它留一会儿（用户可调的秒数）
         if prev in self.busy_states:
             self._hold_until = now + self.message_hold_ms / 1000.0
+            self._busy_since = 0.0
+            self._saver_since = 0.0
+            self._saver_feature = None
 
         if now < self._hold_until:
             face = "done" if state == "done" else "idle"
@@ -123,6 +162,60 @@ class ScreenDirector:
     def _view(self, face):
         return {"layer": self.layer, "feature": self.feature, "card": None,
                 "face": face}
+
+    def _saver_pick(self, now, ctx, features, saver):
+        """忙了很久 —— 该上屏保了。
+
+        返回 (card, feature)；不该上就返回 (None, None)。
+
+        三条底线：
+        - 门槛 0 = 关掉
+        - 相册没照片 = 不上（屏上不能开天窗）
+        - 设备在游戏里 = 不上（游戏画面更该留在屏上）
+        """
+        if self.screensaver_after_ms <= 0:
+            return None, None
+        if (now - self._busy_since) * 1000.0 < self.screensaver_after_ms:
+            return None, None
+        dev = (ctx or {}).get("device") or {}
+        if str(dev.get("mode") or "idle") != "idle":
+            return None, None
+        if saver is None:
+            return None, None
+        try:
+            card = saver.context(ctx)
+        except Exception:
+            log.warning("屏保取相册内容出错", exc_info=True)
+            return None, None
+        if not card or not card.get("photo"):
+            return None, None
+        self._saver_feature = saver
+        self._saver_ctx = ctx
+        if self.layer != SCREENSAVER_LAYER:
+            # 刚上屏保 —— 先站住，住够时间再换下一张
+            self._saver_since = now
+            return card, saver
+        if (now - self._saver_since) * 1000.0 >= self.screensaver_dwell_ms:
+            try:
+                saver.on_show(ctx)
+                card = saver.context(ctx) or card
+            except Exception:
+                log.warning("屏保换照片出错", exc_info=True)
+            self._saver_since = now
+        return card, saver
+
+    def _saver_photo_next(self):
+        """屏保里转旋钮 —— 换下一张照片。"""
+        f = self._saver_feature
+        if f is None:
+            return False
+        try:
+            f.on_show(self._saver_ctx)
+        except Exception:
+            log.warning("屏保换照片出错", exc_info=True)
+            return False
+        self._saver_since = time.time()
+        return True
 
     def _pick(self, now, state, ctx, features):
         """挑一张卡片。返回 (card, feature)；没有就 (None, None)。

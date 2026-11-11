@@ -368,3 +368,147 @@ def test_render_card_supports_big_and_rows():
          "rows": [{"left": "湿度", "right": "60%", "accent": "idle"}],
          "state": "idle"})
     assert jpeg[:2] == b"\xff\xd8"
+
+# ---------- 屏保 ----------
+class FakeSaver:
+    """假的屏保源 —— 假装是相册 feature。"""
+
+    name = "album"
+    title = "相册"
+
+    def __init__(self, photo="/tmp/x.jpg"):
+        self._photo = photo
+        self.shown = 0
+
+    def context(self, ctx):
+        if not self._photo:
+            return None
+        return {"photo": self._photo, "counter": "1 / 3", "state": "idle"}
+
+    def on_show(self, ctx=None):
+        self.shown += 1
+
+
+def _busy_ctx():
+    return {"device": {"mode": "idle"}}
+
+
+def test_screensaver_stays_off_before_threshold():
+    """刚忙起来不到门槛 —— 宠物整屏，不能马上被相册顶掉。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 60000
+    saver = FakeSaver()
+    view = d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+    assert d.update(1000.0 + 30, "working", _busy_ctx(), [],
+                    saver=saver)["layer"] == screen_mod.MESSAGE_LAYER
+
+
+def test_screensaver_kicks_in_after_threshold():
+    """忙过门槛 —— 屏上换成相册。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 60000
+    saver = FakeSaver()
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    view = d.update(1000.0 + 61, "working", _busy_ctx(), [], saver=saver)
+    assert view["layer"] == screen_mod.SCREENSAVER_LAYER
+    assert view["card"]["photo"] == "/tmp/x.jpg"
+
+
+def test_screensaver_zero_threshold_disables_it():
+    """门槛 0 = 关掉 —— 忙多久都不上屏保。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 0
+    saver = FakeSaver()
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    view = d.update(1000.0 + 99999, "working", _busy_ctx(), [], saver=saver)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+
+
+def test_screensaver_needs_a_photo():
+    """相册没照片 —— 不上屏保。屏上不能开天窗。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 1000
+    saver = FakeSaver(photo="")
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    view = d.update(1000.0 + 61, "working", _busy_ctx(), [], saver=saver)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+
+
+def test_screensaver_stays_off_during_game():
+    """设备在游戏里 —— 不上屏保。游戏画面更该留在屏上。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 1000
+    saver = FakeSaver()
+    ctx = {"device": {"mode": "playing"}}
+    d.update(1000.0, "working", ctx, [], saver=saver)
+    view = d.update(1000.0 + 61, "working", ctx, [], saver=saver)
+    assert view["layer"] == screen_mod.MESSAGE_LAYER
+
+
+def test_screensaver_switches_photo_after_dwell():
+    """住够时间 —— 换下一张照片。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 1000
+    d.screensaver_dwell_ms = 15000
+    saver = FakeSaver()
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    d.update(1000.0 + 61, "working", _busy_ctx(), [], saver=saver)
+    assert saver.shown == 0
+    d.update(1000.0 + 61 + 16, "working", _busy_ctx(), [], saver=saver)
+    assert saver.shown == 1
+
+
+def test_screensaver_knob_switches_photo():
+    """屏保里转旋钮 —— 换下一张照片。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 1000
+    saver = FakeSaver()
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    d.update(1000.0 + 61, "working", _busy_ctx(), [], saver=saver)
+    assert d.next_card() is True
+    assert saver.shown == 1
+
+
+def test_screensaver_ends_when_busy_ends():
+    """活干完 —— 屏保退场，宠物回整屏。"""
+    d = screen_mod.ScreenDirector()
+    d.screensaver_after_ms = 1000
+    saver = FakeSaver()
+    d.update(1000.0, "working", _busy_ctx(), [], saver=saver)
+    d.update(1000.0 + 61, "working", _busy_ctx(), [], saver=saver)
+    view = d.update(1000.0 + 62, "idle", _busy_ctx(), [], saver=saver)
+    assert view["layer"] != screen_mod.SCREENSAVER_LAYER
+
+
+def test_render_screensaver_produces_jpeg(tmp_path):
+    """屏保画面 —— 整屏相册 + 宠物小窗，能出一张 JPEG。"""
+    from PIL import Image
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (300, 400), (40, 60, 90)).save(photo)
+    skin = tmp_path / "s.png"
+    Image.new("RGBA", (200, 200), (200, 180, 150, 255)).save(skin)
+    jpeg = render_mod.render_screensaver(
+        {"render": {"width": 240, "height": 320}},
+        str(photo), "1 / 3", face="working",
+        skin_image=Image.open(skin))
+    assert jpeg[:2] == b"\xff\xd8"
+
+
+def test_render_screensaver_without_skin_still_works(tmp_path):
+    """没有宠物小窗 —— 也能出图。"""
+    from PIL import Image
+    photo = tmp_path / "p.jpg"
+    Image.new("RGB", (300, 400), (40, 60, 90)).save(photo)
+    jpeg = render_mod.render_screensaver(
+        {"render": {"width": 240, "height": 320}}, str(photo), "1 / 3")
+    assert jpeg[:2] == b"\xff\xd8"
+
+
+def test_render_screensaver_missing_photo_returns_none(tmp_path):
+    """照片读不出来 —— 返回 None，让调用方退回普通画面。"""
+    jpeg = render_mod.render_screensaver(
+        {"render": {"width": 240, "height": 320}},
+        str(tmp_path / "nope.jpg"), "1 / 3")
+    assert jpeg is None
+

@@ -4,6 +4,7 @@
 版式：文字带在上，宠物在下 —— 跟功能卡一个顺序。
 密度只管文字带显示几行字，宠物大小不变。
 """
+import datetime
 import io
 import os
 import pathlib
@@ -639,6 +640,77 @@ def _photo_scaled(path, tw, th):
         _PHOTO_CACHE.clear()
     _PHOTO_CACHE[key] = big
     return big
+
+
+def render_screensaver(cfg, path, counter="", face="working",
+                       skin_image=None, dim=1.0):
+    """屏保画面 —— 整屏相册，右下角一个宠物小窗，底部一条状态条。
+
+    宠物小窗不是装饰 —— 整屏照片会让主人以为宠物没了。
+    小窗里放当前状态对应的那张脸（忙的时候就是 working.png）。
+
+    状态条只给时间和照片计数 —— 「正在干活」这件事小窗里那张脸已经说了。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+    quality = int(cfg.get("render", {}).get("quality", 85))
+    subsampling = int(cfg.get("render", {}).get("subsampling", 2))
+
+    scale = 2
+    tw, th = width * scale, height * scale
+
+    big = _photo_scaled(path, tw, th)
+    if big is None:
+        return None
+    big = big.copy()
+
+    # 底部状态条 —— 一条渐变黑带，压在照片下沿
+    band_h = int(th * 0.125)
+    scrim = Image.new("RGBA", (tw, band_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(scrim)
+    # 下沿最实 —— 文字压在上面才读得清。雪景、白墙这类亮照片
+    # 尤其重要：没有这层，字直接糊在照片里。
+    for y in range(band_h):
+        a = int(120 + 120 * (y / float(max(1, band_h - 1))))
+        sd.line([(0, y), (tw, y)], fill=(8, 10, 18, a))
+    big.paste(scrim, (0, th - band_h), scrim)
+
+    d = ImageDraw.Draw(big)
+
+    # 状态条上的字 —— 左：时间，下面：第几张
+    now = datetime.datetime.now()
+    _text(d, (int(8 * scale), th - band_h + int(3 * scale)),
+          now.strftime("%H:%M"), int(11 * scale), (236, 240, 250, 255))
+    if counter:
+        _text(d, (int(8 * scale), th - band_h + int(17 * scale)),
+              counter, int(8 * scale), (170, 180, 205, 255))
+
+    # 宠物小窗 —— 右下角，约 1/3 宽。压在状态条上方，别把条挡住。
+    if skin_image is not None:
+        win_w = int(tw * 0.34)
+        win_h = int(win_w * 1.05)
+        margin = int(6 * scale)
+        x1 = tw - margin
+        y1 = th - band_h - int(4 * scale)
+        x0 = x1 - win_w
+        y0 = y1 - win_h
+
+        pad = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        pd = ImageDraw.Draw(pad)
+        pd.rounded_rectangle([x0, y0, x1, y1], radius=int(8 * scale),
+                             fill=(12, 14, 24, 200))
+        sw, sh = skin_image.size
+        factor = min((win_w * 0.86) / float(sw), (win_h * 0.86) / float(sh))
+        nw, nh = max(1, int(sw * factor)), max(1, int(sh * factor))
+        frame = skin_image.convert("RGBA").resize((nw, nh), Image.LANCZOS)
+        fx = x0 + (win_w - nw) // 2
+        fy = y0 + (win_h - nh) // 2
+        pad.paste(frame, (fx, fy), frame)
+        big = Image.alpha_composite(big.convert("RGBA"), pad).convert("RGB")
+
+    img = big.resize((width, height), Image.LANCZOS)
+    img = _apply_dim(img, dim)
+    return _encode_jpeg(img, quality, subsampling)
 
 
 def render_photo_card(cfg, path, counter="", dim=1.0):

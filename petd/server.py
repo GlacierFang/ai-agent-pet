@@ -528,6 +528,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
                 pet.set_card_dwell(int(value))
             elif fid == "hold":
                 pet.set_message_hold(int(value))
+            elif fid == "screensaver":
+                pet.set_screensaver_after(int(value))
             elif fid == "sleep":
                 start, end, enabled = _parse_sleep(value, pet)
                 pet.set_sleep_window(start, end, enabled)

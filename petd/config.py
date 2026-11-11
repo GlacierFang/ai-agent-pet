@@ -61,6 +61,11 @@ def defaults():
             "featuresVersion": 3,
             "cardDwellSec": 8,      # 每张卡停留秒数
             "messageHoldSec": 3,    # 工作结束后宠物形象多留几秒
+            # 屏保 —— 干活超过这个秒数，屏上换成相册轮播 + 宠物小窗。
+            # 0 = 关掉。宠物还在干活，但屏上不该一张图挂几个小时。
+            "screensaverAfterSec": 60,
+            # 屏保期间多久换一张照片。
+            "screensaverDwellSec": 15,
             "sleepStart": DEFAULT_SLEEP_START,  # 睡觉时段（可跨午夜）
             "sleepEnd": DEFAULT_SLEEP_END,
             "sleepEnabled": True,    # 夜里要不要睡

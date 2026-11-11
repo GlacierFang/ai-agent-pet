@@ -125,6 +125,17 @@ def _hold_item(pet):
             "type": "number", "unit": "秒", "min": 0}
 
 
+def _screensaver_item(pet):
+    """屏保门槛 —— 忙多久之后，屏上换成相册轮播 + 宠物小窗。
+
+    0 = 关掉。宠物还在干活，但屏上不该一张图挂几个小时。
+    """
+    return {"id": "screensaver", "name": "忙多久上屏保",
+            "desc": "干活超过这个时间，屏上换成相册轮播（宠物缩到小窗）。0 = 关掉",
+            "value": int(pet.screensaver_after_sec),
+            "type": "number", "unit": "秒", "min": 0, "max": 3600}
+
+
 def _density_item(pet):
     return {"id": "density", "name": "信息密度",
             "desc": "屏幕上放多少东西",
@@ -181,5 +192,6 @@ def build(pet):
     selected = set(pet.features_enabled)
     features = [_feature(pet, c, selected) for c in feature_mod.catalog()]
     settings = [_dwell_item(pet), _hold_item(pet),
+                _screensaver_item(pet),
                 _density_item(pet), _brightness_item(pet), _sleep_item(pet)]
     return {"features": features, "settings": settings}
