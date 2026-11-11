@@ -8,7 +8,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # 钉在 22.04，不跟 ubuntu-latest 走。
+    # ubuntu-latest 已经换成 Ubuntu 26（resolute），它的 apt 源指向
+    # /etc/apt/apt-mirrors.txt，2026-11-11 起在 runner 上解析不了
+    # security.ubuntu.com —— 「安装依赖」这步直接 exit 100，
+    # 三个 Python 版本一起挂，而挂的其实是 apt 不是代码。
+    # 固件 CI 一直用 22.04 且稳定。
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -23,8 +29,14 @@ jobs:
         run: |
           # 中文字体 —— 屏上文字全靠服务端烧进 JPEG，没字体就是一片空白。
           # runner 默认不带 CJK 字体，装上才跟真机环境一致。
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          #
+          # **这一步装不上不能挂整轮 CI**：单测不依赖中文字体
+          # （test_backgrounds.py 的探针文字特意用 ASCII，
+          #   没有 CJK 字体时 render 会把中文过滤掉，断言照样成立）——
+          # 实测在一台完全没有字体的机器上，全量 504 条照样全过。
+          # 所以这里只装「尽力而为」：装不上也继续往下走。
+          sudo apt-get update || true
+          sudo apt-get install -y fonts-noto-cjk || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           # starlette.testclient 依赖 httpx；requirements.txt 是运行时依赖，不含它
