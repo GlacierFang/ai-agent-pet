@@ -14,6 +14,7 @@
 import asyncio
 import pathlib
 import sys
+import time
 
 import pytest
 
@@ -98,6 +99,28 @@ def test_wait_ack_fails_fast_after_disconnect():
         return await sess.wait_ota_ack(0, timeout=30)
 
     assert asyncio.run(go()) is False
+
+
+def test_wait_ack_gives_up_quickly_when_device_drops_mid_transfer():
+    """传输中途断开 —— 别白等满 30 秒。
+
+    设备掉线时服务端的 detach 会给 session 打 note_closed；
+    等确认的循环必须立刻退出，不然每片都要等满超时。
+    """
+    sess = device_mod.DeviceSession(_FakeWs(), {})
+
+    async def go():
+        async def drop():
+            await asyncio.sleep(0.05)
+            sess.note_closed()
+        asyncio.ensure_future(drop())
+        t0 = time.monotonic()
+        ok = await sess.wait_ota_ack(0, timeout=30)
+        return ok, time.monotonic() - t0
+
+    ok, elapsed = asyncio.run(go())
+    assert ok is False
+    assert elapsed < 2.0, "断开后不该再等满 30 秒"
 
 
 # --------------------------------------------------------------------------

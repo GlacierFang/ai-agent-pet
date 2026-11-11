@@ -168,6 +168,9 @@ class DeviceSession:
         """
         deadline = time.monotonic() + timeout
         while True:
+            if self.ota_closed:
+                # 设备断了 —— 别白等满 30 秒。
+                return False
             if self.ota_ack_ready(seq):
                 return True
             remaining = deadline - time.monotonic()
@@ -175,6 +178,8 @@ class DeviceSession:
                 return False
             self.ota_ack.clear()
             # clear 之后再查一遍 —— 确认可能正好落在检查和 clear 之间。
+            if self.ota_closed:
+                return False
             if self.ota_ack_ready(seq):
                 return True
             try:
