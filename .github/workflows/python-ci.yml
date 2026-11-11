@@ -45,3 +45,8 @@ jobs:
       - name: 素材校验
         run: |
           python petd/tools/check_assets.py || true
+      # 文档一致性 —— 代码改了而文档没跟上，比没有文档更坑。
+      # 这里是真拦：命中过期的说法就红。
+      - name: 文档一致性
+        run: |
+          python tools/check_docs.py
