@@ -300,6 +300,11 @@ class PetApp:
         s = self.devices.session
         if s is None:
             return
+        # 每写完一片设备都会报一次（带 seq）—— 服务端靠它控速。
+        seq = msg.get("seq")
+        if isinstance(seq, int):
+            rnd = msg.get("round")
+            self.devices.note_ota_ack(seq, rnd if isinstance(rnd, int) else None)
         state = str(msg.get("state") or "idle")
         s.ota_state = state
         s.ota_version = str(msg.get("version") or "")
@@ -363,8 +368,23 @@ class PetApp:
         if data is None:
             return False, "找不到固件 %s" % version
         total = len(data)
+        # 设备端还卡在上一轮没下完的 OTA？
+        # 这种状态下从第 0 片重下，新片会接在旧片的偏移上 —— 镜像直接写坏。
+        # 0.5.9 起的固件能自己作废上一轮、从头再来；更老的固件不能，
+        # 只能让设备断电重启（断电后状态清空，重连时上报 idle）。
+        if s.ota_state == "downloading" and s.ota_percent > 0:
+            if not ota_mod.fw_can_restart_ota(s.fw):
+                return False, ("设备端还卡在上一轮 OTA（%d%%），这一版固件没法中途"
+                               "重来 —— 请给设备断电重启后再点升级"
+                               % s.ota_percent)
+            self.log("info", "设备端卡在上一轮 OTA（%d%%），新固件会自己作废重来"
+                     % s.ota_percent)
         self.log("info", "开始下发固件 %s（%d bytes）" % (version, total))
-        ok = await self.devices.send_ota_start(version, total)
+        # 这一轮的编号 —— 设备会回在 otaStatus 里。
+        rnd = self.devices.next_ota_round()
+        # 确认计数从头来 —— 别让上一次的 seq 把这一轮的等待直接满足掉。
+        await self.devices.reset_ota_ack(rnd)
+        ok = await self.devices.send_ota_start(version, total, rnd)
         if not ok:
             return False, "下发开始指令失败"
         seq = 0
@@ -373,9 +393,22 @@ class PetApp:
             if not await self.devices.send_ota_chunk(seq, chunk):
                 self.log("error", "OTA 下发中断在第 %d 片" % seq)
                 return False, "下发中断在第 %d 片" % seq
+            # **等设备确认这一片进了 flash 再发下一片。**
+            # 不等就会把 1MB 固件几秒钟全灌过去：设备 OTA 队列只有 4 深，
+            # 写 flash 又慢，队列一满，WS 收包任务就被堵死，
+            # 连接直接断在半路 —— 真机表现是「下发中断在第 16 片」，
+            # 而且每次断的片数都不一样。
+            if not await self.devices.wait_ota_ack(seq, ota_mod.OTA_ACK_TIMEOUT):
+                self.log("error", "OTA 第 %d 片没等到设备确认" % seq)
+                if self.devices.session is None:
+                    return False, "第 %d 片没等到设备确认 —— 设备断了" % seq
+                return False, "第 %d 片没等到设备确认（设备可能已经断了）" % seq
+            # 设备写盘失败会带 ok=false —— 立刻停，别把坏数据继续推。
+            cur = self.devices.session
+            if cur is not None and cur.ota_error:
+                self.log("error", "OTA 设备端报错: %s" % cur.ota_error)
+                return False, "设备端报错: %s" % cur.ota_error
             seq += 1
-            # 留一点间隔 —— 设备写 flash 要时间，连着推会把 WS 队列顶爆
-            await asyncio.sleep(0.05)
         await self.devices.send_ota_finish()
         self.log("info", "固件 %s 下发完毕（%d 片），等设备重启" % (version, seq))
         return True, ""
@@ -1231,6 +1264,11 @@ class PetApp:
             # 设备在游戏里 —— 别推帧抢屏。设备端也挡一层，这里是省带宽。
             s = self.devices.session
             if s is not None and s.mode != "idle":
+                await asyncio.sleep(0.2)
+                continue
+            # OTA 期间也别推帧：设备正忙着写 flash，屏上自己画进度。
+            # 抢带宽只会让固件片更容易挤爆设备的收包队列。
+            if s is not None and s.ota_state == "downloading":
                 await asyncio.sleep(0.2)
                 continue
             if self.devices.online:

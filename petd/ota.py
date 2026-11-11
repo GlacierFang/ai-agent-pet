@@ -49,6 +49,15 @@ MIN_OTA_FW = (0, 5, 7)
 # 一片固件多大。协议单帧上限 32KB，这里留一半余量。
 CHUNK_SIZE = 16 * 1024
 
+# 等设备确认一片固件的最长秒数。
+# 设备写一片要擦 flash 扇区（最坏几秒）—— 留够。
+OTA_ACK_TIMEOUT = 30
+
+# 能自己作废上一轮 OTA、从头再来的最低固件版本。
+# 0.5.9 起设备端会 esp_ota_abort 掉没写完的分区再重开；更老的固件从第 0 片
+# 重下，新片会接在旧片偏移上，镜像直接写坏 —— 服务端只能让设备断电重启。
+MIN_OTA_RESTART_FW = (0, 5, 9)
+
 # 下载固件的超时（秒）。内网 NAS 慢一点也没关系，但不能无限等。
 FETCH_TIMEOUT = 120
 
@@ -305,3 +314,9 @@ def fw_supports_ota(fw):
     """这个固件版本认不认识 OTA 消息。"""
     from .device import fw_tuple
     return fw_tuple(fw) >= MIN_OTA_FW
+
+
+def fw_can_restart_ota(fw):
+    """这个固件能不能中途作废一轮没下完的 OTA、从头再来。"""
+    from .device import fw_tuple
+    return fw_tuple(fw) >= MIN_OTA_RESTART_FW

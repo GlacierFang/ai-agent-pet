@@ -428,14 +428,17 @@ static char g_ota_ver[16];
 static uint8_t *g_ota_buf;
 static size_t g_ota_len;
 static int g_ota_finish;
+static int32_t g_ota_round = -1;
+static int g_ota_abort_req;
 
 void ota_mark_valid(void) { }
 const char *ota_state_name(void) { return "idle"; }
 const char *ota_version(void) { return g_ota_ver; }
 int ota_percent(void) { return 0; }
-bool ota_handle_start(const char *version, size_t size) {
+bool ota_handle_start(const char *version, size_t size, int32_t round) {
     (void)size;
     g_ota_started = 1;
+    g_ota_round = round;
     snprintf(g_ota_ver, sizeof(g_ota_ver), "%s", version ? version : "");
     return true;
 }
@@ -457,6 +460,8 @@ int ota_on_binary(const uint8_t *p, size_t len, size_t offset, size_t total) {
     return 1;
 }
 void ota_queue_finish(void) { g_ota_finish = 1; }
+/* 断线请求作废这轮 OTA —— ws_client.c 会调。 */
+void ota_request_abort(void) { g_ota_abort_req = 1; }
 
 static int g_fail = 0;
 

@@ -431,14 +431,16 @@ static void handle_text(const char *text, size_t len)
             }
         }
     } else if (!strcmp(t, PETD_T_OTA_START)) {
-        /* 服务端让设备装一个新固件 —— 版本 + 总大小。 */
+        /* 服务端让设备装一个新固件 —— 版本 + 总大小 + 这一轮的编号。 */
         const cJSON *v = cJSON_GetObjectItem(root, "version");
         const cJSON *b = cJSON_GetObjectItem(root, "bytes");
+        const cJSON *r = cJSON_GetObjectItem(root, "round");
         if (!cJSON_IsNumber(b)) {
             ESP_LOGE(TAG, "otaStart without bytes");
         } else {
             ota_handle_start(cJSON_IsString(v) ? v->valuestring : "",
-                             (size_t)b->valueint);
+                             (size_t)b->valueint,
+                             cJSON_IsNumber(r) ? (int32_t)r->valueint : -1);
         }
     } else if (!strcmp(t, PETD_T_OTA_CHUNK)) {
         /* 预告：下一条 binary 是这一片固件。 */
@@ -559,6 +561,12 @@ static void reset_rx_state(void)
     /* 固件片同理 —— 半截固件绝不能接上下半截。 */
     ota_on_preview_drop();
     s_pending_ota = false;
+    /* 断线了 —— 这一轮 OTA 也作废。
+       没写完的分区留着不放，下次 esp_ota_begin 会失败，
+       设备从此再也装不了固件。
+       这里只**请求** abort：真正 abort 要擦 flash，得让 ota_task 做 ——
+       跑在 WebSocket 收包任务里会把连接卡死。 */
+    ota_request_abort();
     /* 断线了 —— 上一轮的 welcome 不算数，握手任务要重新等。 */
     s_welcome_seen = false;
 }

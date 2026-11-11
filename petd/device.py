@@ -65,6 +65,14 @@ class DeviceSession:
         self.ota_version = str(ota.get("version") or "")
         self.ota_percent = int(ota.get("percent") or 0)
         self.ota_error = ""
+        # OTA 确认：设备每写完一片就报一次 otaStatus（带 seq）。
+        # 服务端靠这个确认来控速 —— 不等确认就往下推，设备的 WS 收包
+        # 队列会被顶爆，连接直接断在半路（真机表现：「下发中断在第 16 片」，
+        # 而且每次断的片数都不一样）。
+        self.ota_ack_seen = set()      # 已确认的 seq
+        self.ota_ack = asyncio.Event()
+        self.ota_round = 0             # 这一轮 OTA 的编号（服务端下发）
+        self.ota_closed = False        # 设备断开了
         # 「预告 + 本体」成对发，中途不能被别的 binary 插进来。
         self._tx_lock = asyncio.Lock()
 
@@ -86,14 +94,19 @@ class DeviceSession:
             await self.ws.send_bytes(raw)
         return True
 
-    async def send_ota_start(self, version, size):
+    async def send_ota_start(self, version, size, round=None):
         """告诉设备「要装这个固件了，一共这么多字节」。
 
         之后才是一片一条 otaChunk 预告 + binary 本体。
+        round 是这一轮的编号 —— 设备会回在 otaStatus 里，
+        用来分辨「这一轮的确认」和「上一轮迟到的确认」。
         """
         async with self._tx_lock:
-            await self.send_json({"type": "otaStart", "version": version,
-                                  "bytes": int(size)})
+            msg = {"type": "otaStart", "version": version,
+                   "bytes": int(size)}
+            if round is not None:
+                msg["round"] = int(round)
+            await self.send_json(msg)
         return True
 
     async def send_ota_chunk(self, seq, data):
@@ -113,6 +126,61 @@ class DeviceSession:
         async with self._tx_lock:
             await self.send_json({"type": "otaFinish"})
         return True
+
+    def note_ota_ack(self, seq, round=None):
+        """设备确认收到第 seq 片。
+
+        round 是这一轮的编号 —— 上一轮 OTA 迟到的确认（seq 更大）落进
+        新一轮时，会把中间的空缺填上，看起来像连续，镜像就写坏了。
+        对不上轮次的确认直接丢掉。
+        """
+        if round is not None and round != self.ota_round:
+            return
+        self.ota_ack_seen.add(int(seq))
+        self.ota_ack.set()
+
+    def reset_ota_ack(self, round=None):
+        """新一轮下发 —— 确认从头来。"""
+        self.ota_ack_seen = set()
+        self.ota_ack.clear()
+        if round is not None:
+            self.ota_round = int(round)
+
+    def note_closed(self):
+        """设备断开了 —— 别再等确认。"""
+        self.ota_closed = True
+        self.ota_ack.set()
+
+    def ota_ack_ready(self, seq):
+        """第 seq 片是不是已经确认齐了。
+
+        要 0..seq **连续**都确认过才算数 —— 只看「最大 seq」不够：
+        上一轮迟到的确认会填掉中间的空缺。
+        """
+        if self.ota_closed:
+            return False
+        return all(i in self.ota_ack_seen for i in range(seq + 1))
+
+    async def wait_ota_ack(self, seq, timeout):
+        """等设备确认收到第 seq 片。
+
+        True = 确认了；False = 超时（设备断了，或者根本没回）。
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            if self.ota_ack_ready(seq):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self.ota_ack.clear()
+            # clear 之后再查一遍 —— 确认可能正好落在检查和 clear 之间。
+            if self.ota_ack_ready(seq):
+                return True
+            try:
+                await asyncio.wait_for(self.ota_ack.wait(), remaining)
+            except asyncio.TimeoutError:
+                return False
 
     async def send_frame(self, jpeg, frame_id, mime="image/jpeg"):
         """文本预告 + binary，紧挨着发。"""
@@ -188,6 +256,7 @@ class DeviceManager:
 
     async def detach(self, session):
         if self.session is session:
+            session.note_closed()
             self.session = None
             log.info("设备断开")
 
@@ -232,12 +301,12 @@ class DeviceManager:
         except Exception:
             return False
 
-    async def send_ota_start(self, version, size):
+    async def send_ota_start(self, version, size, round=None):
         """告诉设备要装新固件了。没有设备就什么都不做。"""
         if not self.session:
             return False
         try:
-            await self.session.send_ota_start(version, size)
+            await self.session.send_ota_start(version, size, round)
             return True
         except Exception:
             return False
@@ -261,3 +330,24 @@ class DeviceManager:
             return True
         except Exception:
             return False
+
+    async def wait_ota_ack(self, seq, timeout):
+        """等设备确认收到第 seq 片。"""
+        if not self.session:
+            return False
+        return await self.session.wait_ota_ack(seq, timeout)
+
+    def note_ota_ack(self, seq, round=None):
+        """设备确认收到第 seq 片。"""
+        if self.session:
+            self.session.note_ota_ack(seq, round)
+
+    async def reset_ota_ack(self, round=None):
+        """开始新的一轮下发 —— 清掉上一轮的确认计数。"""
+        if self.session:
+            self.session.reset_ota_ack(round)
+
+    def next_ota_round(self):
+        """给这一轮 OTA 分配一个编号。"""
+        self._ota_round = getattr(self, "_ota_round", 0) + 1
+        return self._ota_round
