@@ -435,6 +435,72 @@ def create_app(cfg=None, start_gateway=True, port=None):
                              "result": out.get("result", ""),
                              "toys": pet.toys_view()})
 
+    async def api_confirm_get(request):
+        """确认卡现状 —— 当前卡 + 队列。"""
+        return JSONResponse({"ok": True, **pet.confirm_view()})
+
+    async def api_confirm_post(request):
+        """发起一张确认卡。
+
+        body: {"question": "...", "options": ["A", "B"], "sessionKey": "...",
+               "timeoutSec": 300}
+
+        sessionKey 可以不给 —— 不给就回给宠物正在反映的那个会话。
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"},
+                                status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"ok": False, "error": "bad body"},
+                                status_code=400)
+        options = body.get("options")
+        if isinstance(options, str):
+            options = [o for o in options.replace("，", ",").split(",")]
+        snap, err = pet.push_confirm(
+            str(body.get("question") or ""),
+            options or [],
+            session_key=str(body.get("sessionKey") or ""),
+            source=str(body.get("source") or ""),
+            timeout_sec=int(body.get("timeoutSec") or 0))
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        return JSONResponse({"ok": True, "card": snap})
+
+    async def api_confirm_answer(request):
+        """回答某一张卡 —— 给后台/远程用（屏上答不了的那张）。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"},
+                                status_code=400)
+        card_id = str((body or {}).get("id") or "")
+        if not card_id:
+            return JSONResponse({"ok": False, "error": "缺少 id"},
+                                status_code=400)
+        answer = (body or {}).get("answer")
+        card, err = pet.confirm.answer_card(card_id, answer)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        return JSONResponse({"ok": True, "card": card.snapshot()})
+
+    async def api_confirm_cancel(request):
+        """取消某一张卡。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"},
+                                status_code=400)
+        card_id = str((body or {}).get("id") or "")
+        if not card_id:
+            return JSONResponse({"ok": False, "error": "缺少 id"},
+                                status_code=400)
+        card, err = pet.confirm.cancel_card(card_id)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+        return JSONResponse({"ok": True, "card": card.snapshot()})
+
     async def api_docs_list(request):
         """文档清单 —— 分好组。没登记的新文档落进「其它」，不会消失。"""
         root = pet.cfg.get("_repo_root", ".")
@@ -943,6 +1009,10 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/preview.jpg", _guard(api_preview)),
         Route("/admin/api/status", _guard(api_status)),
         Route("/admin/api/knob", _guard(api_knob), methods=["POST"]),
+        Route("/admin/api/confirm", _guard(api_confirm_get), methods=["GET"]),
+        Route("/admin/api/confirm", _guard(api_confirm_post), methods=["POST"]),
+        Route("/admin/api/confirm/answer", _guard(api_confirm_answer), methods=["POST"]),
+        Route("/admin/api/confirm/cancel", _guard(api_confirm_cancel), methods=["POST"]),
         Route("/admin/api/setup", _guard(api_setup)),
         Route("/admin/api/config", _guard(api_config_get), methods=["GET"]),
         Route("/admin/api/config", _guard(api_config_post), methods=["POST"]),

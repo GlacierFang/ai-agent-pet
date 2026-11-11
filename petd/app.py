@@ -12,6 +12,7 @@ import time
 from collections import deque
 
 from . import chatter as chatter_mod
+from . import confirm as confirm_mod
 from . import config as config_mod
 from . import album as album_mod
 from . import features as feature_mod
@@ -111,6 +112,10 @@ class PetApp:
         self._poll_event = threading.Event()
         self._gateway = None
         self._picked = None
+        # 确认卡 —— 开发中的选择题回到屏上。答案注回发起方会话。
+        self.confirm = confirm_mod.ConfirmManager(on_answer=self._on_confirm_answer)
+        # 待回程的答案。回调是同步的，发消息是异步的 —— 中间隔一个队列。
+        self._confirm_outbox = []
         # 屏上仲裁：宠物形象 ↔ feature 卡片
         self.director = screen_mod.ScreenDirector(self.rules)
         self.chatter = chatter_mod.Chatter()
@@ -169,6 +174,7 @@ class PetApp:
     # ---------- gateway ----------
     async def on_sessions(self, rows):
         changed, state, picked = self.engine.update(rows)
+        self._sync_confirm_focus()
         if changed:
             self.log("info", "状态 -> " + state)
             await self.push_state(state)
@@ -458,12 +464,49 @@ class PetApp:
         gesture_key, magnitude = gestures_mod.classify(msg, self.gestures)
         if gesture_key is None:
             return None
+        # 确认卡在场时旋钮归它：转选择 / 短按确认 / 长按取消。
+        # 不走动作表 —— 确认卡是临时覆盖层，答完就还回去。
+        if self._confirm_active() is not None:
+            return await self._confirm_knob(gesture_key, magnitude)
         action = gestures_mod.action_for(gesture_key, self.gestures)
         if not action:
             return None
         self.log("info", "旋钮 %s -> %s (%s)" % (gesture_key, action, magnitude))
         result = await self.run_action(action, magnitude)
         return {"gesture": gesture_key, "action": action, "result": result or "ok"}
+
+    async def _confirm_knob(self, gesture_key, magnitude):
+        """确认卡在场时的旋钮语义。
+
+        转 = 选下一项；短按 = 确认；长按 = 取消。
+        rot_press（按住+转）在确认卡上不做事 —— 按住时转是噪声。
+        """
+        if gesture_key == "rot":
+            cur = self.confirm.rotate(magnitude)
+            if cur is None:
+                return {"gesture": gesture_key, "action": "confirm.select",
+                        "result": "none"}
+            self.log("info", "确认卡 %s 选中: %s"
+                     % (cur.id, cur.options[cur.selected]))
+            return {"gesture": gesture_key, "action": "confirm.select",
+                    "result": cur.options[cur.selected]}
+        if gesture_key == "press_short":
+            card, err = self.confirm.confirm()
+            if card is None:
+                return {"gesture": gesture_key, "action": "confirm.answer",
+                        "result": err or "none"}
+            self.log("info", "确认卡 %s 已答: %s" % (card.id, card.answer))
+            return {"gesture": gesture_key, "action": "confirm.answer",
+                    "result": card.answer}
+        if gesture_key == "press_long":
+            card, err = self.confirm.cancel()
+            if card is None:
+                return {"gesture": gesture_key, "action": "confirm.cancel",
+                        "result": err or "none"}
+            self.log("info", "确认卡 %s 已取消" % card.id)
+            return {"gesture": gesture_key, "action": "confirm.cancel",
+                    "result": "cancelled"}
+        return {"gesture": gesture_key, "action": "", "result": "ignored"}
 
     async def simulate_gesture(self, gesture_key="press_short"):
         """后台按钮：模拟一次旋钮手势。
@@ -653,6 +696,7 @@ class PetApp:
         """关注某个会话。空 = 自动（跟着最活跃的那个）。"""
         key = str(key or "")
         self.engine.select(key or None)
+        self._sync_confirm_focus()
         self.cfg.setdefault("ui", {})["session"] = key
         self._persist_config()
         self.log("info", "关注会话 -> " + (key or "自动"))
@@ -733,6 +777,7 @@ class PetApp:
         idx = keys.index(cur) if cur in keys else -1
         nxt = rows[(idx + steps) % len(rows)]
         self.engine.select(nxt.get("key"))
+        self._sync_confirm_focus()
 
     async def refresh(self):
         if self._gateway is not None:
@@ -871,6 +916,20 @@ class PetApp:
             overlay = render_mod.bubble_overlay(self.cfg, bubble["text"],
                                                 bubble["phrase"], alpha)
 
+        # 确认卡 —— 优先级最高：它是专门来要人回答的。
+        # 设备在游戏里时不出现（_confirm_active 里判了）。
+        ccard = self._confirm_active()
+        if ccard is not None:
+            pending = len(self.confirm.list_cards())
+            jpeg = render_mod.render_confirm_card(
+                self.cfg, ccard.snapshot(),
+                background_image=card_bg_img, dim=dim,
+                pending_count=max(0, pending - 1),
+                remaining_sec=int(ccard.remaining()))
+            self.last_jpeg = jpeg
+            self.last_jpeg_ts = time.time()
+            return jpeg
+
         view = self.director.update(now, state, self._feature_ctx(),
                                     self._features(), night=self.is_night(now),
                                     saver=self.album)
@@ -926,6 +985,121 @@ class PetApp:
         self.last_jpeg_ts = time.time()
         return jpeg
 
+    # ---------- 确认卡 ----------
+
+    def _confirm_active(self):
+        """当前该显示的确认卡。没有就是 None。
+
+        设备在游戏里时不弹 —— 设备本地接管了屏幕，服务端抢不动，
+        硬推只是把游戏画面顶掉。卡留在队列里，退出游戏再显示。
+        """
+        card = self.confirm.current()
+        if card is None:
+            return None
+        s = self.devices.session
+        if s is not None and s.mode != "idle":
+            return None
+        return card
+
+    def confirm_view(self):
+        """后台看的确认卡现状。"""
+        cards = self.confirm.list_cards()
+        current = self.confirm.current()
+        return {
+            "current": current.snapshot() if current else None,
+            "pending": len(cards),
+            "queue": cards,
+            "focusSession": self.confirm.focus_session,
+        }
+
+    def push_confirm(self, question, options, session_key="", source="",
+                     timeout_sec=0):
+        # 不指定会话就用宠物正在反映的那个 —— 答案得回对人那儿。
+        session_key = str(session_key or self.engine.selected_key
+                          or self.engine.attribution or "")
+        """发起一张确认卡。返回 (卡快照, 错误信息)。"""
+        try:
+            card, _ = self.confirm.push(question, options,
+                                        session_key=session_key,
+                                        source=source, timeout_sec=timeout_sec)
+        except confirm_mod.ConfirmError as exc:
+            return None, str(exc)
+        self.log("info", "确认卡已发起: %s %s" % (card.id, card.question))
+        return card.snapshot(), ""
+
+    def _sync_confirm_focus(self):
+        """确认卡的焦点会话跟着宠物正在反映的会话走。
+
+        屏上优先显示焦点会话自己的卡 —— 别的会话的卡不能因为排队饿死。
+        """
+        key = self.engine.selected_key or self.engine.attribution or ""
+        self.confirm.set_focus(key)
+
+    def _on_confirm_answer(self, card, answer):
+        """确认卡有了结果 —— 排进待发队列。
+
+        这一步不能是 async：ConfirmManager 的回调在同步上下文里跑
+        （测试直接调 confirm()）。所以只入队，真正发给 gateway 由
+        帧循环去做 —— 那样不管从哪儿触发都能发出去。
+        """
+        self._confirm_outbox.append((card, answer))
+        self._confirm_fallback_write(card, answer)
+        # 有事件循环就立刻发 —— 不用等下一帧（idle 帧只有 1fps，慢）。
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(self._flush_confirm_outbox())
+
+    def _confirm_fallback_write(self, card, answer):
+        """本机兜底 —— 网关断了也不能把答案弄丢。"""
+        try:
+            path = config_mod.DATA_DIR / "confirm_answers.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps({
+                    "id": card.id,
+                    "question": card.question,
+                    "status": card.status,
+                    "answer": answer,
+                    "sessionKey": card.session_key,
+                    "at": int(time.time()),
+                }, ensure_ascii=False) + "\n")
+        except Exception:
+            log.warning("确认卡答案落盘失败", exc_info=True)
+    async def _flush_confirm_outbox(self):
+        """把答案注回发起方会话。"""
+        if not self._confirm_outbox:
+            return
+        if self._gateway is None or not self._gateway.connected:
+            return
+        pending, self._confirm_outbox = self._confirm_outbox, []
+        for card, answer in pending:
+            if not card.session_key:
+                self.log("info", "确认卡 %s 没有会话可回，落盘兜底" % card.id)
+                continue
+            text = self._confirm_reply_text(card, answer)
+            try:
+                await self._gateway.send_chat(card.session_key, text)
+                self.log("info", "确认卡 %s 的结果已注回 %s"
+                         % (card.id, card.session_key))
+            except Exception as exc:
+                self.log("warning", "确认卡 %s 回程失败: %s" % (card.id, exc))
+                # 回不去就放回队首，等 gateway 恢复。
+                self._confirm_outbox.insert(0, (card, answer))
+
+    @staticmethod
+    def _confirm_reply_text(card, answer):
+        """回给 AI 的话 —— AI 下一次读上下文就能看到用户选了什么。"""
+        if card.status == confirm_mod.STATUS_ANSWERED:
+            return ("[确认卡] %s\n用户选择了：**%s**（第 %d 项）"
+                    % (card.question, answer, card.selected + 1))
+        if card.status == confirm_mod.STATUS_CANCELLED:
+            return "[确认卡] %s\n用户长按取消了这个问题，没有作答。" % card.question
+        if card.status == confirm_mod.STATUS_SUPERSEDED:
+            return "[确认卡] %s\n这个问题已被同一会话的新问题取代，未作答。" % card.question
+        return "[确认卡] %s\n超时未答，未决 —— 需要的话请重新发一次。" % card.question
     def _features(self):
         """参与轮播的 feature —— 按注册顺序。"""
         if not self.features_enabled:
@@ -1002,6 +1176,10 @@ class PetApp:
                    else self.cfg.get("frame", {}).get("idleFps", 1))
             interval = 1.0 / max(0.2, float(fps))
             t0 = time.time()
+            try:
+                await self._flush_confirm_outbox()
+            except Exception:
+                log.warning("确认卡回程发送失败", exc_info=True)
             try:
                 jpeg = self.render_now()
             except Exception as exc:

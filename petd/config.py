@@ -32,7 +32,9 @@ def defaults():
             "clientId": "gateway-client",
             "clientMode": "backend",
             "role": "operator",
-            "scopes": ["operator.read"],
+            # 确认卡要把答案注回发起方会话 —— chat.send 是 write-scoped
+            # 方法，只读 scope 会被 gateway 拒。
+            "scopes": ["operator.read", "operator.write"],
             "subscribeLimit": 30,
             "useProxy": False,
         },

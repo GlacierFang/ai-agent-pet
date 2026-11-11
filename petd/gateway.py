@@ -15,6 +15,7 @@
 import asyncio
 import json
 import logging
+import uuid
 
 import websockets
 
@@ -234,6 +235,29 @@ class GatewayClient:
                 log.warning("gateway 连接失败(%s)，%ss 后重试", exc, backoff)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
+
+    async def send_chat(self, session_key, message, agent_id="", timeout=20):
+        """往一个会话发一条消息。
+
+        确认卡的答案就走这条路 —— AI 在会话里读到「用户选了 B」，
+        不用人再打字说一遍。
+
+        chat.send 是 write-scoped 方法，需要 operator.write scope
+        （实测：petd 的 token 实授 operator.read + operator.write）。
+        idempotencyKey 必填 —— 同一张卡重试时不能发两条。
+        """
+        if not session_key:
+            raise ValueError("session_key 不能为空")
+        if not message:
+            raise ValueError("message 不能为空")
+        params = {
+            "sessionKey": session_key,
+            "message": message,
+            "idempotencyKey": uuid.uuid4().hex,
+        }
+        if agent_id:
+            params["agentId"] = agent_id
+        return await self._call("chat.send", params, timeout=timeout)
 
     def stop(self):
         self._stop = True

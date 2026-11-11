@@ -166,6 +166,8 @@ def _card_scrim(img, height, alpha=185, fade=16):
 
 CARD_BG_TOP = (24, 28, 44)
 CARD_BG_BOTTOM = (13, 15, 24)
+# 确认卡一屏最多放几个选项 —— 旋钮一屏放不下更多（见 confirm.MAX_OPTIONS）。
+MAX_CONFIRM_OPTIONS = 4
 
 # 列表行右侧文字的颜色，按语义分
 ACCENT_COLORS = {
@@ -311,6 +313,123 @@ def render_card(cfg, card, skin_image=None, overlay=None, background_image=None,
     if overlay is not None:
         img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     # 压暗 —— 和主帧、照片卡同一套，整屏内容一致地暗下去。
+    img = _apply_dim(img, dim)
+    return _encode_jpeg(img, quality, subsampling)
+
+
+def _wrap(draw, text, font, max_w):
+    """按像素宽折行。中文按字断，英文按词断。"""
+    text = str(text or "")
+    if not text:
+        return []
+    lines = []
+    cur = ""
+    for ch in text:
+        if not cur or draw.textlength(cur + ch, font=font) <= max_w:
+            cur += ch
+            continue
+        # 英文单词中间断行不好看 —— 退到上一个空格再断。
+        if ch.isascii() and ch not in " ,.;:!?)]}":
+            idx = cur.rfind(" ")
+            if idx > 0:
+                lines.append(cur[:idx])
+                cur = cur[idx + 1:] + ch
+                continue
+        lines.append(cur)
+        cur = ch
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def render_confirm_card(cfg, card, skin_image=None, background_image=None,
+                        dim=1.0, pending_count=0, remaining_sec=0):
+    """确认卡 —— 一张待答的选择题。
+
+    屏上整屏就是这道题：
+        顶部     标题 + 「还有 N 张」（后面排队着的题）
+        中间     问题（最多三行）+ 选项列表，选中的那项高亮
+        底部     操作提示（转选择 / 短按确认 / 长按取消）+ 剩余时间
+
+    这张卡不画宠物 —— 一屏放不下两头东西，而且答问题时人的注意力
+    在选项上，不在宠物脸上。真要宠物，就等答完再回宠物形象。
+    """
+    width = int(cfg.get("render", {}).get("width", 240))
+    height = int(cfg.get("render", {}).get("height", 320))
+    quality = int(cfg.get("render", {}).get("quality", 85))
+    subsampling = int(cfg.get("render", {}).get("subsampling", 2))
+
+    scale = 2
+    tw, th = width * scale, height * scale
+    big = Image.new("RGB", (tw, th), CARD_BG_BOTTOM)
+    if background_image is not None:
+        big = background_image.convert("RGB").resize((tw, th), Image.LANCZOS)
+        big = _card_scrim(big, th, alpha=205)
+    else:
+        _gradient(big, CARD_BG_TOP, CARD_BG_BOTTOM)
+    d = ImageDraw.Draw(big)
+
+    accent = ACCENT_COLORS.get("waiting", (242, 172, 78))
+    dim_text = (186, 196, 216)
+    faint = (118, 126, 146)
+    pad = int(14 * scale)
+
+    # 顶部 —— 左边写这是什么，右边写后面还排着几张。
+    ty = int(10 * scale)
+    _text(d, (pad, ty), "待确认", int(12 * scale), accent)
+    if pending_count > 0:
+        f, _ = _font(int(10 * scale))
+        txt = "还有 %d 张" % pending_count
+        w = d.textlength(txt, font=f)
+        d.rectangle([tw - pad - w - int(5 * scale), ty - int(1 * scale),
+                     tw - pad, ty + int(13 * scale)], outline=faint)
+        _text(d, (tw - pad - w, ty), txt, int(10 * scale), faint)
+    ty += int(22 * scale)
+
+    # 问题 —— 最多三行，多的截掉。问题太长在屏上没法一眼读完。
+    qfont = int(15 * scale)
+    f, cjk = _font(qfont)
+    qlines = _wrap(d, str(card.get("question") or ""), f, tw - pad * 2)
+    for line in qlines[:3]:
+        _text(d, (pad, ty), line, qfont, (238, 242, 250))
+        ty += int(20 * scale)
+    if len(qlines) > 3:
+        _text(d, (pad, ty), "…", qfont, faint)
+        ty += int(20 * scale)
+    ty += int(6 * scale)
+
+    # 选项 —— 选中的那项高亮，前面加个记号。
+    selected = int(card.get("selected", 0) or 0)
+    options = [str(o) for o in (card.get("options") or [])]
+    row_h = int(26 * scale)
+    for i, opt in enumerate(options[:MAX_CONFIRM_OPTIONS]):
+        on = (i == selected)
+        if on:
+            d.rounded_rectangle(
+                [pad - int(4 * scale), ty - int(2 * scale),
+                 tw - pad + int(4 * scale), ty + row_h - int(4 * scale)],
+                radius=int(6 * scale), fill=(38, 46, 70))
+        mark = "●" if on else "○"
+        _text(d, (pad, ty), mark, int(13 * scale),
+              accent if on else (90, 98, 118))
+        _text(d, (pad + int(18 * scale), ty), opt, int(13 * scale),
+              (246, 248, 255) if on else dim_text)
+        ty += row_h
+
+    # 底部 —— 怎么操作 + 还剩多久。
+    foot = int(th - int(30 * scale))
+    d.line([(pad, foot - int(6 * scale)), (tw - pad, foot - int(6 * scale))],
+           fill=(44, 52, 72))
+    _text(d, (pad, foot), "转选择 · 短按确认 · 长按取消", int(9 * scale), faint)
+    if remaining_sec > 0:
+        mins = remaining_sec // 60
+        secs = remaining_sec % 60
+        txt = "%d:%02d" % (mins, secs)
+        f2, _ = _font(int(9 * scale))
+        w2 = d.textlength(txt, font=f2)
+        _text(d, (tw - pad - w2, foot), txt, int(9 * scale), faint)
+
+    img = big.resize((width, height), Image.LANCZOS)
     img = _apply_dim(img, dim)
     return _encode_jpeg(img, quality, subsampling)
 
