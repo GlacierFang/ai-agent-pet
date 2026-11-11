@@ -25,7 +25,7 @@ petd 会读到的东西：会话标题、显示名、状态字段、是否有未
 | 凭据 | 存放 | 权限 |
 |---|---|---|
 | 后台口令 | `petd/data/admin.json`（**只存 scrypt 哈希**） | `600`，**不入库** |
-| 网关 token | 环境变量 `PETD_GATEWAY_TOKEN`，或 `petd/data/secrets.json` | `chmod 600`，**不入库** |
+| 网关 token | `petd/data/secrets.json`（后台输入框写进这儿），或环境变量 `PETD_GATEWAY_TOKEN` | `chmod 600`，**不入库** |
 | Wi-Fi 凭据 | 设备 NVS（配网页面写入，断电不丢） | 不出设备 |
 | 设备令牌 | **没有** —— 见下面的「已知边界」 | —— |
 

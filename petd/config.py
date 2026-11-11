@@ -1,7 +1,8 @@
 """配置：本地 JSON，无账号体系。
 
-gateway token 不写进配置文件 —— 优先读环境变量 PETD_GATEWAY_TOKEN，
-其次读 petd/data/secrets.json（该文件已在 .gitignore 里）。
+gateway token 不写进配置文件 —— 优先读 petd/data/secrets.json
+（后台输入框写进去的），其次环境变量 PETD_GATEWAY_TOKEN。
+凭据文件已在 .gitignore 里。
 
 后台口令走另一条路：petd/data/admin.json，只存 scrypt 哈希。
 那个文件跟 secrets.json 分开 —— 删它重置口令时，别把网关令牌一起删了。
@@ -111,17 +112,19 @@ def load(path=None):
         # 老配置按「看过第 1 版」算 —— 第 1 版那批功能他可能自己勾掉过，
         # 不能因为没有版本号就全加回来。第 2 版新增的（功德箱、骰子）才补。
         cfg.setdefault("ui", {})["featuresVersion"] = 1
-    if not cfg["gateway"].get("token"):
-        env = os.environ.get("PETD_GATEWAY_TOKEN", "")
-        if env:
-            cfg["gateway"]["token"] = env
-    secrets = DATA_DIR / "secrets.json"
+    # 优先级：手写 config.json > 后台输入的凭据文件 > 环境变量。
+    # 后台输入是用户当下的一次明确动作，比部署时留下的环境变量更贴近他的意图。
+    secrets = secrets_path()
     if not cfg["gateway"].get("token") and secrets.exists():
         try:
             blob = json.loads(secrets.read_text(encoding="utf-8"))
             cfg["gateway"]["token"] = blob.get("gatewayToken", "")
         except Exception:
             pass
+    if not cfg["gateway"].get("token"):
+        env = os.environ.get("PETD_GATEWAY_TOKEN", "")
+        if env:
+            cfg["gateway"]["token"] = env
     return cfg
 
 
@@ -176,7 +179,7 @@ def admin_password():
     env = os.environ.get("PETD_ADMIN_PASSWORD", "")
     if env:
         return env
-    secrets = DATA_DIR / "secrets.json"
+    secrets = secrets_path()
     if secrets.exists():
         try:
             blob = json.loads(secrets.read_text(encoding="utf-8"))
@@ -286,6 +289,39 @@ def set_admin_password(password):
     blob["setAt"] = int(time.time())
     p.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
     # 只给本人读 —— 口令哈希也不该被别人顺手拷走
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+    return p
+
+
+def secrets_path():
+    """凭据文件位置 —— 网关令牌落这儿，不进 config.json。"""
+    return DATA_DIR / "secrets.json"
+
+
+def set_gateway_token(token):
+    """把网关令牌写进凭据文件。
+
+    不写 config.json —— 那是用户会随手复制走的文件。
+    空串 = 删掉已存的令牌。
+    """
+    token = str(token or "").strip()
+    p = secrets_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    blob = {}
+    if p.exists():
+        try:
+            blob = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            blob = {}
+    if not token:
+        blob.pop("gatewayToken", None)
+    else:
+        blob["gatewayToken"] = token
+    p.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 只给本人读 —— 令牌不该被别人顺手拷走
     try:
         os.chmod(p, 0o600)
     except OSError:

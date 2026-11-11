@@ -297,7 +297,7 @@ var T = {
     gwUrl: '网关地址',
     gwToken: '网关令牌',
     serverPort: '监听端口',
-    configNote: '网关地址、令牌、端口改动需重启 petd 才生效；令牌留空表示不改动。',
+    configNote: '网关地址、令牌改完自动重连；监听端口改动需重启 petd；令牌留空表示不改动。',
     tokenSet: '***（已设置，留空不变）',
     tokenUnset: '（未设置）',
     logTitle: '诊断日志',

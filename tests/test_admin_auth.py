@@ -6,6 +6,7 @@
 这里测的是「设过了」这条路径上的鉴权行为：一把共享锁，
 没有注册、没有用户表、没有多账号。
 """
+import json
 import pathlib
 import sys
 
@@ -102,6 +103,57 @@ def test_tampered_cookie_rejected(pw_client):
 
 
 # ---------- 口令从哪来 ----------
+# ---------- 后台填网关令牌：得真存下来 ----------
+def test_admin_token_lands_in_secrets_not_config(pw_client):
+    """后台输入框填的令牌 —— 落凭据文件，不落 config.json。
+
+    回归：config.save() 只允许文件里原本就有的 token，
+    后台新填的会被抹掉 —— 填完重启 petd，令牌就没了。
+    """
+    pw_client.post("/admin/api/login", json={"password": PW})
+    r = pw_client.post("/admin/api/config",
+                       json={"gateway": {"token": "tok-from-admin"}})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert r.json()["tokenSaved"] is True
+
+    secrets = config.DATA_DIR / "secrets.json"
+    blob = json.loads(secrets.read_text(encoding="utf-8"))
+    assert blob["gatewayToken"] == "tok-from-admin"
+
+    # config.json 是用户会随手复制走的文件 —— 里面不能有令牌
+    cfg_file = config.DATA_DIR / "config.json"
+    assert cfg_file.exists()
+    assert "tok-from-admin" not in cfg_file.read_text(encoding="utf-8")
+
+
+def test_admin_token_lands_in_running_config(pw_client):
+    """填完得立刻能用 —— 内存里的配置要拿到新令牌。
+
+    回归：pet.cfg = cur 换掉了整个 dict，
+    GatewayClient 握的旧引用永远看不到新配置。
+    """
+    pet = pw_client.app.state.pet
+    before = pet.cfg
+    pw_client.post("/admin/api/login", json={"password": PW})
+    pw_client.post("/admin/api/config",
+                   json={"gateway": {"token": "tok-live"}})
+    assert pet.cfg["gateway"]["token"] == "tok-live"
+    # 必须是原地更新 —— 换成新 dict 的话握旧引用的代码就看不见了
+    assert pet.cfg is before
+
+
+def test_admin_empty_token_keeps_existing(pw_client):
+    """令牌留空 = 不改动，别把已设的清掉。"""
+    pw_client.post("/admin/api/login", json={"password": PW})
+    pw_client.post("/admin/api/config",
+                   json={"gateway": {"token": "tok-keep"}})
+    pw_client.post("/admin/api/config",
+                   json={"gateway": {"url": "ws://127.0.0.1:19999"}})
+    pet = pw_client.app.state.pet
+    assert pet.cfg["gateway"]["token"] == "tok-keep"
+
+
 def test_password_from_env(monkeypatch):
     monkeypatch.setenv("PETD_ADMIN_PASSWORD", "from-env")
     assert config.admin_password() == "from-env"

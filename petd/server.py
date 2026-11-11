@@ -535,24 +535,59 @@ def create_app(cfg=None, start_gateway=True, port=None):
         except Exception:
             return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
         cur = json.loads(json.dumps(pet.cfg))
+        old_gw = dict(pet.cfg.get("gateway") or {})
+        token_saved = False
         for key, val in (body or {}).items():
             if key == "gateway" and isinstance(val, dict):
                 val = dict(val)
-                if val.get("token") in ("***", ""):
+                given = val.get("token")
+                if given in (None, "", "***"):
+                    # 留空 = 不改动 —— 别把已设的令牌清掉
                     val["token"] = cur.get("gateway", {}).get("token", "")
+                else:
+                    # 用户填了新令牌 —— 落进凭据文件，不进 config.json
+                    try:
+                        config_mod.set_gateway_token(given)
+                        token_saved = True
+                    except Exception as exc:
+                        return JSONResponse({"ok": False, "error": str(exc)},
+                                            status_code=500)
                 cur.setdefault("gateway", {}).update(val)
             elif isinstance(val, dict) and isinstance(cur.get(key), dict):
                 cur[key].update(val)
             else:
                 cur[key] = val
         cur["_repo_root"] = str(REPO_ROOT)
-        pet.cfg = cur
+        # 原地更新 —— 不能换成新 dict：
+        # GatewayClient 握的是启动时那个 cfg 的引用，
+        # 换成新的它就永远看不到新配置（改了网关地址也不重连）。
+        pet.cfg.clear()
+        pet.cfg.update(cur)
+        # 令牌不落 config.json —— 凭据只放 env 或凭据文件。
+        # 但内存里要留着：正在跑的 gateway 得用它。
+        persist = json.loads(json.dumps(
+            {k: v for k, v in cur.items() if not k.startswith("_")}))
+        if token_saved:
+            persist.setdefault("gateway", {})["token"] = ""
         try:
-            config_mod.save({k: v for k, v in cur.items() if not k.startswith("_")})
+            config_mod.save(persist)
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
         pet.log("info", "配置已更新")
-        return JSONResponse({"ok": True, "config": config_mod.public_view(pet.cfg)})
+        # 网关地址/令牌改了 —— 断开让它用新配置重连，不用重启 petd
+        new_gw = cur.get("gateway") or {}
+        gw_changed = (old_gw.get("url") != new_gw.get("url")
+                      or old_gw.get("token") != new_gw.get("token")
+                      or old_gw.get("useProxy") != new_gw.get("useProxy"))
+        gw = getattr(pet, "_gateway", None)
+        if gw_changed and gw is not None:
+            try:
+                await gw.reconnect()
+                pet.log("info", "网关配置已变，正在重连")
+            except Exception as exc:
+                pet.log("warn", "网关重连失败: %s" % exc)
+        return JSONResponse({"ok": True, "config": config_mod.public_view(pet.cfg),
+                             "tokenSaved": token_saved})
 
     async def api_sessions(request):
         """会话列表 —— 宠物反应全部会话，这里看得到每一条。"""

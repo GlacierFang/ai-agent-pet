@@ -236,6 +236,21 @@ class GatewayClient:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
 
+    async def reconnect(self):
+        """配置改了 —— 断开当前连接，让 run_forever 用新配置重连。
+
+        不设 _stop：run_forever 自己会退避重连。
+        """
+        ws = self.ws
+        self.connected = False
+        self.last_error = ""
+        if ws is None:
+            return
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
     async def send_chat(self, session_key, message, agent_id="", timeout=20):
         """往一个会话发一条消息。
 

@@ -61,3 +61,47 @@ def test_public_view_masks_token():
     cfg = config.defaults()
     cfg["gateway"]["token"] = "secret"
     assert config.public_view(cfg)["gateway"]["token"] == "***"
+
+
+def test_set_gateway_token_lands_in_secrets_file(tmp_path):
+    """后台输入框填的令牌 —— 落凭据文件，不落 config.json。"""
+    p = config.set_gateway_token("tok-abc-123")
+    assert p == tmp_path / "secrets.json"
+    blob = json.loads(p.read_text(encoding="utf-8"))
+    assert blob["gatewayToken"] == "tok-abc-123"
+    # 凭据文件只给本人读
+    assert oct(p.stat().st_mode)[-3:] == "600"
+
+
+def test_set_gateway_token_empty_removes_it(tmp_path):
+    """传空串 = 删掉已存的令牌。"""
+    config.set_gateway_token("tok-abc-123")
+    p = config.set_gateway_token("")
+    blob = json.loads(p.read_text(encoding="utf-8"))
+    assert "gatewayToken" not in blob
+
+
+def test_load_reads_token_from_secrets_file(tmp_path, monkeypatch):
+    """后台填过令牌 —— 重启后还得能用。"""
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.delenv("PETD_GATEWAY_TOKEN", raising=False)
+    config.set_gateway_token("tok-from-secrets")
+    cfg = config.load(tmp_path / "config.json")
+    assert cfg["gateway"]["token"] == "tok-from-secrets"
+
+
+def test_load_prefers_secrets_over_env(tmp_path, monkeypatch):
+    """后台填的令牌比部署时留下的环境变量优先 —— 那是用户当下的动作。"""
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("PETD_GATEWAY_TOKEN", "env-token")
+    config.set_gateway_token("tok-from-secrets")
+    cfg = config.load(tmp_path / "config.json")
+    assert cfg["gateway"]["token"] == "tok-from-secrets"
+
+
+def test_load_falls_back_to_env(tmp_path, monkeypatch):
+    """没在后台填过 —— 环境变量兜底。"""
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("PETD_GATEWAY_TOKEN", "env-token")
+    cfg = config.load(tmp_path / "config.json")
+    assert cfg["gateway"]["token"] == "env-token"
