@@ -18,6 +18,7 @@
 #include "display.h"
 #include "proto.h"
 #include "game.h"
+#include "ota.h"
 
 /* IDF 的 cJSON_ArrayForEach 是两参数宏（element, array）。
    这里要索引 —— 自己定义带索引的版本，走 child 链表。
@@ -54,6 +55,9 @@ static size_t       s_pack_len;     /* 已收到多少字节 */
 static size_t       s_pack_expect;  /* 预告说一共多少字节 */
 static char         s_pack_id[GAME_MAX_PACK_ID];
 static volatile bool s_pending_pack; /* 下一条 binary 是 pack 本体 */
+/* 下一条 binary 是固件片 —— 跟 pack、跟推帧都得分开收，
+   三种 binary 用三个预告标记区分，串了就把错的字节写进 flash。 */
+static volatile bool s_pending_ota;
 
 /* WS 收包缓冲大小。32KB ≥ 协议上限（单帧 32KB），一帧一次收完。 */
 #define PETD_WS_BUFFER_BYTES (32 * 1024)
@@ -102,14 +106,20 @@ static void send_hello(void)
                         i ? "," : "", ids[i]);
     }
 
+    /* 连上 petd 了 —— 这就是「新固件跑起来了」的证据。
+       取消回滚：跑不起来就永远连不上，bootloader 会自动退回旧固件。 */
+    ota_mark_valid();
+
     int n = snprintf(buf, sizeof(buf),
         "{\"type\":\"hello\",\"protocol\":%d,\"deviceId\":\"esp32s3-%02x%02x%02x\","
         "\"fw\":\"%s\",\"hostname\":\"pet-desk\","
+        "\"ota\":{\"state\":\"%s\",\"version\":\"%s\",\"percent\":%d},"
         "\"capabilities\":{\"display\":{\"w\":%d,\"h\":%d},"
         "\"decoder\":\"tjpgdec\",\"colorFormat\":\"rgb565\",\"rotary\":true},"
         "\"packs\":[%s]}",
         PETD_PROTOCOL_VERSION, mac[3], mac[4], mac[5],
-        PETD_FW_VERSION, DISP_WIDTH, DISP_HEIGHT, packs);
+        PETD_FW_VERSION, ota_state_name(), ota_version(), ota_percent(),
+        DISP_WIDTH, DISP_HEIGHT, packs);
     if (n > 0) {
         esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(2000));
         ESP_LOGI(TAG, "hello sent (%d packs)", nids);
@@ -317,6 +327,29 @@ static void handle_text(const char *text, size_t len)
                          s_pack_id, (unsigned)n);
             }
         }
+    } else if (!strcmp(t, PETD_T_OTA_START)) {
+        /* 服务端让设备装一个新固件 —— 版本 + 总大小。 */
+        const cJSON *v = cJSON_GetObjectItem(root, "version");
+        const cJSON *b = cJSON_GetObjectItem(root, "bytes");
+        if (!cJSON_IsNumber(b)) {
+            ESP_LOGE(TAG, "otaStart without bytes");
+        } else {
+            ota_handle_start(cJSON_IsString(v) ? v->valuestring : "",
+                             (size_t)b->valueint);
+        }
+    } else if (!strcmp(t, PETD_T_OTA_CHUNK)) {
+        /* 预告：下一条 binary 是这一片固件。 */
+        const cJSON *sq = cJSON_GetObjectItem(root, "seq");
+        const cJSON *b = cJSON_GetObjectItem(root, "bytes");
+        if (cJSON_IsNumber(sq) && cJSON_IsNumber(b)) {
+            ota_on_preview((uint32_t)sq->valueint, (size_t)b->valueint);
+            s_pending_ota = true;
+        } else {
+            ESP_LOGE(TAG, "otaChunk 缺 seq/bytes");
+        }
+    } else if (!strcmp(t, PETD_T_OTA_FINISH)) {
+        /* 全部发完了 —— 校验、切分区、重启。 */
+        ota_queue_finish();
     } else if (!strcmp(t, PETD_T_ERROR)) {
         cJSON *c = cJSON_GetObjectItem(root, "code");
         cJSON *m = cJSON_GetObjectItem(root, "message");
@@ -454,6 +487,17 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
         if (ev->op_code == 0x01) {   /* text */
             handle_text((const char *)ev->data_ptr, ev->data_len);
         } else if (ev->op_code == 0x02) {   /* binary */
+            if (s_pending_ota) {
+                /* 固件片 —— 跟 pack、跟推帧都分开收 */
+                int rc = ota_on_binary((const uint8_t *)ev->data_ptr, ev->data_len,
+                                       (size_t)ev->payload_offset,
+                                       (size_t)ev->payload_len);
+                if (rc != 0) {
+                    /* 收齐（rc=1）或出错（rc=-1）—— 都不再等下一片了 */
+                    s_pending_ota = false;
+                }
+                break;
+            }
             if (s_pending_pack) {
                 /* pack 本体 —— 跟推帧的 binary 分开收 */
                 pack_binary_chunk((const uint8_t *)ev->data_ptr, ev->data_len,

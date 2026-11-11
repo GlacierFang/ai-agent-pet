@@ -17,7 +17,7 @@
 /* ---- 固件版本（上报给 petd 的 fw 字段）---- */
 /* 写死在这里：CONFIG_APP_PROJECT_VER 在 IDF v5.5 里不是稳定可用的符号，
    为了一个版本号去翻 Kconfig 不划算。改版本就改这一行。 */
-#define PETD_FW_VERSION       "0.5.3"
+#define PETD_FW_VERSION       "0.5.4"
 
 /* ---- 传输 ---- */
 #define PETD_DEFAULT_PORT     18860
@@ -58,6 +58,13 @@
 #define PETD_T_GAME_MODE     "gameMode"    /* 设备 -> petd：当前屏幕归属 */
 #define PETD_T_GAME_REQUEST  "gameRequest" /* 设备 -> petd：我要这个包 */
 #define PETD_T_GAME_COMMAND  "gameCommand"  /* petd -> 设备：让设备干点什么 */
+
+/* ---- 旋钮事件（设备只报原始量）---- */
+/* ---- OTA（设备端固件自更新）---- */
+#define PETD_T_OTA_START      "otaStart"   /* petd -> 设备：开始装一个新固件 */
+#define PETD_T_OTA_CHUNK      "otaChunk"   /* petd -> 设备：预告「下一条 binary 是这一片」 */
+#define PETD_T_OTA_FINISH     "otaFinish"  /* petd -> 设备：全部发完了，校验并切换 */
+#define PETD_T_OTA_STATUS     "otaStatus"  /* 设备 -> petd：装到哪儿了 */
 
 /* ---- 旋钮事件（设备只报原始量）---- */
 #define PETD_EV_ROT          "rot"

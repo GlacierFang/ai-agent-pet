@@ -17,6 +17,7 @@ from . import album as album_mod
 from . import features as feature_mod
 from . import backgrounds as bg_mod
 from . import gestures as gestures_mod
+from . import ota as ota_mod
 from . import packs as packs_mod
 from . import render as render_mod
 from . import screen as screen_mod
@@ -256,6 +257,8 @@ class PetApp:
                     s.provisioned = bool(msg.get("provisioned"))
         elif t == "input":
             await self.on_knob(msg)
+        elif t == "otaStatus":
+            await self.on_ota_status(msg)
         elif t == "gameMode":
             s = self.devices.session
             if s:
@@ -274,6 +277,92 @@ class PetApp:
             self.log("error", "device: " + str(msg.get("message", msg.get("code", ""))))
 
     # ---------- 游戏 ----------
+    # ---------- OTA ----------
+
+    async def on_ota_status(self, msg):
+        """设备报了 OTA 进度 —— 记下来，后台能看见。"""
+        s = self.devices.session
+        if s is None:
+            return
+        state = str(msg.get("state") or "idle")
+        s.ota_state = state
+        s.ota_version = str(msg.get("version") or "")
+        s.ota_percent = int(msg.get("percent") or 0)
+        ok = bool(msg.get("ok"))
+        s.ota_error = "" if ok else str(msg.get("error") or "失败")
+        if not ok:
+            self.log("error", "OTA 失败: %s" % (s.ota_error or "未知原因"))
+        elif state == "downloading":
+            self.log("info", "OTA 下载中 %d%%" % s.ota_percent)
+        elif state == "verifying":
+            self.log("info", "OTA 校验中")
+        elif state == "ready":
+            self.log("info", "OTA 写完，准备重启")
+
+    def ota_view(self):
+        """后台「固件」页要的东西。
+
+        谁决定升级：**只有人**。这里只是把事实摆出来 ——
+        设备当前版本、可用版本、升级进度。
+        """
+        s = self.devices.session
+        dev = {
+            "online": bool(s is not None),
+            "deviceId": s.device_id if s else "",
+            "fw": s.fw if s else "",
+            "otaState": s.ota_state if s else "idle",
+            "otaVersion": s.ota_version if s else "",
+            "otaPercent": s.ota_percent if s else 0,
+            "otaError": s.ota_error if s else "",
+        }
+        versions = ota_mod.list_versions()
+        latest = versions[0]["version"] if versions else ""
+        available = ""
+        if s is not None and latest and s.fw:
+            if ota_mod.fw_supports_ota(s.fw) and \
+                    ota_mod._ver_key(latest) > ota_mod._ver_key(s.fw):
+                available = latest
+        return {
+            "device": dev,
+            "versions": versions,
+            "latest": latest,
+            "available": available,
+            "minFw": ".".join(str(p) for p in ota_mod.MIN_OTA_FW),
+        }
+
+    async def start_ota_upgrade(self, version):
+        """后台点了「升级」—— 才开始下发。
+
+        设备自己不会升级。这条路是唯一的触发点。
+        """
+        s = self.devices.session
+        if s is None:
+            return False, "设备不在线"
+        if not ota_mod.fw_supports_ota(s.fw):
+            return False, ("固件 %s 不支持 OTA（要 %s 以上）"
+                           % (s.fw or "未知",
+                              ".".join(str(p) for p in ota_mod.MIN_OTA_FW)))
+        data = ota_mod.read_firmware(version)
+        if data is None:
+            return False, "找不到固件 %s" % version
+        total = len(data)
+        self.log("info", "开始下发固件 %s（%d bytes）" % (version, total))
+        ok = await self.devices.send_ota_start(version, total)
+        if not ok:
+            return False, "下发开始指令失败"
+        seq = 0
+        for off in range(0, total, ota_mod.CHUNK_SIZE):
+            chunk = data[off:off + ota_mod.CHUNK_SIZE]
+            if not await self.devices.send_ota_chunk(seq, chunk):
+                self.log("error", "OTA 下发中断在第 %d 片" % seq)
+                return False, "下发中断在第 %d 片" % seq
+            seq += 1
+            # 留一点间隔 —— 设备写 flash 要时间，连着推会把 WS 队列顶爆
+            await asyncio.sleep(0.05)
+        await self.devices.send_ota_finish()
+        self.log("info", "固件 %s 下发完毕（%d 片），等设备重启" % (version, seq))
+        return True, ""
+
     async def send_pack(self, pack_id):
         """把一个游戏包推给设备 —— 一条文本预告 + 一条 binary 本体。
 

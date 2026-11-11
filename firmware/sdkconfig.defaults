@@ -30,6 +30,13 @@ CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240=y
 
+# ---- OTA 回滚 ----
+# 新固件起来后处于「待验证」状态；连上 petd 确认后才算有效，
+# 否则超时 bootloader 自动跑回旧固件。
+# 注意：这项会改 bootloader —— 第一次上这个固件仍然要整片刷
+#（merged-binary.bin），之后才能纯 OTA 升级 app 分区。
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # ---- 看门狗 ----
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 

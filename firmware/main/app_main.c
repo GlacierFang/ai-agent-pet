@@ -27,6 +27,7 @@
 #include "provision.h"
 #include "proto.h"
 #include "game.h"
+#include "ota.h"
 
 static const char *TAG = "pet";
 
@@ -223,6 +224,9 @@ static void connect_task(void *arg)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "wait for ip timeout: %s", esp_err_to_name(err));
     }
+    /* OTA 任务 —— 收固件片、写 flash 都在这个任务里做，
+       不占 WS 回调栈（回调栈只有 4KB）。 */
+    ota_task_start();
     err = ws_client_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ws start failed: %s", esp_err_to_name(err));

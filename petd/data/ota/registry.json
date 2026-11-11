@@ -1,0 +1,12 @@
+{
+  "versions": {
+    "0.5.5": {
+      "version": "0.5.5",
+      "size": 13,
+      "sha256": "0eb580d67f17f6586407d4b9e0ae216a91b228e49cac8858b5283cd6da8ad0c1",
+      "source": "upload",
+      "file": "/home/open/.openclaw/workspace/ai-agent-pet/petd/data/ota/0.5.5.bin",
+      "addedAt": 1794367158
+    }
+  }
+}

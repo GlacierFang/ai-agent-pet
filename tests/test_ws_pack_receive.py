@@ -404,6 +404,44 @@ HARNESS_MAIN_C = r"""
 
 #include "ws_client.c"
 
+/* ---- OTA 函数桩：ws_client.c 引用到的那些 ----
+   真实现要 esp_ota_* 和 flash，宿主环境没有 —— 这里只把
+   「消息怎么被吃下去、字节怎么被接上」这条链路跑通。 */
+static int g_ota_started;
+static char g_ota_ver[16];
+static uint8_t *g_ota_buf;
+static size_t g_ota_len;
+static int g_ota_finish;
+
+void ota_mark_valid(void) { }
+const char *ota_state_name(void) { return "idle"; }
+const char *ota_version(void) { return g_ota_ver; }
+int ota_percent(void) { return 0; }
+bool ota_handle_start(const char *version, size_t size) {
+    (void)size;
+    g_ota_started = 1;
+    snprintf(g_ota_ver, sizeof(g_ota_ver), "%s", version ? version : "");
+    return true;
+}
+void ota_on_preview(uint32_t seq, size_t bytes) {
+    (void)seq;
+    if (g_ota_buf) free(g_ota_buf);
+    g_ota_buf = calloc(bytes ? bytes : 1, 1);
+    g_ota_len = bytes;
+}
+void ota_on_preview_drop(void) {
+    if (g_ota_buf) { free(g_ota_buf); g_ota_buf = NULL; }
+    g_ota_len = 0;
+}
+int ota_on_binary(const uint8_t *p, size_t len, size_t offset, size_t total) {
+    if (!g_ota_buf) return -1;
+    if (offset + len > g_ota_len) { ota_on_preview_drop(); return -1; }
+    memcpy(g_ota_buf + offset, p, len);
+    if (offset + len < total) return 0;
+    return 1;
+}
+void ota_queue_finish(void) { g_ota_finish = 1; }
+
 static int g_fail = 0;
 
 static void check(int cond, const char *what)
@@ -520,6 +558,30 @@ int main(void)
     feed_text("{\"type\":\"pack\",\"id\":\"x\",\"bytes\":999999}");
     check(!s_pending_pack, "超上限的包被拒");
 
+    /* --- OTA：预告 → binary → 收齐 --- */
+    {
+        char preview[128];
+        snprintf(preview, sizeof(preview),
+                 "{\"type\":\"otaStart\",\"version\":\"0.5.5\",\"bytes\":12}");
+        feed_text(preview);
+        check(g_ota_started, "otaStart 起了升级");
+        check(!strcmp(g_ota_ver, "0.5.5"), "otaStart 记下版本");
+
+        snprintf(preview, sizeof(preview),
+                 "{\"type\":\"otaChunk\",\"seq\":0,\"bytes\":12}");
+        feed_text(preview);
+        check(s_pending_ota, "otaChunk 预告置位");
+
+        feed_bin(body, 6, 0, 12);
+        check(s_pending_ota, "ota chunk 没收齐时还在等");
+        feed_bin(body + 6, 6, 6, 12);
+        check(!s_pending_ota, "ota chunk 收齐后不再等");
+        check(g_ota_buf != NULL, "ota chunk 收齐有缓冲");
+
+        feed_text("{\"type\":\"otaFinish\"}");
+        check(g_ota_finish, "otaFinish 通知收尾");
+    }
+
     printf("DONE fail=%d\n", g_fail);
     return g_fail;
 }
@@ -532,9 +594,10 @@ def harness(tmp_path_factory):
     d = tmp_path_factory.mktemp("fwws")
     for name in ("ws_client.c", "ws_client.h"):
         shutil.copy(FW / name, d / name)
-    # proto.h / game.h 是纯声明，直接用固件那份 —— 桩跟真固件对不上就没意义了。
+    # proto.h / game.h / ota.h 是纯声明，直接用固件那份 —— 桩跟真固件对不上就没意义了。
     shutil.copy(FW / "proto.h", d / "proto.h")
     shutil.copy(FW / "game" / "game.h", d / "game.h")
+    shutil.copy(FW / "ota.h", d / "ota.h")
 
     headers = {
         "esp_err.h": STUB_ESP_ERR_H,

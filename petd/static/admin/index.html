@@ -53,6 +53,7 @@
     <button type="button" class="tab" data-tab="skins" data-i18n="tabs:skins">宠物库</button>
     <button type="button" class="tab" data-tab="settings" data-i18n="tabs:settings">宠物设定</button>
     <button type="button" class="tab" data-tab="games" data-i18n="tabs:games">游戏</button>
+    <button type="button" class="tab" data-tab="firmware" data-i18n="tabs:firmware">固件</button>
     <button type="button" class="tab" data-tab="diag" data-i18n="tabs:diag">连接与诊断</button>
     <button type="button" class="tab" data-tab="docs" data-i18n="tabs:docs">文档</button>
     <button type="button" class="tab" data-tab="setup" data-i18n="tabs:setup">使用说明</button>
@@ -161,6 +162,46 @@
       <div class="row">
         <span class="muted" id="games-meta"></span>
       </div>
+    </section>
+  </section>
+
+  <!-- ============ 固件 ============ -->
+  <section class="panel hidden" data-panel="firmware">
+    <section class="card">
+      <h2 data-i18n="firmware:title">固件</h2>
+      <p class="note" data-i18n="firmware:note">升级由你决定 —— 设备不会自己升级。先登记一个固件，再点「升级」下发。</p>
+      <div class="row">
+        <span class="badge" id="fw-device">设备 —</span>
+        <span class="badge" id="fw-available">—</span>
+        <span class="muted" id="fw-state"></span>
+      </div>
+      <div class="row">
+        <button type="button" id="btn-fw-upgrade" data-i18n="firmware:upgrade">升级到可用版本</button>
+        <span class="muted" id="fw-meta"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 data-i18n="firmware:registerTitle">登记一个固件</h3>
+      <p class="note" data-i18n="firmware:registerNote">上传 petd.bin（app 镜像），或填一个 URL 让 petd 自己去取。</p>
+      <div class="row">
+        <label><span data-i18n="firmware:version">版本号</span><input type="text" id="fw-version" placeholder="0.5.5"></label>
+      </div>
+      <div class="row">
+        <label><span data-i18n="firmware:file">上传 bin</span><input type="file" id="fw-file" accept="application/octet-stream,.bin"></label>
+      </div>
+      <div class="row">
+        <label><span data-i18n="firmware:url">URL</span><input type="text" id="fw-url" placeholder="http://nas.local/petd.bin"></label>
+        <button type="button" id="btn-fw-url" data-i18n="firmware:fromUrl">从 URL 登记</button>
+      </div>
+      <div class="row">
+        <span class="muted" id="fw-upload-msg"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 data-i18n="firmware:versionsTitle">已登记的版本</h3>
+      <div class="set-grid" id="fw-versions"></div>
     </section>
   </section>
 

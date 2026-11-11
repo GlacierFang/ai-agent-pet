@@ -59,6 +59,12 @@ class DeviceSession:
         # 设备当前在哪个模式：idle / menu / playing。
         # 设备在游戏里时服务端停推帧 —— 抢屏。
         self.mode = str(info.get("mode") or "idle")
+        # OTA 状态 —— 设备 hello 里带一份，之后按 otaStatus 消息更新。
+        ota = info.get("ota") or {}
+        self.ota_state = str(ota.get("state") or "idle")
+        self.ota_version = str(ota.get("version") or "")
+        self.ota_percent = int(ota.get("percent") or 0)
+        self.ota_error = ""
         # 「预告 + 本体」成对发，中途不能被别的 binary 插进来。
         self._tx_lock = asyncio.Lock()
 
@@ -78,6 +84,34 @@ class DeviceSession:
             await self.send_json({"type": "pack", "id": pack_id,
                                   "version": version, "bytes": len(raw)})
             await self.ws.send_bytes(raw)
+        return True
+
+    async def send_ota_start(self, version, size):
+        """告诉设备「要装这个固件了，一共这么多字节」。
+
+        之后才是一片一条 otaChunk 预告 + binary 本体。
+        """
+        async with self._tx_lock:
+            await self.send_json({"type": "otaStart", "version": version,
+                                  "bytes": int(size)})
+        return True
+
+    async def send_ota_chunk(self, seq, data):
+        """下发一片固件 —— 文本预告 + binary 本体。
+
+        跟 pack 一样，两条必须挨着发：设备靠预告知道「下一条 binary
+        是这一片」。中间夹一条别的 binary 就会把错的字节写进 flash。
+        """
+        async with self._tx_lock:
+            await self.send_json({"type": "otaChunk", "seq": int(seq),
+                                  "bytes": len(data)})
+            await self.ws.send_bytes(data)
+        return True
+
+    async def send_ota_finish(self):
+        """全部发完了 —— 设备校验、切分区、重启。"""
+        async with self._tx_lock:
+            await self.send_json({"type": "otaFinish"})
         return True
 
     async def send_frame(self, jpeg, frame_id, mime="image/jpeg"):
@@ -139,6 +173,10 @@ class DeviceManager:
             "ip": s.ip,
             "provisioned": s.provisioned,
             "mode": s.mode,
+            "otaState": s.ota_state,
+            "otaVersion": s.ota_version,
+            "otaPercent": s.ota_percent,
+            "otaError": s.ota_error,
         }
 
     async def attach(self, ws, info):
@@ -190,6 +228,36 @@ class DeviceManager:
             return False
         try:
             await self.session.send_pack(pack_id, version, raw)
+            return True
+        except Exception:
+            return False
+
+    async def send_ota_start(self, version, size):
+        """告诉设备要装新固件了。没有设备就什么都不做。"""
+        if not self.session:
+            return False
+        try:
+            await self.session.send_ota_start(version, size)
+            return True
+        except Exception:
+            return False
+
+    async def send_ota_chunk(self, seq, data):
+        """下发一片固件。"""
+        if not self.session:
+            return False
+        try:
+            await self.session.send_ota_chunk(seq, data)
+            return True
+        except Exception:
+            return False
+
+    async def send_ota_finish(self):
+        """全部发完了 —— 设备该校验切换重启了。"""
+        if not self.session:
+            return False
+        try:
+            await self.session.send_ota_finish()
             return True
         except Exception:
             return False

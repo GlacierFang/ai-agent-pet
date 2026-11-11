@@ -30,6 +30,7 @@ from . import album as album_mod
 from . import backgrounds as bg_mod
 from . import config as config_mod
 from . import docs as docs_mod
+from . import ota as ota_mod
 from . import skins as skins_mod
 from .app import PetApp
 from .mdns import MdnsAdvertiser
@@ -849,6 +850,77 @@ def create_app(cfg=None, start_gateway=True, port=None):
                                  headers={"Cache-Control": "no-store",
                                           "X-Accel-Buffering": "no"})
 
+    async def api_ota_get(request):
+        """固件页 —— 设备当前版本、可用版本、已登记的版本。"""
+        body = pet.ota_view()
+        body["ok"] = True
+        return JSONResponse(body)
+
+    async def api_ota_post(request):
+        """固件页的动作 —— 登记一个版本 / 触发升级 / 删一个版本。
+
+        升级**只**能由这里触发。设备自己不会升级。
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+        action = str(body.get("action") or "")
+
+        if action == "upload":
+            ver = str(body.get("version") or "").strip()
+            raw = str(body.get("data") or "")
+            if not raw:
+                return JSONResponse({"ok": False, "error": "没有固件数据"},
+                                    status_code=400)
+            # 4MB 的 bin 走 base64 会变成 5.4MB —— 别把上限按 bin 的大小卡。
+            if len(raw) > 6 * 1024 * 1024:
+                return JSONResponse({"ok": False, "error": "固件太大了"},
+                                    status_code=400)
+            try:
+                data = base64.b64decode(raw)
+            except Exception:
+                return JSONResponse({"ok": False, "error": "固件数据不是 base64"},
+                                    status_code=400)
+            ver, err = ota_mod.register_upload(ver, data)
+            if err:
+                return JSONResponse({"ok": False, "error": err}, status_code=400)
+            pet.log("info", "固件已登记: %s" % ver)
+            out = pet.ota_view()
+            out["ok"] = True
+            return JSONResponse(out)
+
+        if action == "url":
+            ver = str(body.get("version") or "").strip()
+            url = str(body.get("url") or "").strip()
+            ver, err = ota_mod.register_url(ver, url)
+            if err:
+                return JSONResponse({"ok": False, "error": err}, status_code=400)
+            pet.log("info", "固件已登记（URL）: %s" % ver)
+            out = pet.ota_view()
+            out["ok"] = True
+            return JSONResponse(out)
+
+        if action == "upgrade":
+            ver = str(body.get("version") or "").strip()
+            ok, err = await pet.start_ota_upgrade(ver)
+            if not ok:
+                return JSONResponse({"ok": False, "error": err}, status_code=400)
+            out = pet.ota_view()
+            out["ok"] = True
+            return JSONResponse(out)
+
+        if action == "delete":
+            ver = str(body.get("version") or "").strip()
+            if not ota_mod.delete_version(ver):
+                return JSONResponse({"ok": False, "error": "没有这个版本"},
+                                    status_code=400)
+            out = pet.ota_view()
+            out["ok"] = True
+            return JSONResponse(out)
+
+        return JSONResponse({"ok": False, "error": "未知动作"}, status_code=400)
+
     async def api_releases(request):
         return JSONResponse({"items": [], "note": "v1 未接入 GitHub Release"})
 
@@ -899,6 +971,8 @@ def create_app(cfg=None, start_gateway=True, port=None):
         Route("/admin/api/card-backgrounds/image", _guard(api_card_background_image), methods=["GET"]),
         Route("/admin/api/card-backgrounds/upload", _guard(api_card_background_upload), methods=["POST"]),
         Route("/admin/api/events", _guard(api_events)),
+        Route("/admin/api/ota", _guard(api_ota_get), methods=["GET"]),
+        Route("/admin/api/ota", _guard(api_ota_post), methods=["POST"]),
         Route("/admin/api/releases", _guard(api_releases)),
         Route("/admin/api/firmware", _guard(api_firmware_list)),
         WebSocketRoute("/device", device_ws),
