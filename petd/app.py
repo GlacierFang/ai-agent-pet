@@ -263,6 +263,9 @@ class PetApp:
                 if "provisioned" in msg:
                     s.provisioned = bool(msg.get("provisioned"))
         elif t == "input":
+            # 设备旋钮原始事件先落一行日志 —— 「按了没反应」最怕的就是看不见事件。
+            # rot_press 在确认卡在场时是静默忽略的，没这行就查不出它到底来过没有。
+            self.log("info", "设备旋钮事件: %s" % json.dumps(msg, ensure_ascii=False))
             await self.on_knob(msg)
         elif t == "otaStatus":
             await self.on_ota_status(msg)
