@@ -147,10 +147,15 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
             game_entity_t *e = &s_pack.ents[fx->target];
             if (e->heading >= 0 && (int)fx->a != 0) {
                 /* input_dir 是带符号的步数。
-                   一次手势最多转 90° —— 快甩旋钮不该把蛇转一整圈。 */
+                   一次手势最多转 90° —— 快甩旋钮不该把蛇转一整圈。
+
+                   heading 是**方向序号**（0 上 1 右 2 下 3 左），不是角度。
+                   所以「转 90°」= 序号 ±1，不能把 90 直接加进 %4 里：
+                   90 % 4 == 2、-90 % 4 == -2 ≡ 2 —— 左右旋转会算成同一个值，
+                   而且那个值是 180° 掉头。蛇会对着自己身体掉头，玩家转多少圈都是死。 */
                 int steps = input_dir < 0 ? -input_dir : input_dir;
                 if (steps > 1) steps = 1;
-                int delta = (int)fx->a * 90 * steps * (input_dir < 0 ? -1 : 1);
+                int delta = (int)fx->a * steps * (input_dir < 0 ? -1 : 1);
                 e->heading = ((e->heading + delta) % 4 + 4) % 4;
             }
         }

@@ -16,11 +16,24 @@ esp_err_t display_push_region(int x, int y, int w, int h, const uint16_t *buf, i
 const uint8_t *ascii_font_glyph(char c) { (void)c; return NULL; }
 int64_t game_now_ms(void) { return 0; }
 
-/* 绘图原语 —— 主机测试不画屏，只记录调用次数。 */
+/* 绘图原语 —— 主机测试不画屏，只记录调用次数。
+   矩形额外记下参数：「碰撞框对不对」只能看实际画出来的盒子。 */
 int g_draw_calls = 0;
+int g_rect_count = 0;
+int g_rects[512][4];   /* x, y, w, h */
 void game_draw_clear(uint16_t c) { (void)c; g_draw_calls++; }
 void game_draw_rect(int x, int y, int w, int h, uint16_t c)
-{ (void)x; (void)y; (void)w; (void)h; (void)c; g_draw_calls++; }
+{
+    (void)c;
+    g_draw_calls++;
+    if (g_rect_count < 512) {
+        g_rects[g_rect_count][0] = x;
+        g_rects[g_rect_count][1] = y;
+        g_rects[g_rect_count][2] = w;
+        g_rects[g_rect_count][3] = h;
+        g_rect_count++;
+    }
+}
 void game_draw_circle(int x, int y, int r, uint16_t c)
 { (void)x; (void)y; (void)r; (void)c; g_draw_calls++; }
 void game_draw_text(int x, int y, const char *s, uint16_t c, int sc)

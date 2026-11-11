@@ -3,7 +3,7 @@
   "version": 1,
   "order": 20,
   "title": "贪吃蛇",
-  "hint": "旋转转向 · 按下掉头 · 长按退出",
+  "hint": "旋转转向 · 长按退出",
   "requires": [
     "cell",
     "trail",
@@ -27,18 +27,11 @@
     {
       "name": "turn",
       "target": "snake"
-    },
-    {
-      "name": "reverse",
-      "target": "snake"
     }
   ],
   "input": {
     "rot": {
       "intent": "turn"
-    },
-    "press": {
-      "intent": "reverse"
     }
   },
   "entities": [
@@ -48,7 +41,7 @@
       "gx": 9,
       "gy": 12,
       "heading": "up",
-      "speed": 6,
+      "speed": 3,
       "trail": 3,
       "color": "#5C4033"
     },
@@ -74,17 +67,6 @@
       ]
     },
     {
-      "on": "intent",
-      "intent": "reverse",
-      "target": "snake",
-      "effects": [
-        {
-          "fx": "reverse",
-          "target": "snake"
-        }
-      ]
-    },
-    {
       "on": "overlap",
       "target": "snake",
       "other": "food",
@@ -100,10 +82,6 @@
         },
         {
           "fx": "randomize",
-          "target": "food"
-        },
-        {
-          "fx": "destroy",
           "target": "food"
         }
       ]
@@ -136,9 +114,6 @@
     "向": "BAAEAH/gQCBAIE8gSSBJIE8gSCBAIEDg",
     "·": "AAAAAAAABgAGAAAAAAAAAAAAAAAAAAAA",
     "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
-    "下": "f+AEAAQABgAHgATABAAEAAQABAAEAAAA",
-    "掉": "IQAh4CEA/+AsIC/gfCBn4CEAL/AhAGEA",
-    "头": "AgAaAAoAYgAyAAIAf+AGAAcACYAwYGAg",
     "长": "EEAQgBEAFgAQAH/gEgATABEAEMAeYBAA",
     "退": "AABHwCRAB8AEQGfAJWAkwCdALiB4AE/g",
     "出": "BgAmQCZAJkAmQD/ABgBGIEYgRiB/4AAg"

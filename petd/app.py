@@ -211,6 +211,11 @@ class PetApp:
             self.log("warn", "固件 %s 不支持游戏包，已关闭下发"
                      % (s.fw or "未知"))
         await self.devices.send_json({"type": "games", "enabled": enabled})
+        # 已装的包也要重推一遍 —— 设备只按 ID 判重，不比对内容。
+        # 服务端改了 pack（比如蛇的速度），设备本地那份还是旧的：
+        # 刷了新固件也玩不到新版本。握手时推一遍，设备覆盖写盘。
+        for pid in enabled:
+            await self.send_pack(pid)
         self.log("info", "设备握手完成: " + s.device_id)
         self._mark_device_seen(s)
 
@@ -296,8 +301,12 @@ class PetApp:
                      % (s.fw or "未知"))
             await self.devices.send_json({"type": "games", "enabled": []})
             return
-        await self.devices.send_json({"type": "games",
-                                      "enabled": sorted(self.games_enabled)})
+        enabled = sorted(self.games_enabled)
+        await self.devices.send_json({"type": "games", "enabled": enabled})
+        # 连已装的也重推 —— 设备只按 ID 判重，不比对内容。
+        # 服务端改了 pack，不推过去设备就一直玩旧的那份。
+        for pid in enabled:
+            await self.send_pack(pid)
 
     def set_games(self, ids):
         """勾选启用哪些游戏。改完立刻生效，也落盘。"""

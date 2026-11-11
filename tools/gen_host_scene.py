@@ -9,7 +9,10 @@ import pathlib
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-PACK_ID = "brickout"
+# 用法: gen_host_scene.py [输出路径] [pack id]
+# 默认 brickout —— 消砖块是「网格 + 像素」混合的代表场景。
+# 蛇是另一种代表：纯网格 + 方向。两种都跑同一套引擎代码。
+PACK_ID = (sys.argv[2] if len(sys.argv) > 2 else "brickout")
 
 EV = {"start": 0, "intent": 1, "overlap": 2, "self": 3, "oob": 4, "timer": 5,
       "hit": 6, "grid_hit": 7, "bounds": 8, "empty": 9}
@@ -25,6 +28,20 @@ SQ = chr(39)
 
 def fl(v):
     return "%.6ff" % float(v)
+
+
+def rgb565(color):
+    """#RRGGBB -> RGB565。认不出的颜色给 0。"""
+    s = str(color or "")
+    if not s.startswith("#") or len(s) != 7:
+        return 0
+    try:
+        r = int(s[1:3], 16)
+        g = int(s[3:5], 16)
+        b = int(s[5:7], 16)
+    except ValueError:
+        return 0
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
 def main():
@@ -45,7 +62,8 @@ def main():
     out.append("typedef struct { const char *id; int shape; float x, y, vx, vy, w, h, r;")
     out.append("                 int solid, bounce; float restitution;")
     out.append("                 float bx0, by0, bx1, by1; int walls; int has_bounds;")
-    out.append("                 unsigned short color; } scene_ent_t;")
+    out.append("                 unsigned short color;")
+    out.append("                 int gx, gy, heading, trail; float speed; } scene_ent_t;")
     out.append("")
     out.append("static const scene_ent_t SCENE_ENTS[] = {")
     for e in ents:
@@ -53,14 +71,24 @@ def main():
         walls = 0
         for ch in b.get("walls", ""):
             walls |= {"l": 1, "r": 2, "t": 4, "b": 8}[ch]
-        row = ("    { " + Q + e["id"] + Q + ", %d, %s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %d, %d },") % (
+        hd = e.get("heading")
+        if isinstance(hd, str):
+            heading = {"up": 0, "right": 1, "down": 2, "left": 3}.get(hd, -1)
+        elif isinstance(hd, int):
+            heading = hd & 3
+        else:
+            heading = -1
+        row = ("    { " + Q + e["id"] + Q + ", %d, %s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d, %d, %s },") % (
             SHAPE[e.get("shape", "rect")],
             fl(e.get("x", 0)), fl(e.get("y", 0)), fl(e.get("vx", 0)), fl(e.get("vy", 0)),
             fl(e.get("w", 0)), fl(e.get("h", 0)), fl(e.get("r", 0)),
             1 if e.get("solid") else 0, 1 if e.get("bounce") else 0,
             fl(e.get("restitution", 1.0)),
             fl(b.get("x0", 0)), fl(b.get("y0", 0)), fl(b.get("x1", 240)), fl(b.get("y1", 320)),
-            walls, 1 if b else 0)
+            walls, 1 if b else 0,
+            rgb565(e.get("color")),
+            int(e.get("gx", 0)), int(e.get("gy", 0)), heading,
+            int(e.get("trail", 0)), fl(e.get("speed", 0)))
         out.append(row)
     out.append("};")
     out.append("#define SCENE_NENTS %d" % len(ents))
@@ -76,22 +104,22 @@ def main():
     out.append("#define SCENE_CELLH %d" % g.get("cellH", g["cell"]))
     out.append("#define SCENE_BORDER %d" % (1 if g.get("border") else 0))
     out.append("")
+    pattern = g.get("pattern") or []
     out.append("static const char *SCENE_PATTERN[] = {")
-    for row in g["pattern"]:
+    for row in (pattern or [""]):
         out.append("    " + Q + row + Q + ",")
     out.append("};")
-    out.append("#define SCENE_NPAT %d" % len(g["pattern"]))
+    out.append("#define SCENE_NPAT %d" % len(pattern))
     out.append("")
     out.append("typedef struct { char key; unsigned short color; } scene_col_t;")
     out.append("static const scene_col_t SCENE_COLORS[] = {")
-    for k, v in (g.get("colors") or {}).items():
-        r = int(v[1:3], 16)
-        gg = int(v[3:5], 16)
-        b = int(v[5:7], 16)
-        rgb = ((r & 0xF8) << 8) | ((gg & 0xFC) << 3) | (b >> 3)
-        out.append("    { " + SQ + k + SQ + ", %d }," % rgb)
+    colors = g.get("colors") or {}
+    for k, v in colors.items():
+        out.append("    { " + SQ + k + SQ + ", %d }," % rgb565(v))
+    if not colors:
+        out.append("    { 0, 0 },")
     out.append("};")
-    out.append("#define SCENE_NCOLORS %d" % len(g.get("colors") or {}))
+    out.append("#define SCENE_NCOLORS %d" % len(colors))
     out.append("")
 
     out.append("typedef struct { const char *name; int target; } scene_intent_t;")

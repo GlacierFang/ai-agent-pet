@@ -97,7 +97,7 @@
 #define GAME_FX_SET_POS     1
 #define GAME_FX_SET_VEL     2
 #define GAME_FX_ADD_VEL     3
-#define GAME_FX_TURN        4   /* heading += a*90，沿输入方向 */
+#define GAME_FX_TURN        4   /* heading += a（单位：90°），沿输入方向 */
 #define GAME_FX_REVERSE     5   /* heading += 180（撞到自己则忽略）*/
 #define GAME_FX_SHOW        6
 #define GAME_FX_HIDE        7

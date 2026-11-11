@@ -291,11 +291,22 @@ static void handle_bounds(game_pack_t *p, game_entity_t *e, int idx)
 }
 
 
+/* 网格一格的像素尺寸 —— cellW/cellH 没给就用 cell。
+   绘制、碰撞、食物落点全用这一份：三套口径打架就是「碰撞箱不对」的根源。 */
+static void grid_cell_size(const game_pack_t *p, int *cw, int *ch)
+{
+    *cw = p->grid.cell_w > 0 ? p->grid.cell_w : p->grid.cell;
+    *ch = p->grid.cell_h > 0 ? p->grid.cell_h : p->grid.cell;
+}
+
+
 /* 网格坐标 -> 像素左上角 */
 static void cell_to_px(const game_pack_t *p, int gx, int gy, int *px, int *py)
 {
-    *px = p->grid.ox + gx * p->grid.cell;
-    *py = p->grid.oy + gy * p->grid.cell;
+    int cw, ch;
+    grid_cell_size(p, &cw, &ch);
+    *px = p->grid.ox + gx * cw;
+    *py = p->grid.oy + gy * ch;
 }
 
 
@@ -385,6 +396,9 @@ void game_step(int64_t now, float dt)
 {
     game_pack_t *p = game_current_pack();
     if (!p) return;
+    /* 结束就冻住 —— 判负之后蛇还继续走，玩家会以为「明明死了还在动」。
+       结束遮罩留在屏上，等长按退出。 */
+    if (p->state != 0) return;
 
     /* 定时器 */
     for (int i = 0; i < p->ntimers; i++) {
@@ -491,26 +505,32 @@ void game_step(int64_t now, float dt)
 }
 
 
+/* 方块实体（食物）—— 占一格，画在格子里、比格子小一圈。
+   小一圈是有意的：格子画满的话，蛇头贴着食物时看起来像已经吃到了。 */
 static void draw_cell_entity(const game_pack_t *p, const game_entity_t *e)
 {
-    int px, py;
+    int px, py, cw, ch;
     cell_to_px(p, e->gx, e->gy, &px, &py);
-    int c = p->grid.cell;
-    game_draw_rect(px + 1, py + 1, c - 2, c - 2, e->color);
+    grid_cell_size(p, &cw, &ch);
+    game_draw_rect(px + 1, py + 1, cw - 2, ch - 2, e->color);
 }
 
 
+/* 蛇 —— 头占满一格，身体每节占一格但画小一圈。
+   头必须跟碰撞盒一模一样：撞墙、吃食物、撞自己都得一眼看得出。
+   身体画小一圈，节与节之间留缝，看得出是几节。 */
 static void draw_trail_entity(const game_pack_t *p, const game_entity_t *e)
 {
-    int c = p->grid.cell;
+    int cw, ch;
+    grid_cell_size(p, &cw, &ch);
     for (int t = e->trail_len - 1; t >= 0; t--) {
         int px, py;
         cell_to_px(p, e->trail_gx[t], e->trail_gy[t], &px, &py);
-        game_draw_rect(px + 2, py + 2, c - 4, c - 4, e->color);
+        game_draw_rect(px + 1, py + 1, cw - 2, ch - 2, e->color);
     }
     int hx, hy;
     cell_to_px(p, e->gx, e->gy, &hx, &hy);
-    game_draw_rect(hx + 1, hy + 1, c - 2, c - 2, e->color);
+    game_draw_rect(hx, hy, cw, ch, e->color);
 }
 
 
@@ -565,17 +585,19 @@ void game_draw_scene(void)
 
     game_draw_clear(CLR_BG);
 
-    int cw = p->grid.cell_w > 0 ? p->grid.cell_w : p->grid.cell;
-    int chh = p->grid.cell_h > 0 ? p->grid.cell_h : p->grid.cell;
+    int cw, chh;
+    grid_cell_size(p, &cw, &chh);
 
     if (p->grid.show_border && cw > 0) {
+        /* 边框就画在场地外侧一像素 —— 蛇头占满最后一格时正好贴住边框，
+           玩家看到的是「撞到墙」，不是「还差两像素就死了」。 */
         int w = p->grid.cols * cw;
         int h = p->grid.rows * chh;
         uint16_t bc = p->grid.border_color ? p->grid.border_color : CLR_DIM;
-        game_draw_rect(p->grid.ox - 2, p->grid.oy - 2, w + 4, 1, bc);
-        game_draw_rect(p->grid.ox - 2, p->grid.oy + h + 1, w + 4, 1, bc);
-        game_draw_rect(p->grid.ox - 2, p->grid.oy - 2, 1, h + 4, bc);
-        game_draw_rect(p->grid.ox + w + 1, p->grid.oy - 2, 1, h + 4, bc);
+        game_draw_rect(p->grid.ox - 1, p->grid.oy - 1, w + 2, 1, bc);
+        game_draw_rect(p->grid.ox - 1, p->grid.oy + h, w + 2, 1, bc);
+        game_draw_rect(p->grid.ox - 1, p->grid.oy - 1, 1, h + 2, bc);
+        game_draw_rect(p->grid.ox + w, p->grid.oy - 1, 1, h + 2, bc);
     }
 
     /* 网格图样 —— 每个实心格按 pattern 里的字符上色。 */
@@ -629,6 +651,6 @@ void game_draw_scene(void)
         game_draw_rect(20, 198, 200, 2, CLR_ACCENT);
         const char *msg = (p->state == 1) ? "你赢了" : "游戏结束";
         game_draw_text_centered(142, msg, CLR_TEXT, 2);
-        game_draw_text_centered(172, "按一下返回", CLR_DIM, 1);
+        game_draw_text_centered(172, "长按退出", CLR_DIM, 1);
     }
 }
