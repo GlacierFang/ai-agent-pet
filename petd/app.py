@@ -31,6 +31,11 @@ log = logging.getLogger("petd.app")
 
 ACTIVE_STATES = ("working", "waiting", "error", "done")
 
+# 逐个推游戏包之间的间隔（秒）。
+# 设备收包的队列只有 2 深，连着推会挤爆 —— 挤不进去的被丢掉，
+# 设备留着旧包，服务端却看不出任何异常。
+PACK_PUSH_GAP = 0.5
+
 # 「设备连过没有」这类跨重启的事实要落在盘上，否则重启一次后台就退回未开始。
 # 放 data/ 下 —— 那里已经在 systemd unit 的 ReadWritePaths 里。
 #
@@ -55,6 +60,8 @@ class PetApp:
         self.engine = StateEngine(self.rules)
         self.devices = DeviceManager()
         self.gestures = gestures_mod.load()
+        # 逐包推送的间隔（秒）—— 见 _push_packs 的说明。
+        self.pack_push_gap = PACK_PUSH_GAP
         self.density = int(cfg.get("ui", {}).get("density", 1))
         # 屏幕亮度 —— 透射式 TFT 的背光常亮，软件只能压内容。
         # "auto" 跟着睡觉时段走，固定档位则一直生效。
@@ -214,8 +221,7 @@ class PetApp:
         # 已装的包也要重推一遍 —— 设备只按 ID 判重，不比对内容。
         # 服务端改了 pack（比如蛇的速度），设备本地那份还是旧的：
         # 刷了新固件也玩不到新版本。握手时推一遍，设备覆盖写盘。
-        for pid in enabled:
-            await self.send_pack(pid)
+        await self._push_packs(enabled)
         self.log("info", "设备握手完成: " + s.device_id)
         self._mark_device_seen(s)
 
@@ -289,6 +295,18 @@ class PetApp:
             self.log("info", "游戏包已下发: " + pack_id)
         return bool(ok)
 
+    async def _push_packs(self, ids):
+        """把包逐个推给设备，中间留间隔。
+
+        设备那边的接收队列只有 2 深。一次连着推三个包，挤不进去的那个
+        会被静默丢掉 —— 设备就留着旧包，服务端这边还看不出异常。
+        留一点间隔，让设备先把上一个装完。
+        """
+        for i, pid in enumerate(ids):
+            if i:
+                await asyncio.sleep(self.pack_push_gap)
+            await self.send_pack(pid)
+
     async def push_games(self):
         """把启用的游戏列表推给设备。
 
@@ -305,8 +323,7 @@ class PetApp:
         await self.devices.send_json({"type": "games", "enabled": enabled})
         # 连已装的也重推 —— 设备只按 ID 判重，不比对内容。
         # 服务端改了 pack，不推过去设备就一直玩旧的那份。
-        for pid in enabled:
-            await self.send_pack(pid)
+        await self._push_packs(enabled)
 
     def set_games(self, ids):
         """勾选启用哪些游戏。改完立刻生效，也落盘。"""

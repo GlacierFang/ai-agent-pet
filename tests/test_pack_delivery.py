@@ -171,3 +171,58 @@ def test_handshake_gives_new_firmware_enabled_list():
 
     games = [m for m in ws.json_texts() if m.get("type") == "games"]
     assert games[0]["enabled"] == ["dice"], games[0]
+
+
+# --------------------------------------------------------------------------
+# 已装的包要重推
+# --------------------------------------------------------------------------
+
+def test_handshake_repushes_installed_packs():
+    """握手时把已装的包也推一遍 —— 设备只按 ID 判重，不比对内容。
+
+    服务端改了 pack（比如蛇的速度），设备本地那份还是旧的：
+    刷了新固件也玩不到新版本。
+    """
+    app = PetApp(config_mod.defaults())
+    ws, session = _session("0.5.1")
+    app.devices.session = session
+    app.games_enabled = ["dice", "snake"]
+
+    asyncio.run(app.on_device_connected())
+
+    previews = [m for m in ws.json_texts() if m.get("type") == "pack"]
+    sent = sorted(m["id"] for m in previews)
+    assert sent == ["dice", "snake"], sent
+    # 每个包都要有本体 —— 只有预告没有本体，设备装不上。
+    assert len(ws.binaries) == 2, ws.binaries
+    for preview in sorted(previews, key=lambda m: m["id"]):
+        want = packs_mod.read_pack(preview["id"]).encode("utf-8")
+        assert want in ws.binaries, preview["id"]
+
+
+def test_pack_push_leaves_gap_between_packs():
+    """逐包之间要留间隔 —— 设备收包的队列只有 2 深。
+
+    连着推三个包，挤不进去的那个被静默丢掉：设备留着旧包，
+    服务端这边还看不出任何异常。
+    """
+    app = PetApp(config_mod.defaults())
+    ws, session = _session("0.5.1")
+    app.devices.session = session
+    app.games_enabled = ["dice", "snake", "brickout"]
+
+    gaps = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(delay, *a, **kw):
+        gaps.append(delay)
+        return await real_sleep(0)
+
+    asyncio.sleep = fake_sleep
+    try:
+        asyncio.run(app.push_games())
+    finally:
+        asyncio.sleep = real_sleep
+
+    assert len(gaps) == 2, gaps           # 三个包 -> 两个间隙
+    assert all(g > 0 for g in gaps), gaps
