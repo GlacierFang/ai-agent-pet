@@ -28,6 +28,8 @@ static const char *s_caps[] = {
     "collide",
     "bounds",
     "pattern",
+    "move_cell",
+    "intent_overlap",
 };
 static const int s_ncaps = (int)(sizeof(s_caps) / sizeof(s_caps[0]));
 
@@ -228,6 +230,25 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
             if (e->x + hw > GAME_CANVAS_W) e->x = GAME_CANVAS_W - hw;
             if (e->y - hh < 0.0f) e->y = hh;
             if (e->y + hh > GAME_CANVAS_H) e->y = GAME_CANVAS_H - hh;
+        }
+        break;
+    case GAME_FX_MOVE_CELL:
+        if (fx->target >= 0 && fx->target < s_pack.nents) {
+            game_entity_t *e = &s_pack.ents[fx->target];
+            /* 网格实体按格走 —— 旋钮转几格就挪几格。
+               越界夹回场地里：实体不能飘到场外去。 */
+            int nx = e->gx + (int)(fx->a * (float)input_dir);
+            int ny = e->gy + (int)(fx->b * (float)input_dir);
+            if (s_pack.grid.cols > 0) {
+                if (nx < 0) nx = 0;
+                if (nx >= s_pack.grid.cols) nx = s_pack.grid.cols - 1;
+            }
+            if (s_pack.grid.rows > 0) {
+                if (ny < 0) ny = 0;
+                if (ny >= s_pack.grid.rows) ny = s_pack.grid.rows - 1;
+            }
+            e->gx = nx;
+            e->gy = ny;
         }
         break;
     case GAME_FX_DESTROY_CELL:

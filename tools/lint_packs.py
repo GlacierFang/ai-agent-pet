@@ -22,10 +22,11 @@ FX_NAMES = {
     "set_pos", "set_vel", "add_vel", "turn", "reverse", "show", "hide",
     "grow", "add_score", "randomize", "destroy", "win", "lose",
     "start_timer", "stop_timer", "move", "destroy_cell", "set_frame",
+    "move_cell",
 }
 EVENT_NAMES = {
     "start", "intent", "overlap", "self", "oob", "timer",
-    "hit", "grid_hit", "bounds", "empty",
+    "hit", "grid_hit", "bounds", "empty", "intent_overlap",
 }
 SHAPE_NAMES = {"rect", "circle", "cell", "trail", "value", "sprite"}
 HEADING_NAMES = {"up", "right", "down", "left"}

@@ -91,6 +91,7 @@
 #define GAME_EV_GRID_HIT  7   /* 实体撞网格实心格 */
 #define GAME_EV_BOUNDS    8   /* 实体飞出画布 */
 #define GAME_EV_EMPTY     9   /* 网格里的实心格全清空 */
+#define GAME_EV_INTENT_OVERLAP 10 /* 意图命中：目标实体碰到了别的实体 */
 
 /* ---- 效果 ---- */
 #define GAME_FX_NONE        0
@@ -112,6 +113,7 @@
 #define GAME_FX_MOVE        16  /* 按输入位移：a = 每步 dx，b = 每步 dy */
 #define GAME_FX_DESTROY_CELL 17 /* 销毁刚被命中的网格格 */
 #define GAME_FX_SET_FRAME   18 /* 设置精灵实体当前帧（翻牌用） */
+#define GAME_FX_MOVE_CELL  19  /* 网格实体按格移动（a=每步 dx 格，b=每步 dy 格） */
 
 /* 网格朝向：0=上 1=右 2=下 3=左 */
 #define GAME_DIR_UP    0
@@ -334,6 +336,14 @@ void game_pack_set_state(int st);
 void game_apply_fx(const game_effect_t *fx, int input_dir);
 void game_apply_fx_list(const game_rule_t *rule, int input_dir);
 void game_random_free_cell(game_entity_t *e);
+
+/* 意图触发 —— 引擎唯一的输入入口。
+   先看目标实体碰到了没有，再执行意图规则；碰到了补发 intent_overlap。
+   「敲下去打中了」这类判定就放这儿 —— 引擎不认打地鼠，只认「碰到了」。 */
+void game_fire_intent(const game_pack_t *p, int intent_idx, int dir);
+
+/* 实体 idx 有没有跟别的实体贴上。贴上了返回 1，对方下标写进 other_out。 */
+int  game_find_overlap(const game_pack_t *p, int idx, int *other_out);
 
 /* 触发一条规则。timer_idx 只对 GAME_EV_TIMER 有意义。 */
 void game_fire(const game_pack_t *p, uint8_t ev, int intent_idx, int target,

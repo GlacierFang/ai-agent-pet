@@ -121,8 +121,7 @@ static bool fire_intent(const char *gesture, int dir)
         if (strcmp(p->inmap[i].gesture, gesture)) continue;
         int ii = p->inmap[i].intent;
         if (ii < 0 || ii >= p->nintents) return false;
-        int target = p->intents[ii].target;
-        game_fire(p, GAME_EV_INTENT, ii, target, -1, dir, -1);
+        game_fire_intent(p, ii, dir);
         return true;
     }
     return false;

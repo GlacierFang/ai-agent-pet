@@ -348,7 +348,8 @@ static const game_rule_t *match_rule(const game_pack_t *p, uint8_t ev,
     for (int i = 0; i < p->nrules; i++) {
         const game_rule_t *r = &p->rules[i];
         if (r->ev != ev) continue;
-        if (ev == GAME_EV_INTENT && r->intent != intent_idx) continue;
+        if ((ev == GAME_EV_INTENT || ev == GAME_EV_INTENT_OVERLAP) &&
+            r->intent != intent_idx) continue;
         if (ev == GAME_EV_TIMER && r->timer >= 0 && r->timer != timer_idx) continue;
         if (r->target >= 0 && target >= 0 && r->target != target) continue;
         if (r->other >= 0 && other >= 0 && r->other != other) continue;
@@ -365,6 +366,80 @@ void game_fire(const game_pack_t *p, uint8_t ev, int intent_idx, int target,
     const game_rule_t *r = match_rule(p, ev, intent_idx, target, other, timer_idx);
     if (!r) return;
     game_apply_fx_list(r, input_dir);
+}
+
+
+/* 两个网格实体是否占着同一格 —— 网格实体按格比，不按像素。
+   蛇的身体也占格：头之外每一节都算。 */
+static int grid_entities_overlap(const game_entity_t *a, const game_entity_t *b)
+{
+    if (a->gx == b->gx && a->gy == b->gy) return 1;
+    if (a->shape == GAME_SHAPE_TRAIL) {
+        for (int t = 0; t < a->trail_len; t++)
+            if (a->trail_gx[t] == b->gx && a->trail_gy[t] == b->gy) return 1;
+    }
+    if (b->shape == GAME_SHAPE_TRAIL) {
+        for (int t = 0; t < b->trail_len; t++)
+            if (b->trail_gx[t] == a->gx && b->trail_gy[t] == a->gy) return 1;
+    }
+    return 0;
+}
+
+
+/* 实体 idx 有没有跟别的实体贴上。贴上了返回 1，并把对方下标写进 other_out。
+   网格实体按格比，像素实体按碰撞盒比 —— 两套坐标系各管各的，
+   混着比没有意义。 */
+int game_find_overlap(const game_pack_t *p, int idx, int *other_out)
+{
+    if (other_out) *other_out = -1;
+    if (!p || idx < 0 || idx >= p->nents) return 0;
+    const game_entity_t *a = &p->ents[idx];
+    if (!a->visible) return 0;
+
+    for (int j = 0; j < p->nents; j++) {
+        if (j == idx) continue;
+        const game_entity_t *b = &p->ents[j];
+        if (!b->visible) continue;
+
+        int a_grid = (a->shape == GAME_SHAPE_CELL || a->shape == GAME_SHAPE_TRAIL);
+        int b_grid = (b->shape == GAME_SHAPE_CELL || b->shape == GAME_SHAPE_TRAIL);
+        if (a_grid && b_grid) {
+            if (!grid_entities_overlap(a, b)) continue;
+            if (other_out) *other_out = j;
+            return 1;
+        }
+
+        int a_pix = (a->shape == GAME_SHAPE_RECT || a->shape == GAME_SHAPE_CIRCLE);
+        int b_pix = (b->shape == GAME_SHAPE_RECT || b->shape == GAME_SHAPE_CIRCLE);
+        if (!a_pix || !b_pix) continue;
+        float nx, ny, depth;
+        if (!collide_pair(a, b, &nx, &ny, &depth)) continue;
+        if (other_out) *other_out = j;
+        return 1;
+    }
+    return 0;
+}
+
+
+/* 意图触发 —— 引擎唯一的输入入口。
+
+   顺序有讲究：**先**看目标实体碰到了没有，**再**执行意图规则。
+   反过来的话，「敲下去」这种一边判定一边改位置的动作，
+   判定会落在改完之后的位置上，对不上玩家按下去的那一瞬间。
+
+   碰到了才补发 intent_overlap —— 没碰到就什么都不发生，
+   引擎不认打地鼠，只认「碰到了」。 */
+void game_fire_intent(const game_pack_t *p, int intent_idx, int dir)
+{
+    if (!p || intent_idx < 0 || intent_idx >= p->nintents) return;
+    int target = p->intents[intent_idx].target;
+    int other = -1;
+    int hit = (target >= 0) ? game_find_overlap(p, target, &other) : 0;
+
+    game_fire(p, GAME_EV_INTENT, intent_idx, target, -1, dir, -1);
+    if (hit && other >= 0) {
+        game_fire(p, GAME_EV_INTENT_OVERLAP, intent_idx, target, other, dir, -1);
+    }
 }
 
 

@@ -39,6 +39,7 @@ def test_builtin_packs_are_discoverable():
     ids = packs_mod.known_ids()
     assert "dice" in ids
     assert "snake" in ids
+    assert "whack" in ids
 
 
 def test_every_pack_declares_supported_capabilities():

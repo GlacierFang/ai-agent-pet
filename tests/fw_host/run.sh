@@ -59,3 +59,22 @@ gcc -std=c11 -O1 -Wall \
     -lm -o "$OUT2/test_draw_layer"
 
 "$OUT2/test_draw_layer"
+
+# 打地鼠场景 —— 新加的 move_cell / intent_overlap 原语。
+OUT4="${TMPDIR:-/tmp}/petd_host_whack"
+mkdir -p "$OUT4"
+
+python3 "$ROOT/tools/gen_host_scene.py" "$OUT4/scene_whack.h" whack
+
+gcc -std=c11 -O1 -Wall \
+    -I"$ROOT/tests/fw_host/stubs" \
+    -I"$ROOT/firmware/main/game" \
+    -I"$OUT4" \
+    "$ROOT/firmware/main/game/game_comp.c" \
+    "$ROOT/firmware/main/game/game_phys.c" \
+    "$ROOT/firmware/main/game/game_glyph.c" \
+    "$ROOT/tests/fw_host/test_whack_engine.c" \
+    "$ROOT/tests/fw_host/stubs.c" \
+    -lm -o "$OUT4/test_whack_engine"
+
+"$OUT4/test_whack_engine"

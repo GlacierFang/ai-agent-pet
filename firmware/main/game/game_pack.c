@@ -129,6 +129,7 @@ static uint8_t ev_from_name(const char *name)
     if (!strcmp(name, "grid_hit")) return GAME_EV_GRID_HIT;
     if (!strcmp(name, "bounds"))   return GAME_EV_BOUNDS;
     if (!strcmp(name, "empty"))    return GAME_EV_EMPTY;
+    if (!strcmp(name, "intent_overlap")) return GAME_EV_INTENT_OVERLAP;
     return GAME_EV_START;
 }
 

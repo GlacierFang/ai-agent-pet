@@ -1,0 +1,151 @@
+{
+  "id": "whack",
+  "version": 1,
+  "order": 40,
+  "title": "打地鼠",
+  "hint": "旋转移动 · 按住换行 · 短按敲击",
+  "requires": [
+    "cell",
+    "grid",
+    "timer",
+    "score",
+    "move_cell",
+    "intent_overlap"
+  ],
+  "grid": {
+    "cols": 4,
+    "rows": 2,
+    "x": 32,
+    "y": 150,
+    "cell": 44,
+    "border": true,
+    "borderColor": "#5C4033"
+  },
+  "intents": [
+    {
+      "name": "move_x",
+      "target": "hammer"
+    },
+    {
+      "name": "move_y",
+      "target": "hammer"
+    },
+    {
+      "name": "strike",
+      "target": "hammer"
+    }
+  ],
+  "input": {
+    "rot": {
+      "intent": "move_x"
+    },
+    "rot_press": {
+      "intent": "move_y"
+    },
+    "press": {
+      "intent": "strike"
+    }
+  },
+  "entities": [
+    {
+      "id": "mole",
+      "shape": "cell",
+      "gx": 0,
+      "gy": 0,
+      "color": "#5C4033"
+    },
+    {
+      "id": "hammer",
+      "shape": "cell",
+      "gx": 3,
+      "gy": 1,
+      "color": "#C80000"
+    }
+  ],
+  "timers": [
+    {
+      "intervalMs": 1600,
+      "repeat": true
+    }
+  ],
+  "rules": [
+    {
+      "on": "start",
+      "effects": [
+        {
+          "fx": "start_timer",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "on": "timer",
+      "timer": 0,
+      "effects": [
+        {
+          "fx": "randomize",
+          "target": "mole"
+        }
+      ]
+    },
+    {
+      "on": "intent",
+      "intent": "move_x",
+      "target": "hammer",
+      "effects": [
+        {
+          "fx": "move_cell",
+          "target": "hammer",
+          "value": 1,
+          "value2": 0
+        }
+      ]
+    },
+    {
+      "on": "intent",
+      "intent": "move_y",
+      "target": "hammer",
+      "effects": [
+        {
+          "fx": "move_cell",
+          "target": "hammer",
+          "value": 0,
+          "value2": 1
+        }
+      ]
+    },
+    {
+      "on": "intent_overlap",
+      "intent": "strike",
+      "target": "hammer",
+      "other": "mole",
+      "effects": [
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "randomize",
+          "target": "mole"
+        }
+      ]
+    }
+  ],
+  "glyphs": {
+    "打": "IAAn8CDA+MAgwCDAOMDgwCDAIMAgwGOA",
+    "地": "IYAlgCWg9eAnoC2gJaAloDXgxAAEMAPg",
+    "鼠": "CAAxwDnAIEA/wABAPUAkQDdALEA/8CYg",
+    "旋": "MgD/8CQAI+A4oCqAauBKgEqATYC08AAA",
+    "转": "IID74CEAcQBX8FEAe+AQQDhA8YAQwBBA",
+    "移": "c+AmQCfAeYA2gHHgYiDlQCDAIwAuAAAA",
+    "动": "AIB8gACAA+B8oCGgKSAtIE0gfSACIALA",
+    "·": "AAAAAAAABgAGAAAAAAAAAAAAAAAAAAAA",
+    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
+    "住": "EQARADEAL+BhAGEAL+AhACEAIQAhAC/w",
+    "换": "IgAjwCTAf+AlICUgNSDv4COAIoAkYGgg",
+    "行": "EAAn4EAAEAA38GBA4EAgQCBAIEAgQCGA",
+    "短": "AABH4HgAc+AyIPogI+AwADJAa0BBQAfw",
+    "敲": "EIB+gADgfIBH4DkgfSBFQHzAbMB9wE8g",
+    "击": "BgAGAD/ABgAGAH/gBgAmQCZAJkA/wABA"
+  }
+}
