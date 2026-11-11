@@ -37,10 +37,16 @@ def make_app_image(payload=b"payload"):
 
 
 # ---------- 版本闸门 ----------
-def test_ota_needs_fw_054():
-    """0.5.3 没有 OTA 模块 —— 下去也是白下。"""
+def test_ota_needs_fw_057():
+    """能走 OTA 的固件是 0.5.7 起。
+
+    0.5.4 有 OTA 模块和协议消息，但它的 hello 握手有缺陷 ——
+    连上了却发不出 hello，收不到推送，下去也是白下。
+    """
     assert ota_mod.fw_supports_ota("0.5.3") is False
-    assert ota_mod.fw_supports_ota("0.5.4") is True
+    assert ota_mod.fw_supports_ota("0.5.4") is False
+    assert ota_mod.fw_supports_ota("0.5.6") is False
+    assert ota_mod.fw_supports_ota("0.5.7") is True
     assert ota_mod.fw_supports_ota("0.6.0") is True
     assert ota_mod.fw_supports_ota("") is False
 

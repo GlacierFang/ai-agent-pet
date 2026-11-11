@@ -38,9 +38,13 @@ from . import config as config_mod
 
 log = logging.getLogger("petd.ota")
 
-# 支持 OTA 的最低固件版本。0.5.4 才有 OTA 模块和协议消息 ——
-# 更低的版本连 otaStart 都不认识，下去也是白下。
-MIN_OTA_FW = (0, 5, 4)
+# 支持 OTA 的最低固件版本。
+#
+# 协议消息从 0.5.4 就有（更低的版本连 otaStart 都不认识），
+# 但 0.5.4 到 0.5.6 的 **hello 握手有缺陷** —— 能连上 TCP、完成 HTTP 升级，
+# 却一个 hello 帧都发不出去，屏上永远 CONNECTING。设备连不上就收不到推送，
+# 所以门槛按「能用」算：0.5.7 起。
+MIN_OTA_FW = (0, 5, 7)
 
 # 一片固件多大。协议单帧上限 32KB，这里留一半余量。
 CHUNK_SIZE = 16 * 1024
