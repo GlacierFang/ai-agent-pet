@@ -723,6 +723,13 @@ function renderSessions() {
     n.className = 'name grow';
     n.textContent = s.name || s.key;
     row.appendChild(n);
+    /* 通道标签 —— 新版 WebUI 不显示飞书会话了，petd 后台得自己标出来 */
+    if (s.channelLabel) {
+      var ch = document.createElement('span');
+      ch.className = 'badge dim';
+      ch.textContent = s.channelLabel;
+      row.appendChild(ch);
+    }
     if (s.attributed) {
       var tag = document.createElement('span');
       tag.className = 'badge warn';

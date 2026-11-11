@@ -34,6 +34,12 @@ log = logging.getLogger("petd.app")
 
 ACTIVE_STATES = ("working", "waiting", "error", "done")
 
+# 通道名 → 人话。gateway 推的 channel 是英文标识，后台给人看要中文。
+# 没登记的通道直接用原名 —— 不猜。
+CHANNEL_LABELS = {
+    "feishu": "飞书",
+}
+
 # 逐个推游戏包之间的间隔（秒）。
 # 设备收包的队列只有 2 深，连着推会挤爆 —— 挤不进去的被丢掉，
 # 设备留着旧包，服务端却看不出任何异常。
@@ -866,6 +872,15 @@ class PetApp:
         return self._name_of(self._picked)
 
     @staticmethod
+    def _channel_of(row):
+        """会话通道 —— gateway 推的行里带 channel（飞书就是 feishu）。
+
+        新版 WebUI 不再显示飞书会话，但 petd 这边照样收得到。
+        所以「哪些会话存在」以 gateway 为准，不以 WebUI 为准。
+        """
+        return str(row.get("channel") or row.get("provider") or "").strip()
+
+    @staticmethod
     def _name_of(row):
         """会话显示名。拿不到就退回 key 的最后一段。"""
         for k in ("displayName", "label", "title"):
@@ -874,14 +889,36 @@ class PetApp:
                 return str(v)
         return str(row.get("key") or "").split(":")[-1]
 
+    @classmethod
+    def _label_of(cls, row):
+        """后台显示名 —— 通道会话的 key 末段常是裸 open_id。
+
+        光丢一串 ou_xxx 看不出是哪条通道，带上通道名和缩略 id。
+        """
+        name = cls._name_of(row)
+        ch = cls._channel_of(row)
+        if not ch:
+            return name
+        label = CHANNEL_LABELS.get(ch, ch)
+        for k in ("displayName", "label", "title"):
+            if row.get(k):
+                return "%s · %s" % (label, name)
+        tail = str(row.get("key") or "").split(":")[-1]
+        if len(tail) > 12:
+            tail = tail[:11] + "…"
+        return "%s · %s" % (label, tail)
+
     def public_sessions(self):
         """给后台看的会话列表 —— 只放安全字段。"""
         out = []
         for row in self.engine.sessions:
             key = row.get("key")
+            ch = self._channel_of(row)
             out.append({
                 "key": key,
-                "name": self._name_of(row),
+                "name": self._label_of(row),
+                "channel": ch,
+                "channelLabel": CHANNEL_LABELS.get(ch, ch),
                 "state": self.engine.session_states.get(key, "idle"),
                 "lastActivityAt": epoch_s(row.get("lastActivityAt")),
                 "focused": key == self.engine.selected_key,
