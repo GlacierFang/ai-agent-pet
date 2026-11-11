@@ -87,33 +87,69 @@ static volatile int s_pending_frame_id;
 typedef struct { int idx; int frame_id; } frame_item_t;
 
 
-static void send_hello(void)
+/* ---- 握手：hello 挪出 WS 回调栈 ----
+   WEBSOCKET_EVENT_CONNECTED 的回调跑在 esp_websocket_client 自己的任务上，
+   那个任务的栈只有 4KB（组件默认 WEBSOCKET_TASK_STACK = 4*1024）。
+
+   0.5.4 把 hello 的缓冲从 768 加大到 1280 之后，回调里的局部变量就到了
+   2.2KB（buf + ids + packs），加上 JSON 拼装和组件自己的收包分发，栈就
+   溢了 —— 而且是**溢在发帧之前**：设备连上了 TCP、也完成了 HTTP 升级，
+   却一个 TEXT 帧都发不出去。服务端等 5 秒收不到 hello，回 CLOSE 1002，
+   设备重连，屏上就永远 CONNECTING。
+
+   现在的分工：
+     回调 —— 只把「连上了」这件事入队，一个字节的活都不干
+     hello 任务 —— 拼 JSON（缓冲全在堆上）→ 发出去 → 等 welcome
+   组件的任务栈也显式加大，不再依赖组件默认值。 */
+#define HELLO_QUEUE_LEN       4
+/* 组件 WS 任务栈 —— 显式给，别用组件默认的 4KB。 */
+#define WS_TASK_STACK          8192
+#define HELLO_TASK_STACK      4096
+#define HELLO_BUF_BYTES       1536   /* hello JSON 上限 */
+#define HELLO_PACKS_BYTES     640    /* packs 列表上限 */
+#define HELLO_SEND_RETRY      3
+#define HELLO_RETRY_MS        500
+#define HELLO_WELCOME_WAIT_MS 5000
+
+typedef struct {
+    uint32_t seq;        /* 第几次握手 —— 认连接用 */
+} conn_item_t;
+
+static QueueHandle_t     s_conn_q;
+static volatile uint32_t s_conn_seq;
+static volatile bool     s_welcome_seen;
+
+
+/* 拼出 hello 的 JSON —— 缓冲全在堆上。
+   返回 malloc 出来的串（调用方 free），NULL 表示失败。 */
+static char *hello_build(int *out_len)
 {
-    /* 1280 不是随手写的：packs 列表最长 512 字节，加上 deviceId / fw /
-       ota 状态 / capabilities 这些固定段，768 会被截断 —— 截断的 JSON
-       是非法 JSON，握手直接失败。 */
-    char buf[1280];
+    char *buf = malloc(HELLO_BUF_BYTES);
+    char *packs = malloc(HELLO_PACKS_BYTES);
+    char (*ids)[GAME_MAX_PACK_ID] = malloc(GAME_MAX_MENU_ITEMS * GAME_MAX_PACK_ID);
+    if (!buf || !packs || !ids) {
+        free(buf);
+        free(packs);
+        free(ids);
+        return NULL;
+    }
+
+    /* 本地已装的游戏包 —— petd 对比后只补缺的 */
+    int nids = game_local_pack_ids(ids, GAME_MAX_MENU_ITEMS);
+    int off = 0;
+    packs[0] = 0;
+    for (int i = 0; i < nids && off < (int)HELLO_PACKS_BYTES - 40; i++) {
+        off += snprintf(packs + off, HELLO_PACKS_BYTES - off, "%s\"%s\"",
+                        i ? "," : "", ids[i]);
+    }
+    free(ids);
+
     /* deviceId 用 MAC 后 6 位 —— 纯标识，不含任何凭据 */
     uint8_t mac[6] = {0};
     /* IDF v5 的 esp_read_mac 要两个参数：mac + mac 类型。 */
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
-    /* 本地已装的游戏包 —— petd 对比后只补缺的 */
-    char ids[GAME_MAX_MENU_ITEMS][GAME_MAX_PACK_ID];
-    int nids = game_local_pack_ids(ids, GAME_MAX_MENU_ITEMS);
-    char packs[512];
-    int off = 0;
-    packs[0] = 0;
-    for (int i = 0; i < nids && off < (int)sizeof(packs) - 40; i++) {
-        off += snprintf(packs + off, sizeof(packs) - off, "%s\"%s\"",
-                        i ? "," : "", ids[i]);
-    }
-
-    /* 连上 petd 了 —— 这就是「新固件跑起来了」的证据。
-       取消回滚：跑不起来就永远连不上，bootloader 会自动退回旧固件。 */
-    ota_mark_valid();
-
-    int n = snprintf(buf, sizeof(buf),
+    int n = snprintf(buf, HELLO_BUF_BYTES,
         "{\"type\":\"hello\",\"protocol\":%d,\"deviceId\":\"esp32s3-%02x%02x%02x\","
         "\"fw\":\"%s\",\"hostname\":\"pet-desk\","
         "\"ota\":{\"state\":\"%s\",\"version\":\"%s\",\"percent\":%d},"
@@ -123,9 +159,69 @@ static void send_hello(void)
         PETD_PROTOCOL_VERSION, mac[3], mac[4], mac[5],
         PETD_FW_VERSION, ota_state_name(), ota_version(), ota_percent(),
         DISP_WIDTH, DISP_HEIGHT, packs);
-    if (n > 0) {
-        esp_websocket_client_send_text(s_ws, buf, n, pdMS_TO_TICKS(2000));
-        ESP_LOGI(TAG, "hello sent (%d packs)", nids);
+    free(packs);
+
+    /* 装不下就是装不下 —— 截断的 JSON 是非法 JSON，服务端会当协议不匹配
+       直接断开；也不能把 snprintf 的返回长度当实际长度发出去（那是越界读）。 */
+    if (n < 0 || n >= HELLO_BUF_BYTES) {
+        free(buf);
+        return NULL;
+    }
+    *out_len = n;
+    return buf;
+}
+
+
+/* 握手任务 —— 跑在自己的栈上，不在 WS 回调栈上。
+   等 welcome 是为 OTA 回滚：服务端认了这个 hello，才说明新固件真的跑得起来；
+   没等到就让它退回旧固件。 */
+static void hello_task(void *arg)
+{
+    (void)arg;
+    conn_item_t item;
+    while (xQueueReceive(s_conn_q, &item, portMAX_DELAY) == pdTRUE) {
+        /* 连接刚建立，稍等一下 —— 让组件把连接状态坐实 */
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        int sent = 0;
+        for (int attempt = 0; attempt < HELLO_SEND_RETRY; attempt++) {
+            if (!s_connected) break;
+            int len = 0;
+            char *json = hello_build(&len);
+            if (!json) {
+                ESP_LOGE(TAG, "hello build failed");
+                break;
+            }
+            int rc = esp_websocket_client_send_text(s_ws, json, len,
+                                                    pdMS_TO_TICKS(2000));
+            free(json);
+            if (rc == len) {
+                sent = 1;
+                break;
+            }
+            ESP_LOGW(TAG, "hello send failed (%d)", rc);
+            vTaskDelay(pdMS_TO_TICKS(HELLO_RETRY_MS));
+        }
+        if (!sent) {
+            ESP_LOGE(TAG, "hello not sent");
+            continue;
+        }
+        ESP_LOGI(TAG, "hello sent");
+
+        int waited = 0;
+        while (!s_welcome_seen && waited < HELLO_WELCOME_WAIT_MS && s_connected) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            waited += 100;
+        }
+        if (s_welcome_seen) {
+            /* 连上 petd 了 —— 这就是「新固件跑起来了」的证据。
+               取消回滚：跑不起来就永远连不上，bootloader 会自动退回旧固件。 */
+            ota_mark_valid();
+            ESP_LOGI(TAG, "welcome received, ota confirmed");
+        } else {
+            ESP_LOGW(TAG, "no welcome in %d ms", HELLO_WELCOME_WAIT_MS);
+        }
+        s_welcome_seen = false;
     }
 }
 
@@ -252,8 +348,10 @@ static void handle_text(const char *text, size_t len)
         if (cJSON_IsObject(gm)) {
             cJSON *en = cJSON_GetObjectItem(gm, "enabled");
             if (cJSON_IsArray(en)) {
-                const char *ids[32];
-                char store[32][GAME_MAX_PACK_ID];
+                /* 这两个数组放静态区 —— 1KB 多开在回调栈上没道理，
+                   里面只是中转，game_on_enabled_list 立刻就拷走了。 */
+                static const char *ids[32];
+                static char store[32][GAME_MAX_PACK_ID];
                 int n = 0;
                 int i = 0;
                 cJSON *it;
@@ -268,6 +366,8 @@ static void handle_text(const char *text, size_t len)
                 ESP_LOGI(TAG, "enabled games: %d", n);
             }
         }
+        /* 服务端认了这个 hello —— 握手任务据此确认 OTA、取消回滚。 */
+        s_welcome_seen = true;
         ESP_LOGI(TAG, "welcome received");
     } else if (!strcmp(t, PETD_T_FRAME)) {
         /* 帧预告：只取 id，等随后的 binary 帧收完时绑定 */
@@ -459,6 +559,8 @@ static void reset_rx_state(void)
     /* 固件片同理 —— 半截固件绝不能接上下半截。 */
     ota_on_preview_drop();
     s_pending_ota = false;
+    /* 断线了 —— 上一轮的 welcome 不算数，握手任务要重新等。 */
+    s_welcome_seen = false;
 }
 
 
@@ -474,7 +576,15 @@ static void ws_event_handler(void *arg, esp_event_base_t base, int32_t event_id,
     case WEBSOCKET_EVENT_CONNECTED:
         s_connected = true;
         ESP_LOGI(TAG, "connected");
-        send_hello();
+        /* 这里只入队 —— 回调跑在组件自己的 4KB 任务栈上，
+           拼 hello 的活一律交给 hello_task（见上面的说明）。 */
+        {
+            conn_item_t item;
+            item.seq = ++s_conn_seq;
+            if (xQueueSend(s_conn_q, &item, 0) != pdTRUE) {
+                ESP_LOGW(TAG, "conn queue full, hello skipped");
+            }
+        }
         break;
 
     case WEBSOCKET_EVENT_DISCONNECTED:
@@ -582,6 +692,8 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
     ESP_ERROR_CHECK(s_frame_q ? ESP_OK : ESP_ERR_NO_MEM);
     s_pack_q = xQueueCreate(PACK_QUEUE_LEN, sizeof(pack_item_t));
     ESP_ERROR_CHECK(s_pack_q ? ESP_OK : ESP_ERR_NO_MEM);
+    s_conn_q = xQueueCreate(HELLO_QUEUE_LEN, sizeof(conn_item_t));
+    ESP_ERROR_CHECK(s_conn_q ? ESP_OK : ESP_ERR_NO_MEM);
 
     char uri[128];
     snprintf(uri, sizeof(uri), "ws://%s:%u%s", host, (unsigned)port, PETD_WS_PATH);
@@ -596,6 +708,10 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
            拆成多次 WEBSOCKET_EVENT_DATA，累加逻辑已处理。
            注意 rx/tx 各占一份 buffer_size，别开太大。 */
         .buffer_size = PETD_WS_BUFFER_BYTES,
+        /* 组件默认的 WS 任务栈只有 4KB（WEBSOCKET_TASK_STACK）。
+           事件回调就跑在那个任务上 —— 显式加大，别再依赖组件默认值。
+           回调里已经不干重活了，但组件自己的收包分发也要栈。 */
+        .task_stack = WS_TASK_STACK,
         .network_timeout_ms = 10000,
         .reconnect_timeout_ms = 5000,
         .disable_auto_reconnect = false,
@@ -608,6 +724,8 @@ esp_err_t ws_client_init(const char *host, uint16_t port)
                                      ws_event_handler, NULL));
     xTaskCreate(frame_task, "frame", 8192, NULL, 4, NULL);
     xTaskCreate(pack_task, "pack", 8192, NULL, 3, NULL);
+    /* 握手任务 —— hello 在这里拼、在这里发，不占 WS 回调栈。 */
+    xTaskCreate(hello_task, "hello", HELLO_TASK_STACK, NULL, 4, NULL);
     ESP_LOGI(TAG, "ws client ready: %s", uri);
     return ESP_OK;
 }

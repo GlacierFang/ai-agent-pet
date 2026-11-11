@@ -13,6 +13,7 @@ JSON 序列化 + 解析 + 写 SPIFFS 撑爆栈，设备 panic 重启。重启后
 """
 
 import pathlib
+import re
 import shutil
 import subprocess
 
@@ -61,6 +62,7 @@ typedef int BaseType_t;
 #define pdTRUE  1
 #define pdFALSE 0
 #define pdMS_TO_TICKS(x) ((TickType_t)(x))
+#define portMAX_DELAY ((TickType_t)0xffffffffu)
 void vTaskDelay(TickType_t ticks);
 """
 
@@ -283,9 +285,19 @@ esp_err_t esp_websocket_register_events(esp_websocket_client_handle_t c, int32_t
                                          esp_websocket_event_handler_t h, void *arg) {
     (void)c; (void)id; (void)h; (void)arg; return ESP_OK;
 }
+/* 记下发了什么 —— 断言「回调自己不发帧」要用。 */
+char g_sent[8][2048];
+int  g_sent_n;
+
 int esp_websocket_client_send_text(esp_websocket_client_handle_t c, const char *d, int len,
                                    TickType_t t) {
-    (void)c; (void)d; (void)t; return len;
+    (void)c; (void)t;
+    if (g_sent_n < 8 && len > 0 && len < 2048) {
+        memcpy(g_sent[g_sent_n], d, (size_t)len);
+        g_sent[g_sent_n][len] = 0;
+        g_sent_n++;
+    }
+    return len;
 }
 
 /* ---- 显示函数桩 ---- */
@@ -404,6 +416,10 @@ HARNESS_MAIN_C = r"""
 
 #include "ws_client.c"
 
+/* 桩实现的发送记录（定义在 stub_impl.c） */
+extern char g_sent[8][2048];
+extern int  g_sent_n;
+
 /* ---- OTA 函数桩：ws_client.c 引用到的那些 ----
    真实现要 esp_ota_* 和 flash，宿主环境没有 —— 这里只把
    「消息怎么被吃下去、字节怎么被接上」这条链路跑通。 */
@@ -485,6 +501,35 @@ int main(void)
     /* 队列和缓冲 —— 回调进来之前先备好 */
     s_frame_q = xQueueCreate(4, sizeof(frame_item_t));
     s_pack_q = xQueueCreate(2, sizeof(pack_item_t));
+    s_conn_q = xQueueCreate(HELLO_QUEUE_LEN, sizeof(conn_item_t));
+
+    /* --- 握手：CONNECTED 回调只入队，不自己发帧 --- */
+    {
+        esp_websocket_event_data_t ev;
+        memset(&ev, 0, sizeof(ev));
+        int before = g_sent_n;
+        ws_event_handler(NULL, NULL, WEBSOCKET_EVENT_CONNECTED, &ev);
+        check(g_sent_n == before, "CONNECTED 回调自己不拼 hello、不发帧");
+        conn_item_t ci;
+        check(xQueueReceive(s_conn_q, &ci, 0) == pdTRUE, "CONNECTED 把连接事件入队");
+        check(s_connected, "CONNECTED 置上连接状态");
+    }
+
+    /* --- hello 的 JSON：拼得出来，字段齐全 --- */
+    {
+        int len = 0;
+        char *json = hello_build(&len);
+        check(json != NULL, "hello 拼得出来");
+        if (json) {
+            check(len > 0, "hello 长度对");
+            check(strstr(json, "\"type\":\"hello\"") != NULL, "hello 带 type");
+            check(strstr(json, "\"deviceId\":\"esp32s3-") != NULL, "hello 带 deviceId");
+            check(strstr(json, "\"packs\":[]") != NULL, "hello 带 packs 列表");
+            check(strstr(json, "\"ota\":") != NULL, "hello 带 ota 状态");
+            check(strstr(json, "\"protocol\":1") != NULL, "hello 带协议版本");
+            free(json);
+        }
+    }
 
     const char *body = "{\"id\":\"dice\",\"version\":1,\"title\":\"\"}";
     size_t n = strlen(body);
@@ -672,3 +717,73 @@ def test_pack_task_has_its_own_stack():
     src = (FW / "ws_client.c").read_text(encoding="utf-8")
     assert 'xTaskCreate(pack_task, "pack", 8192' in src, (
         "装包任务没有独立的大栈")
+
+
+# --------------------------------------------------------------------------
+# 握手路径：0.5.4 起的 CONNECTING 死循环就是这么来的
+# --------------------------------------------------------------------------
+
+def _func_body(src, sig):
+    """取一个函数的函数体（内层花括号都缩进，靠列 0 的右花括号收尾）。"""
+    m = re.search(re.escape(sig) + r".*?\n\}\n", src, re.S)
+    assert m, f"没找到 {sig}"
+    return m.group(0)
+
+
+def test_hello_is_not_built_in_ws_callback():
+    """hello 绝不能在 WS 回调栈上拼。
+
+    esp_websocket_client 的事件回调跑在它**自己的任务**上，
+    那个任务的栈默认只有 4KB（组件源码 WEBSOCKET_TASK_STACK = 4*1024）。
+    0.5.4 把 hello 缓冲从 768 加到 1280，回调栈就溢了 —— 而且溢在**发帧之前**：
+    设备完成了 HTTP 升级却一个 TEXT 帧都发不出，服务端等 5 秒收不到 hello，
+    回 CLOSE 1002，设备重连，屏上永远 CONNECTING。
+    """
+    src = (FW / "ws_client.c").read_text(encoding="utf-8")
+    body = _func_body(src, "static void ws_event_handler(")
+
+    assert "hello_build" not in body, "hello 又回到 WS 回调栈上了"
+    assert "char buf[" not in body, "回调里不该有大局部缓冲"
+    assert "xQueueSend(s_conn_q" in body, "回调该把连接事件入队，交给握手任务"
+
+
+def test_hello_buffers_are_on_heap():
+    """hello 的拼装缓冲走堆 —— 栈上开不动。"""
+    src = (FW / "ws_client.c").read_text(encoding="utf-8")
+    body = _func_body(src, "static char *hello_build(")
+
+    assert "char buf[" not in body, "hello 缓冲不能开在栈上"
+    assert "char packs[" not in body, "packs 缓冲不能开在栈上"
+    assert "malloc(" in body, "hello 缓冲该走堆"
+
+
+def test_ws_task_stack_is_explicit():
+    """WS 任务栈要显式给 —— 不能再吃组件默认的 4KB。"""
+    src = (FW / "ws_client.c").read_text(encoding="utf-8")
+
+    assert ".task_stack = WS_TASK_STACK" in src, "WS 任务栈没有显式配置"
+    m = re.search(r"#define WS_TASK_STACK\s+(\d+)", src)
+    assert m, "没有定义 WS_TASK_STACK"
+    assert int(m.group(1)) >= 8192, (
+        f"WS 任务栈还是 {m.group(1)} 字节 —— 组件默认只有 4096")
+
+
+def test_ota_confirmed_only_after_welcome():
+    """OTA 取消回滚必须在收到 welcome 之后。
+
+    服务端认了这个 hello，才说明新固件真的跑得起来；
+    收不到 welcome 就该留着待验证，让 bootloader 退回旧固件。
+    """
+    src = (FW / "ws_client.c").read_text(encoding="utf-8")
+    body = _func_body(src, "static void hello_task(")
+
+    assert body.count("ota_mark_valid()") == 1, "ota_mark_valid 应该只在握手任务里"
+    assert body.index("ota_mark_valid()") > body.index("while (!s_welcome_seen"), (
+        "ota_mark_valid 必须在等 welcome 之后 —— 服务端认了 hello 才算跑起来")
+
+
+def test_hello_task_has_its_own_stack():
+    """握手任务要有自己的栈。"""
+    src = (FW / "ws_client.c").read_text(encoding="utf-8")
+    assert 'xTaskCreate(hello_task, "hello", HELLO_TASK_STACK' in src, (
+        "握手任务没有独立栈")
