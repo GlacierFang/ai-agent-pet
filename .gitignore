@@ -16,6 +16,7 @@ petd/data/config.json
 # 用户自己的资产：不进仓库
 petd/data/skins/
 petd/data/ota/
+petd/data/packs/
 petd/data/setup_state.json
 petd/data/admin.json
 petd/data/album/

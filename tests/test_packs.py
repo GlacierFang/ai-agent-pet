@@ -75,3 +75,27 @@ def test_packs_have_titles_and_hints():
     for d in packs_mod.list_packs():
         assert d["title"], "%s 没标题" % d["id"]
         assert d["hint"], "%s 没操作说明" % d["id"]
+
+
+def test_user_pack_dir_is_not_tracked():
+    """用户自己的游戏包不进仓库。
+
+    文档明确让用户把自创作的 pack 放进 petd/data/packs/。
+    这个目录要是没被 git 忽略，用户手一抖 git add . 就把自己的包提交了。
+
+    其他用户资产（皮肤 / 相册 / 背景）都有这层保护，packs 不能漏。
+    """
+    out = subprocess.run(["git", "check-ignore", "-q",
+                          "petd/data/packs/mypack.json"],
+                         capture_output=True, cwd=str(ROOT))
+    assert out.returncode == 0, "petd/data/packs/ 没被 git 忽略"
+
+
+def test_all_user_asset_dirs_are_ignored():
+    """所有用户资产目录都得在 .gitignore 里 —— 漏一个就是一个泄漏口。"""
+    for d in ("skins", "ota", "album", "backgrounds",
+              "card_backgrounds", "packs"):
+        out = subprocess.run(["git", "check-ignore", "-q",
+                              "petd/data/%s/x.json" % d],
+                             capture_output=True, cwd=str(ROOT))
+        assert out.returncode == 0, "petd/data/%s/ 没被 git 忽略" % d
