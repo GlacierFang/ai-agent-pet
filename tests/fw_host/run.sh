@@ -78,3 +78,22 @@ gcc -std=c11 -O1 -Wall \
     -lm -o "$OUT4/test_whack_engine"
 
 "$OUT4/test_whack_engine"
+
+# 钓鱼场景 —— 两阶段时机玩法：advance_cell + intent_overlap + 双定时器切阶段。
+OUT5="${TMPDIR:-/tmp}/petd_host_fishing"
+mkdir -p "$OUT5"
+
+python3 "$ROOT/tools/gen_host_scene.py" "$OUT5/scene_fishing.h" fishing
+
+gcc -std=c11 -O1 -Wall \
+    -I"$ROOT/tests/fw_host/stubs" \
+    -I"$ROOT/firmware/main/game" \
+    -I"$OUT5" \
+    "$ROOT/firmware/main/game/game_comp.c" \
+    "$ROOT/firmware/main/game/game_phys.c" \
+    "$ROOT/firmware/main/game/game_glyph.c" \
+    "$ROOT/tests/fw_host/test_fishing_engine.c" \
+    "$ROOT/tests/fw_host/stubs.c" \
+    -lm -o "$OUT5/test_fishing_engine"
+
+"$OUT5/test_fishing_engine"

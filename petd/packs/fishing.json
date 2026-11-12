@@ -1,0 +1,381 @@
+{
+  "id": "fishing",
+  "version": 1,
+  "order": 50,
+  "title": "钓鱼",
+  "hint": "鱼进白框就按",
+  "requires": [
+    "cell",
+    "circle",
+    "rect",
+    "grid",
+    "pattern",
+    "timer",
+    "score",
+    "intent_overlap",
+    "sprite",
+    "wrap",
+    "outline"
+  ],
+  "grid": {
+    "cols": 10,
+    "rows": 14,
+    "cell": 20,
+    "x": 20,
+    "y": 40,
+    "cellW": 20,
+    "cellH": 20,
+    "wrap": true,
+    "border": false,
+    "pattern": [
+      "3333333333",
+      "3333333333",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "2222222222",
+      "1111111111",
+      "1111111111",
+      "1111111111",
+      "1111111111"
+    ],
+    "colors": {
+      "1": "#0E3A5C",
+      "2": "#1E6F9E",
+      "3": "#4FA3D1"
+    }
+  },
+  "sprites": [
+    {
+      "name": "splash",
+      "palette": [
+        "#FFFFFF"
+      ],
+      "frames": [
+        {
+          "w": 12,
+          "h": 12,
+          "rows": [
+            "............",
+            ".0........0.",
+            "..0......0..",
+            "...0....0...",
+            "....0..0....",
+            ".....00.....",
+            "....0..0....",
+            "...0....0...",
+            "..0......0..",
+            ".0........0.",
+            "............",
+            "............"
+          ]
+        }
+      ]
+    }
+  ],
+  "intents": [
+    {
+      "name": "cast",
+      "target": "hook"
+    }
+  ],
+  "input": {
+    "press": {
+      "intent": "cast"
+    }
+  },
+  "entities": [
+    {
+      "id": "sun",
+      "shape": "circle",
+      "x": 205,
+      "y": 18,
+      "r": 9,
+      "color": "#E8B000"
+    },
+    {
+      "id": "line",
+      "shape": "rect",
+      "x": 120,
+      "y": 68,
+      "w": 2,
+      "h": 144,
+      "color": "#9AA7B4"
+    },
+    {
+      "id": "bob",
+      "shape": "circle",
+      "x": 120,
+      "y": 140,
+      "r": 3,
+      "color": "#E8B000"
+    },
+    {
+      "id": "f1head",
+      "shape": "cell",
+      "gx": 1,
+      "gy": 5,
+      "color": "#F5562F"
+    },
+    {
+      "id": "f1tail",
+      "shape": "cell",
+      "gx": 0,
+      "gy": 5,
+      "color": "#C80000"
+    },
+    {
+      "id": "f2head",
+      "shape": "cell",
+      "gx": 8,
+      "gy": 5,
+      "color": "#F5562F"
+    },
+    {
+      "id": "f2tail",
+      "shape": "cell",
+      "gx": 7,
+      "gy": 5,
+      "color": "#C80000"
+    },
+    {
+      "id": "splash",
+      "shape": "sprite",
+      "sprite": "splash",
+      "x": 120,
+      "y": 140,
+      "scale": 2
+    },
+    {
+      "id": "hook",
+      "shape": "cell",
+      "gx": 5,
+      "gy": 5,
+      "color": "#FFFFFF",
+      "outline": true
+    }
+  ],
+  "timers": [
+    {
+      "intervalMs": 340,
+      "repeat": true
+    },
+    {
+      "intervalMs": 260,
+      "repeat": true
+    }
+  ],
+  "rules": [
+    {
+      "on": "start",
+      "effects": [
+        {
+          "fx": "hide",
+          "target": "splash"
+        },
+        {
+          "fx": "hide",
+          "target": "f2head"
+        },
+        {
+          "fx": "hide",
+          "target": "f2tail"
+        },
+        {
+          "fx": "start_timer",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "on": "timer",
+      "timer": 0,
+      "effects": [
+        {
+          "fx": "advance_cell",
+          "target": "f1head",
+          "value": 1
+        },
+        {
+          "fx": "advance_cell",
+          "target": "f1tail",
+          "value": 1
+        },
+        {
+          "fx": "hide",
+          "target": "splash"
+        }
+      ]
+    },
+    {
+      "on": "timer",
+      "timer": 1,
+      "effects": [
+        {
+          "fx": "advance_cell",
+          "target": "f2head",
+          "value": 1
+        },
+        {
+          "fx": "advance_cell",
+          "target": "f2tail",
+          "value": 1
+        },
+        {
+          "fx": "hide",
+          "target": "splash"
+        }
+      ]
+    },
+    {
+      "on": "intent",
+      "intent": "cast",
+      "effects": [
+        {
+          "fx": "show",
+          "target": "splash"
+        }
+      ]
+    },
+    {
+      "on": "intent_overlap",
+      "intent": "cast",
+      "target": "hook",
+      "other": "f1head",
+      "effects": [
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "hide",
+          "target": "f1head"
+        },
+        {
+          "fx": "hide",
+          "target": "f1tail"
+        },
+        {
+          "fx": "stop_timer",
+          "value": 0
+        },
+        {
+          "fx": "show",
+          "target": "f2head"
+        },
+        {
+          "fx": "show",
+          "target": "f2tail"
+        },
+        {
+          "fx": "start_timer",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "on": "intent_overlap",
+      "intent": "cast",
+      "target": "hook",
+      "other": "f1tail",
+      "effects": [
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "hide",
+          "target": "f1head"
+        },
+        {
+          "fx": "hide",
+          "target": "f1tail"
+        },
+        {
+          "fx": "stop_timer",
+          "value": 0
+        },
+        {
+          "fx": "show",
+          "target": "f2head"
+        },
+        {
+          "fx": "show",
+          "target": "f2tail"
+        },
+        {
+          "fx": "start_timer",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "on": "intent_overlap",
+      "intent": "cast",
+      "target": "hook",
+      "other": "f2head",
+      "effects": [
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "hide",
+          "target": "f2head"
+        },
+        {
+          "fx": "hide",
+          "target": "f2tail"
+        },
+        {
+          "fx": "stop_timer",
+          "value": 1
+        },
+        {
+          "fx": "win"
+        }
+      ]
+    },
+    {
+      "on": "intent_overlap",
+      "intent": "cast",
+      "target": "hook",
+      "other": "f2tail",
+      "effects": [
+        {
+          "fx": "add_score",
+          "value": 10
+        },
+        {
+          "fx": "hide",
+          "target": "f2head"
+        },
+        {
+          "fx": "hide",
+          "target": "f2tail"
+        },
+        {
+          "fx": "stop_timer",
+          "value": 1
+        },
+        {
+          "fx": "win"
+        }
+      ]
+    }
+  ],
+  "glyphs": {
+    "钓": "IQB7AEPgAiB8IDMgfaAwoDAgOCA4ICDA",
+    "鱼": "CAAfADEAf8AmQCZAP8AmQD/AAAB/4AAA",
+    "进": "QkAiQA/gAkACQGJAL+AkQCRALEB4AE/g",
+    "白": "BAAEAD/AIEAgQCBAP8AgQCBAIEA/wCBA",
+    "框": "IAAn4CQA/+A0gH/gbIBkgKfgJAAn8CAA",
+    "就": "EIAQoHygf+BEgEWAfcARwFVAV1ASUDRg",
+    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA"
+  }
+}

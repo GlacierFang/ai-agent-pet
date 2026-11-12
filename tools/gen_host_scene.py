@@ -127,6 +127,16 @@ def main():
     out.append("#define SCENE_NCOLORS %d" % len(colors))
     out.append("")
 
+    timers = pack.get("timers") or []
+    out.append("typedef struct { int interval_ms; int repeat; } scene_timer_t;")
+    out.append("static const scene_timer_t SCENE_TIMERS[] = {")
+    for t in timers:
+        out.append("    { %d, %d }," % (int(t.get("intervalMs", 0)), 1 if t.get("repeat") else 0))
+    if not timers:
+        out.append("    { 0, 0 },")
+    out.append("};")
+    out.append("#define SCENE_NTIMERS %d" % len(timers))
+    out.append("")
     out.append("typedef struct { const char *name; int target; } scene_intent_t;")
     out.append("static const scene_intent_t SCENE_INTENTS[] = {")
     for it in intents:
@@ -135,7 +145,7 @@ def main():
     out.append("#define SCENE_NINTENTS %d" % len(intents))
     out.append("")
 
-    out.append("typedef struct { unsigned char ev; int intent; int target; int other;")
+    out.append("typedef struct { unsigned char ev; int intent; int target; int other; int timer;")
     out.append("                 unsigned char nfx; struct { unsigned char fx; int target; float a, b; } fx[8]; } scene_rule_t;")
     out.append("")
     out.append("static const scene_rule_t SCENE_RULES[] = {")
@@ -145,9 +155,10 @@ def main():
             eff.append((FX[fx["fx"]], eidx(fx.get("target", "")) if fx.get("target") else -1,
                         float(fx.get("value", 0)), float(fx.get("value2", 0))))
         intent = intent_names.index(r["intent"]) if r.get("intent") in intent_names else -1
-        out.append("    { %d, %d, %d, %d, %d, {" % (EV.get(r["on"], 0), intent,
+        out.append("    { %d, %d, %d, %d, %d, %d, {" % (EV.get(r["on"], 0), intent,
                                                eidx(r["target"]) if r.get("target") else -1,
-                                               eidx(r["other"]) if r.get("other") else -1, len(eff)))
+                                               eidx(r["other"]) if r.get("other") else -1,
+                                               int(r.get("timer", -1)), len(eff)))
         for f in eff:
             out.append("      { %d, %d, %.6ff, %.6ff }," % f)
         out.append("    } },")
