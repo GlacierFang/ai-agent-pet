@@ -169,30 +169,12 @@
   <section class="panel hidden" data-panel="firmware">
     <section class="card">
       <h2 data-i18n="firmware:title">固件</h2>
-      <p class="note" data-i18n="firmware:note">升级由你决定 —— 设备不会自己升级。先登记一个固件，再点「升级」下发。</p>
+      <p class="note" data-i18n="firmware:note">上传固件，点「升级固件」刷进设备。升级由你决定 —— 设备不会自己升级。</p>
       <div class="row">
-        <span class="badge" id="fw-device">设备 —</span>
-        <span class="badge" id="fw-available">—</span>
-        <span class="muted" id="fw-state"></span>
+        <label><span data-i18n="firmware:file">上传固件</span><input type="file" id="fw-file" accept="application/octet-stream,.bin"></label>
       </div>
-      <div class="row">
-        <button type="button" id="btn-fw-upgrade" data-i18n="firmware:upgrade">升级到可用版本</button>
-        <span class="muted" id="fw-meta"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <h3 data-i18n="firmware:registerTitle">登记一个固件</h3>
-      <p class="note" data-i18n="firmware:registerNote">上传 petd.bin（app 镜像），或填一个 URL 让 petd 自己去取。</p>
-      <div class="row">
-        <label><span data-i18n="firmware:version">版本号</span><input type="text" id="fw-version" placeholder="0.5.5"></label>
-      </div>
-      <div class="row">
-        <label><span data-i18n="firmware:file">上传 bin</span><input type="file" id="fw-file" accept="application/octet-stream,.bin"></label>
-      </div>
-      <div class="row">
-        <label><span data-i18n="firmware:url">URL</span><input type="text" id="fw-url" placeholder="http://nas.local/petd.bin"></label>
-        <button type="button" id="btn-fw-url" data-i18n="firmware:fromUrl">从 URL 登记</button>
+      <div class="row hidden" id="fw-version-row">
+        <label><span data-i18n="firmware:version">版本号</span><input type="text" id="fw-version" placeholder="0.5.11"></label>
       </div>
       <div class="row">
         <span class="muted" id="fw-upload-msg"></span>
@@ -200,8 +182,15 @@
     </section>
 
     <section class="card">
-      <h3 data-i18n="firmware:versionsTitle">已登记的版本</h3>
-      <div class="set-grid" id="fw-versions"></div>
+      <h3 data-i18n="firmware:upgradeTitle">升级设备</h3>
+      <div class="row">
+        <span class="badge" id="fw-device">设备 —</span>
+        <span class="muted" id="fw-target"></span>
+      </div>
+      <div class="row">
+        <button type="button" id="btn-fw-upgrade" data-i18n="firmware:upgrade">升级固件</button>
+        <span class="muted" id="fw-state"></span>
+      </div>
     </section>
   </section>
 

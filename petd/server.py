@@ -983,6 +983,18 @@ def create_app(cfg=None, start_gateway=True, port=None):
             except Exception:
                 return JSONResponse({"ok": False, "error": "固件数据不是 base64"},
                                     status_code=400)
+            # 先看这是不是一个能刷的 app 镜像 —— 不是就直接说人话，
+            # 别让人以为只是版本号没填。
+            img_err = ota_mod._check_app_image(data)
+            if img_err:
+                return JSONResponse({"ok": False, "error": img_err},
+                                    status_code=400)
+            # 版本号不用人填 —— 从镜像里读。读不出才回头问人。
+            if not ver and not ota_mod.detect_version(data):
+                return JSONResponse({"ok": False, "needVersion": True,
+                                     "error": "这个固件里读不出版本号 —— "
+                                              "请在「版本号」那一栏填一下"},
+                                    status_code=400)
             ver, err = ota_mod.register_upload(ver, data)
             if err:
                 return JSONResponse({"ok": False, "error": err}, status_code=400)
@@ -1004,6 +1016,13 @@ def create_app(cfg=None, start_gateway=True, port=None):
 
         if action == "upgrade":
             ver = str(body.get("version") or "").strip()
+            if not ver:
+                # 「升级固件」= 刷最新上传的那一份。
+                ver = (pet.ota_view().get("available") or "")
+            if not ver:
+                return JSONResponse({"ok": False,
+                                     "error": "没有可刷的固件 —— 先上传一个"},
+                                    status_code=400)
             ok, err = await pet.start_ota_upgrade(ver)
             if not ok:
                 return JSONResponse({"ok": False, "error": err}, status_code=400)

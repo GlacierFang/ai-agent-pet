@@ -74,44 +74,32 @@ var T = {
     setup: '使用说明'
   },
 
-  /* 固件 —— 升级由人决定，设备不会自己升级 */
+  /* 固件 —— 上传，点「升级固件」刷进设备。升级由人决定，设备不会自己升级。 */
   firmware: {
     title: '固件',
-    note: '升级由你决定 —— 设备不会自己升级。先登记一个固件，再点「升级」下发。',
+    note: '上传固件，点「升级固件」刷进设备。升级由你决定 —— 设备不会自己升级。',
     deviceFmt: '设备固件',
     deviceOffline: '设备离线',
-    availableFmt: '可用',
-    noneAvailable: '没有可升级的版本',
-    upgrade: '升级到可用版本',
-    upgradeTo: '升级到',
-    minFw: 'OTA 需要固件',
-    appSize: 'app 分区上限 {v}',
+    file: '上传固件',
+    version: '版本号',
+    upgradeTitle: '升级设备',
+    upgrade: '升级固件',
+    uploadedFmt: '已上传 v{v} · {s}',
+    targetFmt: '待升级 v{v}',
+    upToDate: '已是最新 v{v}（可重刷）',
+    older: '上传的 v{v} 比设备旧，不能降级',
+    noneUploaded: '先上传一个固件',
     downloading: '下载中',
     verifying: '校验中',
     ready: '写完了，等重启',
     failed: '失败：',
-    empty: '还没有登记过固件',
-    currentTag: '当前',
-    uploadTag: '上传',
-    fromUrlTag: 'URL',
-    registerTitle: '登记一个固件',
-    registerNote: '上传 petd.bin（app 镜像），或填一个 URL 让 petd 自己去取。'
-      + '不要上传 merged-binary.bin —— 那是整片镜像（从 0x0 起），走不了 OTA。',
-    version: '版本号',
-    file: '上传 bin',
-    url: 'URL',
-    fromUrl: '从 URL 登记',
-    versionsTitle: '已登记的版本',
-    delete: '删掉',
-    needVersion: '先填版本号',
-    needVersionUrl: '版本号和 URL 都要填',
-    uploading: '上传中',
-    registered: '已登记',
+    needVersion: '这个固件里读不出版本号 —— 请填一下版本号',
+    uploading: '上传中…',
+    registered: '已上传',
     upgrading: '正在下发…',
     upgradeStarted: '已下发，设备马上会重启',
-    uploadFailed: '登记失败',
-    upgradeFailed: '升级失败',
-    deleteFailed: '删除失败'
+    uploadFailed: '上传失败',
+    upgradeFailed: '升级失败'
   },
 
   /* 游戏 —— 设备端跑的，勾哪些哪些就出现在设备菜单里 */
@@ -470,6 +458,7 @@ var S = {
   setup: null,        // GET /setup 的结果（操作指引）
   setupPublic: null,  // GET /setup/public 的结果（未登录可见的那部分）
   ota: null,           // GET /ota 的结果（固件页）
+  fwFile: null,        // 待上传的固件文件（读不出版本号时要再传一次）
 };
 
 function el(id) { return document.getElementById(id); }
@@ -2910,8 +2899,13 @@ function startDashboard() {
   if (gmb) gmb.addEventListener('click', function () { openGameMenu(gmb); });
   var fwf = el('fw-file');
   if (fwf) fwf.addEventListener('change', function () { uploadFirmware(fwf); });
-  var fwu = el('btn-fw-url');
-  if (fwu) fwu.addEventListener('click', function () { registerFromUrl(); });
+  var fwv = el('fw-version');
+  if (fwv) {
+    fwv.addEventListener('change', uploadWithVersion);
+    fwv.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') uploadWithVersion();
+    });
+  }
   var fwb = el('btn-fw-upgrade');
   if (fwb) fwb.addEventListener('click', function () { startUpgrade(S.ota && S.ota.available, fwb); });
 
@@ -2946,7 +2940,7 @@ function startDashboard() {
 /* ---------------- 固件 ---------------- */
 
 /* 升级由人决定 —— 设备不会自己升级。这页只做三件事：
-   看当前版本、登记一个固件、点一下开始升级。 */
+   上传一个固件，点「升级固件」刷进设备。 */
 
 function loadFirmware() {
   return fetch(API + '/ota', { cache: 'no-store' })
@@ -2961,6 +2955,10 @@ function loadFirmware() {
 function renderFirmware() {
   var o = S.ota || {};
   var dev = o.device || {};
+  /* 刷的就是刚上传的那一份 —— 上传了什么就刷什么。 */
+  var up = o.uploaded || null;
+  var target = up ? up.version : '';
+  var targetSize = up ? (up.size || 0) : 0;
 
   var d = el('fw-device');
   if (d) {
@@ -2970,12 +2968,22 @@ function renderFirmware() {
       : t('firmware:deviceOffline');
   }
 
-  var a = el('fw-available');
-  if (a) {
-    a.className = 'badge ' + (o.available ? 'ok' : 'dim');
-    a.textContent = o.available
-      ? (t('firmware:availableFmt') + ' ' + o.available)
-      : t('firmware:noneAvailable');
+  /* 一行话讲清楚现在是什么状况：要刷哪版、能不能刷。 */
+  var tg = el('fw-target');
+  if (tg) {
+    if (!target) {
+      tg.textContent = t('firmware:noneUploaded');
+    } else if (!dev.online) {
+      tg.textContent = fill(t('firmware:uploadedFmt'),
+                           { v: target, s: fmtBytes(targetSize) });
+    } else {
+      var cmp = verCmp(target, dev.fw);
+      tg.textContent = cmp > 0
+        ? fill(t('firmware:targetFmt'), { v: target })
+        : (cmp === 0
+            ? fill(t('firmware:upToDate'), { v: target })
+            : fill(t('firmware:older'), { v: target }));
+    }
   }
 
   var st = el('fw-state');
@@ -2985,35 +2993,27 @@ function renderFirmware() {
 
   var btn = el('btn-fw-upgrade');
   if (btn) {
+    /* available 由后端算好：设备在线、支持 OTA、且不比设备旧。 */
     btn.disabled = !o.available;
-    btn.textContent = o.available
-      ? (t('firmware:upgradeTo') + ' ' + o.available)
-      : t('firmware:upgrade');
+    btn.textContent = t('firmware:upgrade');
   }
+}
 
-  var meta = el('fw-meta');
-  if (meta) {
-    var bits = [];
-    if (o.minFw) bits.push(t('firmware:minFw') + ' ' + o.minFw);
-    if (o.appPartitionSize) {
-      bits.push(fill(t('firmware:appSize'), {
-        v: fmtBytes(o.appPartitionSize)}));
-    }
-    meta.textContent = bits.join(' · ');
+/* 版本号比大小 —— 0.5.10 比 0.5.9 新。 */
+function verCmp(a, b) {
+  var ka = String(a || '').split('.').map(function (p) {
+    var n = parseInt(p, 10);
+    return isNaN(n) ? 0 : n;
+  });
+  var kb = String(b || '').split('.').map(function (p) {
+    var n = parseInt(p, 10);
+    return isNaN(n) ? 0 : n;
+  });
+  for (var i = 0; i < Math.max(ka.length, kb.length); i++) {
+    var x = ka[i] || 0, y = kb[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
   }
-
-  var box = el('fw-versions');
-  if (!box) return;
-  box.textContent = '';
-  var vs = o.versions || [];
-  if (!vs.length) {
-    var e = document.createElement('div');
-    e.className = 'empty';
-    e.textContent = t('firmware:empty');
-    box.appendChild(e);
-    return;
-  }
-  vs.forEach(function (v) { box.appendChild(firmwareCard(v, o)); });
+  return 0;
 }
 
 function firmwareStateText(dev) {
@@ -3025,51 +3025,58 @@ function firmwareStateText(dev) {
   return '';
 }
 
-function firmwareCard(v, o) {
-  var card = document.createElement('div');
-  card.className = 'set-card feat';
+/* 选了文件就传 —— 版本号不用人填，固件自己带着。
+   读不出版本号的才回头问人要版本号。 */
+function uploadFirmware(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  S.fwFile = file;
+  var ver = el('fw-version');
+  doUpload(file, ver ? ver.value.trim() : '');
+}
 
-  var head = document.createElement('div');
-  head.className = 'feat-head';
-  var nm = document.createElement('span');
-  nm.className = 'feat-name';
-  nm.textContent = v.version;
-  head.appendChild(nm);
-  var tag = document.createElement('span');
-  tag.className = 'badge';
-  tag.textContent = v.source === 'url' ? t('firmware:fromUrlTag') : t('firmware:uploadTag');
-  head.appendChild(tag);
-  if (o.device && o.device.fw === v.version) {
-    var cur = document.createElement('span');
-    cur.className = 'badge ok';
-    cur.textContent = t('firmware:currentTag');
-    head.appendChild(cur);
-  }
-  card.appendChild(head);
+/* 人填了版本号 —— 拿同一份文件再传一次。 */
+function uploadWithVersion() {
+  var ver = el('fw-version');
+  var version = ver ? ver.value.trim() : '';
+  if (!version || !S.fwFile) return;
+  doUpload(S.fwFile, version);
+}
 
-  var tip = document.createElement('div');
-  tip.className = 'feat-tip';
-  tip.textContent = Math.round((v.size || 0) / 1024) + ' KB · ' +
-    (v.sha256 || '').slice(0, 12);
-  card.appendChild(tip);
-
-  var row = document.createElement('div');
-  row.className = 'row';
-  var up = document.createElement('button');
-  up.type = 'button';
-  up.textContent = t('firmware:upgradeTo') + ' ' + v.version;
-  up.disabled = !o.available || o.available !== v.version;
-  up.addEventListener('click', function () { startUpgrade(v.version, up); });
-  row.appendChild(up);
-
-  var del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'ghost';
-  del.textContent = t('firmware:delete');
-  del.addEventListener('click', function () { deleteFirmware(v.version, del); });
-  row.appendChild(del);
-  card.appendChild(row);
-  return card;
+function doUpload(file, version) {
+  var msg = el('fw-upload-msg');
+  if (msg) msg.textContent = t('firmware:uploading');
+  readAsBase64(file).then(function (data) {
+    return fetch(API + '/ota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'upload', version: version, data: data })
+    }).then(function (r) { return r.json(); });
+  }).then(function (b) {
+    if (b.needVersion) {
+      var row = el('fw-version-row');
+      if (row) row.classList.remove('hidden');
+      var ver = el('fw-version');
+      if (ver) ver.focus();
+      if (msg) msg.textContent = t('firmware:needVersion');
+      return;
+    }
+    if (!b.ok) throw new Error(b.error || t('firmware:uploadFailed'));
+    var row = el('fw-version-row');
+    if (row) row.classList.add('hidden');
+    var ver = el('fw-version');
+    if (ver) ver.value = '';
+    S.fwFile = null;
+    var up = b.uploaded || {};
+    if (msg) {
+      msg.textContent = fill(t('firmware:uploadedFmt'),
+                             { v: up.version || '?', s: fmtBytes(up.size || 0) });
+    }
+    loadFirmware();
+  }).catch(function (err) {
+    if (msg) msg.textContent = (err && err.message) ? err.message : t('firmware:uploadFailed');
+  });
 }
 
 function startUpgrade(version, btn) {
@@ -3089,77 +3096,6 @@ function startUpgrade(version, btn) {
     .catch(function (err) {
       if (msg) msg.textContent = (err && err.message) ? err.message : t('firmware:upgradeFailed');
       if (btn) btn.disabled = false;
-    });
-}
-
-function deleteFirmware(version, btn) {
-  if (btn) btn.disabled = true;
-  fetch(API + '/ota', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'delete', version: version })
-  }).then(function (r) { return r.json(); })
-    .then(function (b) {
-      if (!b.ok) throw new Error(b.error || t('firmware:deleteFailed'));
-      loadFirmware();
-    })
-    .catch(function (err) {
-      var msg = el('fw-upload-msg');
-      if (msg) msg.textContent = (err && err.message) ? err.message : t('firmware:deleteFailed');
-      if (btn) btn.disabled = false;
-    });
-}
-
-function uploadFirmware(input) {
-  var file = input.files && input.files[0];
-  input.value = '';
-  if (!file) return;
-  var msg = el('fw-upload-msg');
-  var ver = el('fw-version');
-  var version = ver ? ver.value.trim() : '';
-  if (!version) {
-    if (msg) msg.textContent = t('firmware:needVersion');
-    return;
-  }
-  if (msg) msg.textContent = t('common:saving');
-  readAsBase64(file).then(function (data) {
-    return fetch(API + '/ota', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'upload', version: version, data: data })
-    }).then(function (r) { return r.json(); });
-  }).then(function (b) {
-    if (!b.ok) throw new Error(b.error || t('firmware:uploadFailed'));
-    if (msg) msg.textContent = t('firmware:registered');
-    loadFirmware();
-  }).catch(function (err) {
-    if (msg) msg.textContent = (err && err.message) ? err.message : t('firmware:uploadFailed');
-  });
-}
-
-function registerFromUrl() {
-  var msg = el('fw-upload-msg');
-  var ver = el('fw-version');
-  var url = el('fw-url');
-  var version = ver ? ver.value.trim() : '';
-  var u = url ? url.value.trim() : '';
-  if (!version || !u) {
-    if (msg) msg.textContent = t('firmware:needVersionUrl');
-    return;
-  }
-  if (msg) msg.textContent = t('firmware:downloading');
-  fetch(API + '/ota', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'url', version: version, url: u })
-  }).then(function (r) { return r.json(); })
-    .then(function (b) {
-      if (!b.ok) throw new Error(b.error || t('firmware:uploadFailed'));
-      if (msg) msg.textContent = t('firmware:registered');
-      loadFirmware();
-    })
-    .catch(function (err) {
-      if (msg) msg.textContent = (err && err.message) ? err.message : t('firmware:uploadFailed');
     });
 }
 

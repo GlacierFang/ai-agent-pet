@@ -337,17 +337,30 @@ class PetApp:
             "otaError": s.ota_error if s else "",
         }
         versions = ota_mod.list_versions()
+        # 登记过的最高版本（后台还可能拿它做别的判断）。
         latest = versions[0]["version"] if versions else ""
+        # 刚传上来的那一份 —— 「升级固件」刷的就是它。
+        # 按登记时间取最新，不按版本号取 —— 你刚传的是哪份，就刷哪份。
+        uploaded = None
+        if versions:
+            newest = max(versions, key=lambda v: (v.get("addedAt") or 0,
+                                                 ota_mod._ver_key(v["version"])))
+            uploaded = {"version": newest["version"], "size": newest["size"]}
+        # 同版也给刷 —— 设备跑的是这一版但可能刷坏了，重刷一份能救回来。
+        # 比设备旧的不给刷 —— 降级不在这个页面的能力范围里。
         available = ""
-        if s is not None and latest and s.fw:
+        if uploaded and s is not None and s.fw:
+            target = uploaded["version"]
             if ota_mod.fw_supports_ota(s.fw) and \
-                    ota_mod._ver_key(latest) > ota_mod._ver_key(s.fw):
-                available = latest
+                    ota_mod._ver_key(target) >= ota_mod._ver_key(s.fw):
+                available = target
         return {
             "device": dev,
             "versions": versions,
             "latest": latest,
+            "uploaded": uploaded,
             "available": available,
+            "canUpgrade": bool(available),
             "minFw": ".".join(str(p) for p in ota_mod.MIN_OTA_FW),
             "appPartitionSize": ota_mod.APP_PARTITION_SIZE,
         }

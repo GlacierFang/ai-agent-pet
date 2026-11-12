@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 import time
@@ -67,6 +68,14 @@ APP_PARTITION_SIZE = 2 * 1024 * 1024
 
 # ESP32 镜像的 magic 字节（image header 第 0 字节）。
 ESP_IMAGE_MAGIC = 0xE9
+
+# app 描述段（esp_app_desc_t）在 app 镜像里的位置 —— 版本号就写在里面。
+# ESP-IDF v5+：偏移 0x20，头 4 字节是 magic_word，第 16 字节起是 32 字节版本串。
+APP_DESC_OFFSET = 0x20
+APP_DESC_MAGIC = 0xABCD5432
+
+# 描述段读不到时的兜底 —— 固件里的版本 tag 串长这样 fw-v0.5.10。
+_FW_TAG_RE = re.compile(rb"fw-v(\d+\.\d+\.\d+)")
 
 # 整片镜像里 app 段的偏移 —— factory 分区起点（partitions.csv）。
 FACTORY_OFFSET = 0x20000
@@ -213,17 +222,47 @@ def _check_app_image(data):
     return ""
 
 
+def detect_version(data):
+    """从 app 镜像里读出固件版本号。读不出返回空串。
+
+    版本号不用人填 —— 固件把自己的版本写进了 app 描述段
+    （ESP-IDF v5+ 的标准位置：app 镜像偏移 0x20），上传的文件里本来就有。
+
+    描述段读不到时退回扫 tag 串（fw-v0.5.10 这种）。
+    只认「三段十进制数字」，免得把 IP 之类的东西当版本号。
+    """
+    if not data:
+        return ""
+    if len(data) >= APP_DESC_OFFSET + 48:
+        magic = int.from_bytes(data[APP_DESC_OFFSET:APP_DESC_OFFSET + 4],
+                               "little")
+        if magic == APP_DESC_MAGIC:
+            raw = data[APP_DESC_OFFSET + 16:APP_DESC_OFFSET + 48]
+            m = re.search(rb"\d+\.\d+\.\d+", raw)
+            if m:
+                return m.group().decode("ascii", "ignore")
+    m = _FW_TAG_RE.search(data)
+    if m:
+        return m.group(1).decode("ascii", "ignore")
+    return ""
+
+
 def register_upload(version, data):
     """登记一个上传来的固件。
+
+    版本号可以不给 —— 从镜像里读。读不出才要人填。
 
     返回 (版本号, 错误信息)。出错时错误信息非空。
     """
     version = str(version or "").strip()
-    if not version:
-        return "", "版本号不能为空"
     err = _check_app_image(data)
     if err:
         return "", err
+    if not version:
+        version = detect_version(data)
+        if not version:
+            return "", ("这个固件里读不出版本号 —— 请在「版本号」那一栏填一下"
+                        "（形如 0.5.11）")
     d = ota_dir()
     d.mkdir(parents=True, exist_ok=True)
     path = d / ("%s.bin" % version)
