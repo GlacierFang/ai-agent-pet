@@ -33,7 +33,7 @@
 #define GAME_MAX_EFFECTS    8
 #define GAME_MAX_INTENTS    8
 #define GAME_MAX_INPUT_MAP  4
-#define GAME_MAX_CAPS       20   /* 要 >= game_comp.c 里 s_caps[] 的长度 */
+#define GAME_MAX_CAPS       24   /* 要 >= game_comp.c 里 s_caps[] 的长度 */
 #define GAME_MAX_PACK_ID    32
 #define GAME_MAX_TITLE      64
 #define GAME_MAX_HINT       128
@@ -114,6 +114,16 @@
 #define GAME_FX_DESTROY_CELL 17 /* 销毁刚被命中的网格格 */
 #define GAME_FX_SET_FRAME   18 /* 设置精灵实体当前帧（翻牌用） */
 #define GAME_FX_MOVE_CELL  19  /* 网格实体按格移动（a=每步 dx 格，b=每步 dy 格） */
+#define GAME_FX_ADVANCE_CELL 20 /* 沿 +x 前进 a 格（不看输入方向；定时器里没有方向） */
+
+/* 效果名 <-> 效果码、事件名 <-> 事件码 —— 单一真相在 game_comp.c 的
+   s_fx_names[] / s_ev_names[]。工具（lint_packs、gen_host_scene）从那边读，
+   免得三处各抄一份、抄漏了没人知道（move_cell 就这么丢过一次：
+   固件的名字表漏了它，能力表却写着支持 —— 设备上空操作，主机测试全绿）。 */
+int         game_fx_from_name(const char *name);
+const char *game_fx_name(int code);
+int         game_ev_from_name(const char *name);
+const char *game_ev_name(int code);
 
 /* 网格朝向：0=上 1=右 2=下 3=左 */
 #define GAME_DIR_UP    0
@@ -156,6 +166,7 @@ typedef struct {
     uint16_t color;
     uint8_t shape;
     uint8_t visible;
+    uint8_t outline;       /* 1 = 格子实体画成边框而不是实心（光标用） */
     uint8_t is_value;
     uint8_t sprite;           /* sprite 下标 —— 只有 sprite 形状用 */
     uint8_t frame;            /* sprite 的第几帧 */
@@ -219,6 +230,7 @@ typedef struct {
     int    ncolors;
     int    n_alive;       /* 还剩多少实心格 */
     int    hit_gx, hit_gy;/* 最近命中的格子 */
+    uint8_t wrap;        /* 1 = 网格首尾相接：走过头绕回另一头 */
 } game_grid_t;
 
 typedef struct {

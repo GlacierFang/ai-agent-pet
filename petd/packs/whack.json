@@ -3,44 +3,42 @@
   "version": 1,
   "order": 40,
   "title": "打地鼠",
-  "hint": "旋转移动 · 按住换行 · 短按敲击",
+  "hint": "旋转选格 · 短按敲击",
   "requires": [
     "cell",
     "grid",
     "timer",
     "score",
     "move_cell",
-    "intent_overlap"
+    "intent_overlap",
+    "wrap",
+    "outline"
   ],
   "grid": {
-    "cols": 4,
-    "rows": 2,
-    "x": 32,
-    "y": 150,
-    "cell": 44,
+    "cols": 6,
+    "rows": 1,
+    "cell": 40,
+    "x": 0,
+    "y": 132,
+    "cellW": 40,
+    "cellH": 56,
+    "wrap": true,
     "border": true,
     "borderColor": "#5C4033"
   },
   "intents": [
     {
-      "name": "move_x",
-      "target": "hammer"
-    },
-    {
-      "name": "move_y",
-      "target": "hammer"
+      "name": "rotate",
+      "target": "cursor"
     },
     {
       "name": "strike",
-      "target": "hammer"
+      "target": "cursor"
     }
   ],
   "input": {
     "rot": {
-      "intent": "move_x"
-    },
-    "rot_press": {
-      "intent": "move_y"
+      "intent": "rotate"
     },
     "press": {
       "intent": "strike"
@@ -48,23 +46,24 @@
   },
   "entities": [
     {
-      "id": "mole",
+      "id": "cursor",
       "shape": "cell",
       "gx": 0,
       "gy": 0,
-      "color": "#5C4033"
+      "color": "#FFFFFF",
+      "outline": true
     },
     {
-      "id": "hammer",
+      "id": "mole",
       "shape": "cell",
       "gx": 3,
-      "gy": 1,
+      "gy": 0,
       "color": "#C80000"
     }
   ],
   "timers": [
     {
-      "intervalMs": 1600,
+      "intervalMs": 1800,
       "repeat": true
     }
   ],
@@ -72,6 +71,10 @@
     {
       "on": "start",
       "effects": [
+        {
+          "fx": "hide",
+          "target": "mole"
+        },
         {
           "fx": "start_timer",
           "value": 0
@@ -83,41 +86,29 @@
       "timer": 0,
       "effects": [
         {
-          "fx": "randomize",
-          "target": "mole"
+          "fx": "advance_cell",
+          "target": "mole",
+          "value": 1
         }
       ]
     },
     {
       "on": "intent",
-      "intent": "move_x",
-      "target": "hammer",
+      "intent": "rotate",
+      "target": "cursor",
       "effects": [
         {
           "fx": "move_cell",
-          "target": "hammer",
+          "target": "cursor",
           "value": 1,
           "value2": 0
         }
       ]
     },
     {
-      "on": "intent",
-      "intent": "move_y",
-      "target": "hammer",
-      "effects": [
-        {
-          "fx": "move_cell",
-          "target": "hammer",
-          "value": 0,
-          "value2": 1
-        }
-      ]
-    },
-    {
       "on": "intent_overlap",
       "intent": "strike",
-      "target": "hammer",
+      "target": "cursor",
       "other": "mole",
       "effects": [
         {
@@ -125,7 +116,7 @@
           "value": 10
         },
         {
-          "fx": "randomize",
+          "fx": "hide",
           "target": "mole"
         }
       ]
@@ -137,14 +128,11 @@
     "鼠": "CAAxwDnAIEA/wABAPUAkQDdALEA/8CYg",
     "旋": "MgD/8CQAI+A4oCqAauBKgEqATYC08AAA",
     "转": "IID74CEAcQBX8FEAe+AQQDhA8YAQwBBA",
-    "移": "c+AmQCfAeYA2gHHgYiDlQCDAIwAuAAAA",
-    "动": "AIB8gACAA+B8oCGgKSAtIE0gfSACIALA",
+    "选": "RQAv4AkAAQBv4CKAJoAksDjgWABP4AAA",
+    "格": "IQAj4CJAfkAxgDGAfmBv4KQgJCAn4CAg",
     "·": "AAAAAAAABgAGAAAAAAAAAAAAAAAAAAAA",
-    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
-    "住": "EQARADEAL+BhAGEAL+AhACEAIQAhAC/w",
-    "换": "IgAjwCTAf+AlICUgNSDv4COAIoAkYGgg",
-    "行": "EAAn4EAAEAA38GBA4EAgQCBAIEAgQCGA",
     "短": "AABH4HgAc+AyIPogI+AwADJAa0BBQAfw",
+    "按": "IYAv4P0gIwAv8DpA5EAmwCGAI8BsIAAA",
     "敲": "EIB+gADgfIBH4DkgfSBFQHzAbMB9wE8g",
     "击": "BgAGAD/ABgAGAH/gBgAmQCZAJkA/wABA"
   }

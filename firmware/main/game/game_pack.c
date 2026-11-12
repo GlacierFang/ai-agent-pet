@@ -91,47 +91,11 @@ static int sprite_index_by_name(const game_pack_t *p, const char *name)
 }
 
 
-static int fx_from_name(const char *name)
-{
-    if (!name) return GAME_FX_NONE;
-    if (!strcmp(name, "set_pos"))     return GAME_FX_SET_POS;
-    if (!strcmp(name, "set_vel"))     return GAME_FX_SET_VEL;
-    if (!strcmp(name, "add_vel"))     return GAME_FX_ADD_VEL;
-    if (!strcmp(name, "turn"))        return GAME_FX_TURN;
-    if (!strcmp(name, "reverse"))     return GAME_FX_REVERSE;
-    if (!strcmp(name, "show"))        return GAME_FX_SHOW;
-    if (!strcmp(name, "hide"))        return GAME_FX_HIDE;
-    if (!strcmp(name, "grow"))        return GAME_FX_GROW;
-    if (!strcmp(name, "add_score"))   return GAME_FX_ADD_SCORE;
-    if (!strcmp(name, "randomize"))   return GAME_FX_RANDOMIZE;
-    if (!strcmp(name, "destroy"))     return GAME_FX_DESTROY;
-    if (!strcmp(name, "win"))         return GAME_FX_WIN;
-    if (!strcmp(name, "lose"))        return GAME_FX_LOSE;
-    if (!strcmp(name, "start_timer")) return GAME_FX_START_TIMER;
-    if (!strcmp(name, "stop_timer"))  return GAME_FX_STOP_TIMER;
-    if (!strcmp(name, "move"))         return GAME_FX_MOVE;
-    if (!strcmp(name, "destroy_cell")) return GAME_FX_DESTROY_CELL;
-    if (!strcmp(name, "set_frame"))    return GAME_FX_SET_FRAME;
-    return GAME_FX_NONE;
-}
-
-
-static uint8_t ev_from_name(const char *name)
-{
-    if (!name) return GAME_EV_START;
-    if (!strcmp(name, "start"))   return GAME_EV_START;
-    if (!strcmp(name, "intent"))  return GAME_EV_INTENT;
-    if (!strcmp(name, "overlap")) return GAME_EV_OVERLAP;
-    if (!strcmp(name, "self"))    return GAME_EV_SELF;
-    if (!strcmp(name, "oob"))     return GAME_EV_OOB;
-    if (!strcmp(name, "timer"))   return GAME_EV_TIMER;
-    if (!strcmp(name, "hit"))      return GAME_EV_HIT;
-    if (!strcmp(name, "grid_hit")) return GAME_EV_GRID_HIT;
-    if (!strcmp(name, "bounds"))   return GAME_EV_BOUNDS;
-    if (!strcmp(name, "empty"))    return GAME_EV_EMPTY;
-    if (!strcmp(name, "intent_overlap")) return GAME_EV_INTENT_OVERLAP;
-    return GAME_EV_START;
-}
+/* 效果名 / 事件名 -> 码：名字表在 game_comp.c（单一真相）。
+   以前这里是手写的一长串 strcmp —— 漏一行就少一个效果，
+   而且不报错：解析成 GAME_FX_NONE 直接被丢掉，pack 照样「装上了」，
+   设备上那个效果却是空操作（move_cell 就这么丢的：能力表写着支持，
+   名字表里却没有 —— 主机测试用的是另一份拷贝，全绿，什么都没测出来）。 */
 
 
 static int heading_from_name(const char *s)
@@ -361,6 +325,10 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             ge->shape = shape_from_name(cJSON_IsString(sh) ? sh->valuestring : NULL);
             ge->color = pick_color(e, "color", 0xFFFF);
             ge->visible = 1;
+            /* outline：格子实体画成边框而不是实心 —— 光标用。
+               光标和地鼠同格时两个都看得见：实心方块会互相盖住。 */
+            const cJSON *ol = cJSON_GetObjectItem(e, "outline");
+            ge->outline = cJSON_IsTrue(ol) ? 1 : 0;
 
             const cJSON *x = cJSON_GetObjectItem(e, "x");
             const cJSON *y = cJSON_GetObjectItem(e, "y");
@@ -515,6 +483,8 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
                 gc->color = game_parse_color(child->valuestring, 0xFFFF);
             }
         }
+        v = cJSON_GetObjectItem(grid, "wrap");
+        out->grid.wrap = cJSON_IsTrue(v) ? 1 : 0;
         v = cJSON_GetObjectItem(grid, "border");
         out->grid.show_border = cJSON_IsTrue(v) ? 1 : 0;
         out->grid.border_color = pick_color(grid, "borderColor", 0x8410);
@@ -547,7 +517,12 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
             if (!cJSON_IsString(on)) continue;
             game_rule_t *gr = &out->rules[out->nrules];
             memset(gr, 0, sizeof(*gr));
-            gr->ev = ev_from_name(on->valuestring);
+            int evc = game_ev_from_name(on->valuestring);
+            if (evc < 0) {
+                ESP_LOGE(TAG, "unknown rule event: %s", on->valuestring);
+                continue;
+            }
+            gr->ev = (uint8_t)evc;
 
             const cJSON *iv = cJSON_GetObjectItem(r, "intent");
             if (cJSON_IsString(iv)) {
@@ -576,7 +551,13 @@ static esp_err_t parse_pack(const char *json, size_t len, game_pack_t *out)
                     if (!cJSON_IsString(fn)) continue;
                     game_effect_t *fx = &gr->fx[gr->nfx];
                     memset(fx, 0, sizeof(*fx));
-                    fx->fx = (uint8_t)fx_from_name(fn->valuestring);
+                    int fxc = game_fx_from_name(fn->valuestring);
+                    if (fxc < 0) {
+                        /* 认不出来的效果名 —— 报错，别悄悄丢掉。 */
+                        ESP_LOGE(TAG, "unknown fx: %s", fn->valuestring);
+                        continue;
+                    }
+                    fx->fx = (uint8_t)fxc;
                     if (fx->fx == GAME_FX_NONE) continue;
                     const cJSON *et = cJSON_GetObjectItem(e, "target");
                     fx->target = (cJSON_IsString(et)) ?

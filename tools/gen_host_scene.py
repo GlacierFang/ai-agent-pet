@@ -14,12 +14,15 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # 蛇是另一种代表：纯网格 + 方向。两种都跑同一套引擎代码。
 PACK_ID = (sys.argv[2] if len(sys.argv) > 2 else "brickout")
 
-EV = {"start": 0, "intent": 1, "overlap": 2, "self": 3, "oob": 4, "timer": 5,
-      "hit": 6, "grid_hit": 7, "bounds": 8, "empty": 9, "intent_overlap": 10}
-FX = {"set_pos": 1, "set_vel": 2, "add_vel": 3, "turn": 4, "reverse": 5,
-      "show": 6, "hide": 7, "grow": 8, "add_score": 9, "randomize": 10,
-      "destroy": 11, "win": 12, "lose": 13, "start_timer": 14, "stop_timer": 15,
-      "move": 16, "destroy_cell": 17, "set_frame": 18, "move_cell": 19}
+# fx / 事件码从固件读 —— 这份拷贝曾经和固件不同源（固件漏了 move_cell，
+# 这里却写着有），主机测试全绿而设备上空操作。
+try:
+    import game_names as gn
+except ImportError:
+    from tools import game_names as gn
+
+EV = {n: i for i, n in enumerate(gn.ev_names())}
+FX = {n: i for i, n in enumerate(gn.fx_names())}
 SHAPE = {"rect": 0, "circle": 1, "cell": 2, "trail": 3, "value": 4, "sprite": 5}
 
 Q = chr(34)
@@ -63,7 +66,7 @@ def main():
     out.append("                 int solid, bounce; float restitution;")
     out.append("                 float bx0, by0, bx1, by1; int walls; int has_bounds;")
     out.append("                 unsigned short color;")
-    out.append("                 int gx, gy, heading, trail; float speed; } scene_ent_t;")
+    out.append("                 int gx, gy, heading, trail; float speed; int outline; } scene_ent_t;")
     out.append("")
     out.append("static const scene_ent_t SCENE_ENTS[] = {")
     for e in ents:
@@ -78,7 +81,7 @@ def main():
             heading = hd & 3
         else:
             heading = -1
-        row = ("    { " + Q + e["id"] + Q + ", %d, %s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d, %d, %s },") % (
+        row = ("    { " + Q + e["id"] + Q + ", %d, %s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %s, %s, %s, %s, %d, %d, %d, %d, %d, %d, %d, %s, %d },") % (
             SHAPE[e.get("shape", "rect")],
             fl(e.get("x", 0)), fl(e.get("y", 0)), fl(e.get("vx", 0)), fl(e.get("vy", 0)),
             fl(e.get("w", 0)), fl(e.get("h", 0)), fl(e.get("r", 0)),
@@ -88,7 +91,8 @@ def main():
             walls, 1 if b else 0,
             rgb565(e.get("color")),
             int(e.get("gx", 0)), int(e.get("gy", 0)), heading,
-            int(e.get("trail", 0)), fl(e.get("speed", 0)))
+            int(e.get("trail", 0)), fl(e.get("speed", 0)),
+            1 if e.get("outline") else 0)
         out.append(row)
     out.append("};")
     out.append("#define SCENE_NENTS %d" % len(ents))
@@ -99,10 +103,11 @@ def main():
     out.append("#define SCENE_GROWS %d" % g["rows"])
     out.append("#define SCENE_GX %d" % g["x"])
     out.append("#define SCENE_GY %d" % g["y"])
-    out.append("#define SCENE_CELL %d" % g["cell"])
+    out.append("#define SCENE_CELL %d" % g.get("cell", g.get("cellW", 0)))
     out.append("#define SCENE_CELLW %d" % g.get("cellW", g["cell"]))
     out.append("#define SCENE_CELLH %d" % g.get("cellH", g["cell"]))
     out.append("#define SCENE_BORDER %d" % (1 if g.get("border") else 0))
+    out.append("#define SCENE_GRID_WRAP %d" % (1 if g.get("wrap") else 0))
     out.append("")
     pattern = g.get("pattern") or []
     out.append("static const char *SCENE_PATTERN[] = {")

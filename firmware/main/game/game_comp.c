@@ -30,8 +30,95 @@ static const char *s_caps[] = {
     "pattern",
     "move_cell",
     "intent_overlap",
+    "wrap",
+    "outline",
 };
 static const int s_ncaps = (int)(sizeof(s_caps) / sizeof(s_caps[0]));
+
+
+/* ---- 效果名表：下标就是 game.h 里的 GAME_FX_* ----
+   顺序不能改。工具从这张表读名字，改引擎就只改这一处。 */
+static const char *s_fx_names[] = {
+    "none",
+    "set_pos",
+    "set_vel",
+    "add_vel",
+    "turn",
+    "reverse",
+    "show",
+    "hide",
+    "grow",
+    "add_score",
+    "randomize",
+    "destroy",
+    "win",
+    "lose",
+    "start_timer",
+    "stop_timer",
+    "move",
+    "destroy_cell",
+    "set_frame",
+    "move_cell",
+    "advance_cell",
+};
+
+/* ---- 事件名表：下标就是 game.h 里的 GAME_EV_* ---- */
+static const char *s_ev_names[] = {
+    "start",
+    "intent",
+    "overlap",
+    "self",
+    "oob",
+    "timer",
+    "hit",
+    "grid_hit",
+    "bounds",
+    "empty",
+    "intent_overlap",
+};
+
+
+int game_fx_from_name(const char *name)
+{
+    if (!name) return GAME_FX_NONE;
+    int n = (int)(sizeof(s_fx_names) / sizeof(s_fx_names[0]));
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(name, s_fx_names[i])) return i;
+    }
+    /* 认不出来的效果名：返回 -1，别悄悄当成 none。
+       以前这里返回 GAME_FX_NONE，解析处直接跳过 —— pack 少一个效果，
+       设备上却看不出任何异常（move_cell 就这么丢的）。 */
+    return -1;
+}
+
+
+const char *game_fx_name(int code)
+{
+    int n = (int)(sizeof(s_fx_names) / sizeof(s_fx_names[0]));
+    if (code < 0 || code >= n) return NULL;
+    return s_fx_names[code];
+}
+
+
+int game_ev_from_name(const char *name)
+{
+    if (!name) return GAME_EV_START;
+    int n = (int)(sizeof(s_ev_names) / sizeof(s_ev_names[0]));
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(name, s_ev_names[i])) return i;
+    }
+    /* 认不出来的事件名：返回 -1。调用处会报错并丢掉这条规则 ——
+       以前返回 GAME_EV_START，「on」写错字会让 start 规则莫名其妙触发。 */
+    return -1;
+}
+
+
+const char *game_ev_name(int code)
+{
+    int n = (int)(sizeof(s_ev_names) / sizeof(s_ev_names[0]));
+    if (code < 0 || code >= n) return NULL;
+    return s_ev_names[code];
+}
 
 
 int game_cap_count(void) { return s_ncaps; }
@@ -118,6 +205,23 @@ static int body_occupied(const game_entity_t *e, int gx, int gy)
         if (e->trail_gx[i] == gx && e->trail_gy[i] == gy) return 1;
     }
     return 0;
+}
+
+
+/* 网格坐标出界了怎么办：开了 wrap 就首尾相接，否则夹在边内。
+   六格环上从最后一格再转一格回到第一格 —— 夹边的话光标卡在两头，
+   永远转不到对面那格。 */
+static void grid_fix_coord(int *v, int n, int wrap)
+{
+    if (n <= 0) return;
+    if (*v < 0 || *v >= n) {
+        if (wrap) {
+            *v = ((*v % n) + n) % n;
+        } else {
+            if (*v < 0) *v = 0;
+            if (*v >= n) *v = n - 1;
+        }
+    }
 }
 
 
@@ -239,16 +343,25 @@ void game_apply_fx(const game_effect_t *fx, int input_dir)
                越界夹回场地里：实体不能飘到场外去。 */
             int nx = e->gx + (int)(fx->a * (float)input_dir);
             int ny = e->gy + (int)(fx->b * (float)input_dir);
-            if (s_pack.grid.cols > 0) {
-                if (nx < 0) nx = 0;
-                if (nx >= s_pack.grid.cols) nx = s_pack.grid.cols - 1;
-            }
-            if (s_pack.grid.rows > 0) {
-                if (ny < 0) ny = 0;
-                if (ny >= s_pack.grid.rows) ny = s_pack.grid.rows - 1;
-            }
+            grid_fix_coord(&nx, s_pack.grid.cols, s_pack.grid.wrap);
+            grid_fix_coord(&ny, s_pack.grid.rows, s_pack.grid.wrap);
             e->gx = nx;
             e->gy = ny;
+        }
+        break;
+    case GAME_FX_ADVANCE_CELL:
+        if (fx->target >= 0 && fx->target < s_pack.nents) {
+            game_entity_t *e = &s_pack.ents[fx->target];
+            /* 沿 +x 前进 a 格 —— 不看输入方向（定时器事件没有方向）。
+               地鼠「轮换格位」靠它：每次冒头往旁边挪一格，
+               路径可预测，玩家能预判它往哪走。 */
+            int nx = e->gx + (int)fx->a;
+            int ny = e->gy;
+            grid_fix_coord(&nx, s_pack.grid.cols, s_pack.grid.wrap);
+            grid_fix_coord(&ny, s_pack.grid.rows, s_pack.grid.wrap);
+            e->gx = nx;
+            e->gy = ny;
+            e->visible = 1;      /* 冒头 */
         }
         break;
     case GAME_FX_DESTROY_CELL:

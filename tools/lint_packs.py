@@ -15,34 +15,25 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PACKS = REPO / "petd" / "packs"
-CAPS_C = REPO / "firmware" / "main" / "game" / "game_comp.c"
 
-# 引擎里合法的取值（不是能力，是枚举）
-FX_NAMES = {
-    "set_pos", "set_vel", "add_vel", "turn", "reverse", "show", "hide",
-    "grow", "add_score", "randomize", "destroy", "win", "lose",
-    "start_timer", "stop_timer", "move", "destroy_cell", "set_frame",
-    "move_cell",
-}
-EVENT_NAMES = {
-    "start", "intent", "overlap", "self", "oob", "timer",
-    "hit", "grid_hit", "bounds", "empty", "intent_overlap",
-}
+# fx / 事件 / 能力三张表从固件源码读 —— 别自己抄一份。
+# 抄漏了没人知道：固件曾漏了 move_cell 的名字映射（能力表却写着支持），
+# 设备上空操作，而工具自带的那份拷贝让它全绿。
+try:                       # 作为脚本跑（python3 tools/lint_packs.py）
+    import game_names as gn
+except ImportError:        # 被当包导入（tests/test_packs.py）
+    from tools import game_names as gn
+
+# 引擎里合法的取值（不是能力，是枚举）—— 跟着固件走
+FX_NAMES = set(gn.fx_names()) - {"none"}
+EVENT_NAMES = set(gn.ev_names())
 SHAPE_NAMES = {"rect", "circle", "cell", "trail", "value", "sprite"}
 HEADING_NAMES = {"up", "right", "down", "left"}
 GESTURES = {"rot", "press", "rot_press", "press_long"}
 
-CAPS_PATTERN = re.compile(r"static const char \*s_caps\[\]\s*=\s*\{(.*?)\};", re.S)
-NAME_PATTERN = re.compile(r'"([a-z_]+)"')
-
-
 def firmware_caps():
-    """从 game_comp.c 的能力表数组里读出能力名。"""
-    src = CAPS_C.read_text(encoding="utf-8")
-    m = CAPS_PATTERN.search(src)
-    if not m:
-        raise SystemExit("在 %s 里找不到能力表" % CAPS_C)
-    return set(NAME_PATTERN.findall(m.group(1)))
+    """从固件的能力表数组里读出能力名。"""
+    return gn.caps()
 
 
 def check_pack(path, caps):

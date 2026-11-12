@@ -587,6 +587,17 @@ static void draw_cell_entity(const game_pack_t *p, const game_entity_t *e)
     int px, py, cw, ch;
     cell_to_px(p, e->gx, e->gy, &px, &py);
     grid_cell_size(p, &cw, &ch);
+    if (e->outline) {
+        /* 边框式格子（光标）—— 只画四条边，中间留空。
+           光标压在别的实体上时，两边都看得见：实心方块会把地鼠盖掉，
+           玩家就不知道「我选中的是不是它那一格」。 */
+        int t = 2;
+        game_draw_rect(px + 1, py + 1, cw - 2, t, e->color);
+        game_draw_rect(px + 1, py + ch - 1 - t, cw - 2, t, e->color);
+        game_draw_rect(px + 1, py + 1, t, ch - 2, e->color);
+        game_draw_rect(px + cw - 1 - t, py + 1, t, ch - 2, e->color);
+        return;
+    }
     game_draw_rect(px + 1, py + 1, cw - 2, ch - 2, e->color);
 }
 
@@ -688,6 +699,7 @@ void game_draw_scene(void)
     for (int i = 0; i < p->nents; i++) {
         const game_entity_t *e = &p->ents[i];
         if (!e->visible) continue;
+        if (e->outline) continue;   /* 边框式的最后画 */
         switch (e->shape) {
         case GAME_SHAPE_CELL:
             draw_cell_entity(p, e);
@@ -710,6 +722,15 @@ void game_draw_scene(void)
                            (int)e->w, (int)e->h, e->color);
             break;
         }
+    }
+
+    /* 边框式实体（光标）最后画 —— 压在实心实体上面也要看得见。
+       实心地鼠画在光标之后会把光标边框盖掉，玩家就不知道选中哪一格。 */
+    for (int i = 0; i < p->nents; i++) {
+        const game_entity_t *e = &p->ents[i];
+        if (!e->visible || !e->outline) continue;
+        if (e->shape != GAME_SHAPE_CELL) continue;
+        draw_cell_entity(p, e);
     }
 
     /* HUD：分数在左上。pack 没声明 score 就不画 —— 骰子不该顶着一个计分板。 */
