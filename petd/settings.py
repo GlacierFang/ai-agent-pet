@@ -21,7 +21,7 @@ DENSITY_LABELS = {0: "简洁", 1: "标准", 2: "详细"}
 # "auto" 跟着睡觉时段走：夜里压暗，白天原样。固定档位则不管白天黑夜。
 BRIGHTNESS_OPTIONS = [
     {"value": "auto", "label": "自动",
-     "desc": "夜里压到 50%，白天不压 —— 跟着睡觉时段走"},
+     "desc": "夜里压到 10%，白天不压 —— 跟着睡觉时段走"},
     {"value": "100", "label": "100%",
      "desc": "不压暗，跟以前一样"},
     {"value": "70", "label": "70%",
@@ -29,7 +29,11 @@ BRIGHTNESS_OPTIONS = [
     {"value": "50", "label": "50%",
      "desc": "半亮，适合夜里放桌上"},
     {"value": "30", "label": "30%",
-     "desc": "很暗，只在很暗的环境里用"},
+     "desc": "偏暗，白天用会觉得暗"},
+    {"value": "10", "label": "10%",
+     "desc": "很暗，夜里用这个"},
+    {"value": "5", "label": "5%",
+     "desc": "极暗，只剩最浅的轮廓"},
 ]
 
 DENSITY_DESCS = {

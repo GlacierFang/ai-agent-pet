@@ -55,7 +55,7 @@ def test_auto_dims_at_night():
 
 def test_fixed_level_ignores_night():
     """固定档位不管白天黑夜 —— 用户明说了就要一直生效。"""
-    for key in ("100", "70", "50", "30"):
+    for key in ("100", "70", "50", "30", "10", "5"):
         day = render.brightness_factor(key, night=False)
         night = render.brightness_factor(key, night=True)
         assert day == night, "档位 %s 不该随昼夜变化" % key
@@ -84,7 +84,7 @@ def test_dim_levels_are_ordered():
     """档位越高画面越亮 —— 顺序反了就说明系数用错了。"""
     cfg = _cfg()
     means = [_mean(_dec(render.render_frame(cfg, "idle", dim=f)))
-             for f in (0.3, 0.5, 0.7, 1.0)]
+             for f in (0.05, 0.1, 0.3, 0.5, 0.7, 1.0)]
     assert means == sorted(means), "亮度档位顺序不对：%s" % means
 
 
