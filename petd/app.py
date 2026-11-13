@@ -750,13 +750,20 @@ class PetApp:
         self._wake_poll()
 
     def set_session(self, key):
-        """关注某个会话。空 = 自动（跟着最活跃的那个）。"""
+        """关注某个会话。空 = 自动（跟着最活跃的那个）。
+
+        存的是**实际生效**的 key —— 被排除的会话（第三方通道、后台会话）
+        选不上，配置里也不该留下它的 key。
+        """
         key = str(key or "")
-        self.engine.select(key or None)
+        actual = self.engine.select(key or None)
         self._sync_confirm_focus()
-        self.cfg.setdefault("ui", {})["session"] = key
+        self.cfg.setdefault("ui", {})["session"] = actual or ""
         self._persist_config()
-        self.log("info", "关注会话 -> " + (key or "自动"))
+        if key and not actual:
+            self.log("info", "会话不在可见范围，忽略: " + key)
+            return
+        self.log("info", "关注会话 -> " + (actual or "自动"))
 
     async def open_game_menu(self):
         """让设备打开游戏菜单。
@@ -924,7 +931,7 @@ class PetApp:
         新版 WebUI 不再显示飞书会话，但 petd 这边照样收得到。
         所以「哪些会话存在」以 gateway 为准，不以 WebUI 为准。
         """
-        return str(row.get("channel") or row.get("provider") or "").strip()
+        return state_mod.channel_of(row)
 
     @staticmethod
     def _name_of(row):
@@ -1119,9 +1126,21 @@ class PetApp:
         """确认卡的焦点会话跟着宠物正在反映的会话走。
 
         屏上优先显示焦点会话自己的卡 —— 别的会话的卡不能因为排队饿死。
+
+        焦点必须落在**可见**的会话上。三方通道的会话看不见，
+        焦点指向它等于把答案往那儿送。
         """
         key = self.engine.selected_key or self.engine.attribution or ""
+        if key and not self._session_visible(key):
+            key = ""
         self.confirm.set_focus(key)
+
+    def _session_visible(self, key):
+        """这个会话在宠物的视野里吗。"""
+        for row in self.engine.sessions:
+            if row.get("key") == key:
+                return True
+        return False
 
     def _on_confirm_answer(self, card, answer):
         """确认卡有了结果 —— 排进待发队列。

@@ -1,7 +1,7 @@
-"""会话通道展示 —— 飞书会话在后台要能认出来。
+"""会话通道展示 —— 第三方会话在后台要能认出来。
 
-新版 WebUI 不再显示飞书会话，但 gateway 照常推。
-petd 后台得自己把通道标出来，不能丢一串裸 open_id 了事。
+默认规则下三方通道不参与（见 test_local_only.py）。这里把 localOnly 关掉，
+测的是「一旦放开，通道名标得对不对」—— 后台列表不能丢一串裸 open_id 了事。
 """
 import pathlib
 import sys
@@ -17,7 +17,10 @@ from petd import config  # noqa: E402
 def pet(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     from petd.app import PetApp
-    return PetApp(config.defaults())
+    app = PetApp(config.defaults())
+    # 放开三方通道 —— 这一组测试只关心通道名怎么显示。
+    app.engine.rules["localOnly"] = False
+    return app
 
 
 def _feed(pet, rows):

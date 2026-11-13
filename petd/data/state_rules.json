@@ -1,6 +1,6 @@
 {
   "_comment": "会话状态判定规则 —— 随版本走的产品逻辑，不是用户数据。",
-  "version": 2,
+  "version": 3,
   "priority": [
     "waiting",
     "error",
@@ -24,6 +24,7 @@
   "exclude": {
     "isBackground": true
   },
+  "localOnly": true,
   "rules": {
     "error": {
       "all": [

@@ -4,8 +4,11 @@
 status / hasActiveRun / unread / permissionModePending / isBackground。
 上游加字段不影响这里；上游改字段也只改 data/state_rules.json。
 
-宠物反应的是「全部会话」：每个会话各自判状态，取最急的那个当宠物状态，
+宠物反应的是「全部本机会话」：每个会话各自判状态，取最急的那个当宠物状态，
 并带上归因（是哪个会话在起作用）和计数（各有几个在等）。
+
+三方通道（飞书、微信……）不参与 —— 桌宠是「这台机器上的我」，
+别的通道上的对话不归它演。判据是 channel 字段，非空即第三方。
 """
 
 import time
@@ -25,6 +28,9 @@ DEFAULT_RULES = {
         "doneDecayMs": 180000,
     },
     "exclude": {"isBackground": True},
+    # 只反应本机会话 —— 三方通道（飞书、微信……）一概不参与。
+    # 关掉它就能看到第三方会话（后台会标通道名）。
+    "localOnly": True,
     "rules": {
         "error": {"all": [{"status": "error"}]},
         "waiting": {"any": [{"permissionModePending": True}, {"unread": True}]},
@@ -35,6 +41,15 @@ DEFAULT_RULES = {
 }
 
 BACKGROUND = "background"
+
+
+def channel_of(row):
+    """会话通道 —— 空串 = 本机会话，非空 = 三方通道（飞书就是 feishu）。
+
+    gateway 的会话行里带 channel；老版本可能只有 provider，两个都认。
+    """
+    return str((row or {}).get("channel") or (row or {}).get("provider")
+               or "").strip()
 
 
 def epoch_s(value):
@@ -111,7 +126,12 @@ class StateEngine:
 
     # -- 内部 --
     def _visible(self, rows):
+        """哪些会话进入宠物的视野。
+
+        两道关：exclude 规则（后台会话），以及 localOnly —— 三方通道不参与。
+        """
         exclude = self.rules.get("exclude", {})
+        local_only = bool(self.rules.get("localOnly"))
         out = []
         for row in rows or []:
             skip = False
@@ -119,6 +139,9 @@ class StateEngine:
                 if row.get(key) == val:
                     skip = True
                     break
+            # 桌宠只反应本机会话 —— 第三方通道的会话不进来。
+            if not skip and local_only and channel_of(row):
+                skip = True
             if not skip:
                 out.append(row)
         return out
@@ -170,6 +193,15 @@ class StateEngine:
         visible = self._visible(rows)
         self.sessions = visible
 
+        # 焦点会话若已经不在视野里（第三方通道、后台会话），清掉 ——
+        # 焦点不许指向看不见的会话，否则确认卡会回错地方。
+        if self.selected_key:
+            visible_keys = set()
+            for row in visible:
+                visible_keys.add(row.get("key"))
+            if self.selected_key not in visible_keys:
+                self.selected_key = None
+
         now = time.time()
         states, counts = self._classify_all(visible, now)
         self.session_states = states
@@ -214,6 +246,13 @@ class StateEngine:
         return changed, target, picked
 
     def select(self, key):
+        """选定焦点会话。被排除的会话不收 —— 返回实际生效的 key。"""
+        if key:
+            allowed = set()
+            for row in self.sessions:
+                allowed.add(row.get("key"))
+            if key not in allowed:
+                return self.selected_key
         self.selected_key = key
         return self.selected_key
 
