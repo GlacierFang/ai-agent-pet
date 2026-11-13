@@ -173,8 +173,8 @@ static char *hello_build(int *out_len)
 
 
 /* 握手任务 —— 跑在自己的栈上，不在 WS 回调栈上。
-   等 welcome 是为 OTA 回滚：服务端认了这个 hello，才说明新固件真的跑得起来；
-   没等到就让它退回旧固件。 */
+   等 welcome 是为确认新固件真的跑得起来：服务端认了这个 hello 才算；
+   没等到就由 bootloader 退回旧分区。 */
 static void hello_task(void *arg)
 {
     (void)arg;
@@ -215,7 +215,7 @@ static void hello_task(void *arg)
         }
         if (s_welcome_seen) {
             /* 连上 petd 了 —— 这就是「新固件跑起来了」的证据。
-               取消回滚：跑不起来就永远连不上，bootloader 会自动退回旧固件。 */
+               确认有效：跑不起来就永远连不上，bootloader 会自动退回旧分区。 */
             ota_mark_valid();
             ESP_LOGI(TAG, "welcome received, ota confirmed");
         } else {
@@ -366,7 +366,7 @@ static void handle_text(const char *text, size_t len)
                 ESP_LOGI(TAG, "enabled games: %d", n);
             }
         }
-        /* 服务端认了这个 hello —— 握手任务据此确认 OTA、取消回滚。 */
+        /* 服务端认了这个 hello —— 握手任务据此确认 OTA 有效。 */
         s_welcome_seen = true;
         ESP_LOGI(TAG, "welcome received");
     } else if (!strcmp(t, PETD_T_FRAME)) {

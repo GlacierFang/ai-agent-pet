@@ -774,7 +774,7 @@ def test_ws_task_stack_is_explicit():
 
 
 def test_ota_confirmed_only_after_welcome():
-    """OTA 取消回滚必须在收到 welcome 之后。
+    """OTA 有效性确认必须在收到 welcome 之后。
 
     服务端认了这个 hello，才说明新固件真的跑得起来；
     收不到 welcome 就该留着待验证，让 bootloader 退回旧固件。

@@ -37,7 +37,7 @@
 | `send_hello()` → 握手任务 | `WEBSOCKET_EVENT_CONNECTED` 回调只把「连上了」入队，一个字节的活都不干 |
 | hello 缓冲改走堆 | `buf` / `packs` / `ids` 全部 `malloc`，回调栈上不再有大局部变量 |
 | WS 任务栈显式设为 8KB | 不再依赖组件默认的 4KB |
-| OTA 取消回滚延后到收到 welcome | 服务端认了这个 hello，才说明新固件真的跑得起来；收不到就留着待验证，让 bootloader 退回旧固件 |
+| OTA 有效性确认延后到收到 welcome | 服务端认了这个 hello，才说明新固件真的跑得起来；收不到就一直待验证，bootloader 会退回旧分区（防砖机制） |
 | welcome 里的中转数组改静态 | 1KB 多的数组不必开在回调栈上 |
 | hello 发送加重试 | 首次失败重试 3 次，每次间隔 500ms |
 

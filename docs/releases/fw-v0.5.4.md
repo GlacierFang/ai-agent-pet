@@ -35,13 +35,13 @@
 
 **校验是 IDF 自己做的。** app 镜像自带 app descriptor，`esp_ota_end()` 会自己算一遍 sha256，对不上直接失败，那个分区不会被标记为有效。设备上不用再算一遍。
 
-**能自动回滚。** 开了 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`。新固件起来后处于「待验证」状态，连上 petd 才确认有效；连不上就一直待验证，超时 bootloader 自动退回旧固件。
+**跑不起来不会变砖。** 开了 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`（bootloader 的防砖机制，不是回滚功能）：新固件起来后处于「待验证」状态，连上 petd 才确认有效；连不上就一直待验证，超时 bootloader 自动退回旧分区。
 
 **升级中屏上不黑屏。** 宠物整屏显示状态，不做动画 —— 升级期下载和渲染抢内存。
 
 ### ⚠️ 这一次仍要整片刷
 
-**这一版改了 bootloader**（为了开回滚，`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`）。bootloader 变了，老设备上根本没有回滚能力，所以第一次上 0.5.4 必须走 USB 整片刷。
+**这一版改了 bootloader**（开了 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`）。bootloader 变了，老设备上根本没有这个防砖能力，所以第一次上 0.5.4 必须走 USB 整片刷。
 
 **刷完之后，0.5.5 及以后就能纯 OTA 了。**
 
@@ -75,7 +75,7 @@
 
 ### 边界：还没在真机验证的
 
-**这一版的 OTA 全流程尚未在真机跑通。** 固件已编译发布、服务端已就绪、`0.5.5` 的 `petd.bin` 已登记到本机后台，但**整片刷 → 纯 OTA → 回滚**这三步还没有真机证据。等实机走一遍再补结论。
+**这一版的 OTA 全流程尚未在真机跑通。** 固件已编译发布、服务端已就绪、`0.5.5` 的 `petd.bin` 已登记到本机后台，但**整片刷 → 纯 OTA**这两步还没有真机证据。等实机走一遍再补结论。
 
 ### 对比
 

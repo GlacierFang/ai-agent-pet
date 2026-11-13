@@ -11,9 +11,10 @@
  * esp_ota_end() 会自己算一遍，对不上直接失败 —— 所以设备上不用再算一遍
  * sha256，petd 给的那个 sha256 只是给后台显示用的。
  *
- * 回滚：开了 BOOTLOADER_APP_ROLLBACK_ENABLE，新固件起来后处于「待验证」
- * 状态，连上 petd 之后调 ota_mark_valid() 取消回滚；连不上就一直待验证，
- * 超时后 bootloader 自动跑回旧固件。
+ * 防砖：开了 BOOTLOADER_APP_ROLLBACK_ENABLE，新固件起来后处于「待验证」
+ * 状态，连上 petd 之后调 ota_mark_valid() 确认有效；连不上就一直待验证，
+ * 超时后 bootloader 自动跑回旧分区。这是 bootloader 的安全网 ——
+ * 本项目不做回滚：后台没有回滚入口，也没有历史版本管理。
  */
 #ifndef PETD_OTA_H
 #define PETD_OTA_H
@@ -50,7 +51,7 @@ bool ota_handle_chunk(uint32_t seq, const uint8_t *data, size_t len);
 bool ota_finish_and_reboot(void);
 
 /* 启动时调用：这次是不是刚从 OTA 起来的？
- * 是的话，连上 petd 之后调 ota_mark_valid() 取消回滚。 */
+ * 是的话，连上 petd 之后调 ota_mark_valid() 确认有效。 */
 bool ota_boot_pending(bool *upgraded);
 void ota_mark_valid(void);
 
