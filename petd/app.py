@@ -1179,15 +1179,23 @@ class PetApp:
 
     @staticmethod
     def _confirm_reply_text(card, answer):
-        """回给 AI 的话 —— AI 下一次读上下文就能看到用户选了什么。"""
+        """回给 AI 的话 —— AI 下一次读上下文就能看到这张卡的结果。
+
+        卡 id 放在标题里：多张卡并行时，AI 得知道回的是哪一张。
+        四种结束态各一句 —— 选了哪项、用户主动取消（别再问）、
+        没人应答（按默认选项继续）、被新问题取代。
+        """
+        head = "[确认卡 %s] %s" % (card.id, card.question)
         if card.status == confirm_mod.STATUS_ANSWERED:
-            return ("[确认卡] %s\n用户选择了：**%s**（第 %d 项）"
-                    % (card.question, answer, card.selected + 1))
+            return "%s\n用户选择了：**%s**" % (head, answer)
         if card.status == confirm_mod.STATUS_CANCELLED:
-            return "[确认卡] %s\n用户长按取消了这个问题，没有作答。" % card.question
+            return "%s\n用户主动取消了这个问题，不必重复询问。" % head
         if card.status == confirm_mod.STATUS_SUPERSEDED:
-            return "[确认卡] %s\n这个问题已被同一会话的新问题取代，未作答。" % card.question
-        return "[确认卡] %s\n超时未答，未决 —— 需要的话请重新发一次。" % card.question
+            return "%s\n这个问题已被另一个新问题取代。" % head
+        if card.status == confirm_mod.STATUS_EXPIRED:
+            return "%s\n无人应答，这张卡已超时，按默认选项继续。" % head
+        return "%s\n这张卡没有结果。" % head
+
     def _features(self):
         """参与轮播的 feature —— 按注册顺序。"""
         if not self.features_enabled:

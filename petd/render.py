@@ -377,6 +377,13 @@ def render_confirm_card(cfg, card, skin_image=None, background_image=None,
     # 顶部 —— 左边写这是什么，右边写后面还排着几张。
     ty = int(10 * scale)
     _text(d, (pad, ty), "待确认", int(12 * scale), accent)
+    # 来源 —— 多会话时用户得知道是谁在问他。
+    src = str(card.get("source") or "").strip()
+    if src:
+        if len(src) > 12:
+            src = src[:11] + "…"
+        _text(d, (pad + int(38 * scale), ty + int(2 * scale)),
+              "· " + src, int(10 * scale), faint)
     if pending_count > 0:
         f, _ = _font(int(10 * scale))
         txt = "还有 %d 张" % pending_count

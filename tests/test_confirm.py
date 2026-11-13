@@ -325,3 +325,44 @@ def test_api_cancel(client):
     r = client.post("/admin/api/confirm/cancel", json={"id": card_id})
     assert r.status_code == 200
     assert r.json()["card"]["status"] == "cancelled"
+
+
+# ---------- 回程文案 ----------
+
+def test_reply_text_carries_card_id(pet):
+    """回程标题要带卡 id —— 多张卡并行时 AI 得知道回的是哪一张。"""
+    snap, err = pet.push_confirm("用哪套", ["A", "B"], session_key="S1")
+    assert err == ""
+    pet.confirm.rotate(1)              # 选到 B
+    card, _ = pet.confirm.confirm()     # 短按确认
+    text = pet._confirm_reply_text(card, card.answer)
+    assert card.id in text
+    assert "用户选择了：**B**" in text
+    assert "第" not in text
+
+
+def test_reply_text_distinguishes_end_states(pet):
+    """四种结束态在 AI 眼里必须不一样。"""
+    snap, _ = pet.push_confirm("用哪套", ["A", "B"], session_key="S1")
+    card = pet.confirm.find(snap["id"])
+    texts = {}
+    for status in ("answered", "cancelled", "superseded", "expired"):
+        card.status = status
+        texts[status] = pet._confirm_reply_text(
+            card, "B" if status == "answered" else "")
+    assert len(set(texts.values())) == 4
+    assert "不必重复询问" in texts["cancelled"]
+    assert "按默认选项继续" in texts["expired"]
+    assert "取代" in texts["superseded"]
+
+
+def test_render_confirm_card_draws_source():
+    """来源要画在屏上 —— 多会话时用户得知道是谁在问他。"""
+    from petd import render as render_mod
+    card = {"question": "用哪套", "options": ["A", "B"], "selected": 0,
+            "source": "gateway-owner"}
+    with_src = render_mod.render_confirm_card(config.defaults(), card)
+    without = render_mod.render_confirm_card(config.defaults(),
+                                            dict(card, source=""))
+    assert with_src[:2] == b"\xff\xd8"
+    assert with_src != without
