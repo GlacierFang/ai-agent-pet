@@ -1,6 +1,6 @@
 {
   "_comment": "会话状态判定规则 —— 随版本走的产品逻辑，不是用户数据。",
-  "version": 3,
+  "version": 4,
   "priority": [
     "waiting",
     "error",
@@ -10,8 +10,6 @@
   ],
   "stability": {
     "idleAfterMs": 3000,
-    "idleGraceMs": 30000,
-    "eventDebounceMs": 200,
     "doneDecayMs": 180000
   },
   "screen": {

@@ -11,6 +11,7 @@ status / hasActiveRun / unread / permissionModePending / isBackground。
 别的通道上的对话不归它演。判据是 channel 字段，非空即第三方。
 """
 
+import copy
 import time
 
 # 优先级从急到缓。等你批准最急 —— 那是唯一会挡住人的事。
@@ -20,9 +21,8 @@ DEFAULT_RULES = {
     "version": 1,
     "priority": PRIORITY,
     "stability": {
+        # 稳态窗：从 working/waiting 退回 idle 要连续 idleAfterMs 都判为非活跃。
         "idleAfterMs": 3000,
-        "idleGraceMs": 30000,
-        "eventDebounceMs": 200,
         # done 衰减：多久没动静就不再算「刚完成」。
         # 不衰减的话，几天前跑完的会话会把宠物永远钉在「刚完成」。
         "doneDecayMs": 180000,
@@ -109,10 +109,16 @@ class StateEngine:
     """维护会话快照，算出宠物当前状态。
 
     稳态窗只作用于「退回 idle」：进入 working/waiting/error 立即生效。
+
+    稳态窗和 done 衰减靠 tick() 兑现 —— 它们是「再看一次才生效」的判定，
+    而「再看一次」的机会不能只来自 gateway 推送。
     """
 
     def __init__(self, rules=None):
-        self.rules = rules or DEFAULT_RULES
+        # 深拷贝 —— 引擎要独占一份规则。
+        # 共用同一份的话，任何人改 eng.rules["stability"]["idleAfterMs"]
+        # 都会把全局 DEFAULT_RULES 一起改了，别的测试和别的引擎都被带偏。
+        self.rules = copy.deepcopy(rules) if rules is not None else copy.deepcopy(DEFAULT_RULES)
         self.sessions = []
         self.selected_key = None
         self.state = "idle"
@@ -244,6 +250,18 @@ class StateEngine:
         self.attribution = (picked.get("key")
                             if picked is not None and raw != "idle" else None)
         return changed, target, picked
+
+    def tick(self):
+        """时钟驱动地推进状态 —— 不等 gateway 事件。
+
+        稳态窗和 done 衰减都是「再看一次才兑现」的判定。以前「再看一次」
+        的机会只来自 gateway 推送；系统一安静就没有事件，宠物会永远停在
+        上一帧的 working / waiting，直到有人再打开一次后台才切得回来。
+
+        拿当前快照重新判一次：稳态窗到期就落回 idle，done 过期就衰减。
+        返回值与 update() 一致：(是否变化, 新状态, 起作用的会话行)。
+        """
+        return self.update(self.sessions)
 
     def select(self, key):
         """选定焦点会话。被排除的会话不收 —— 返回实际生效的 key。"""

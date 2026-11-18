@@ -5,6 +5,7 @@
 屏上仲裁在 petd/screen.py，这里只负责给它数据。
 """
 import asyncio
+import copy
 import json
 import logging
 import threading
@@ -61,6 +62,12 @@ STATE_SUBTITLE = {
 # 天气这类要联网的 feature 在后台取数，间隔这么久一次
 POLL_INTERVAL_SEC = 900
 
+# 定期重取会话快照的间隔（秒）。
+# 状态推进已经由时钟驱动（见 _advance_state），但会话行本身来自 gateway
+# 推送 —— 万一某次变更没广播到，宠物会拿着过期数据判状态。
+# 定期拉一次，快照最多过期这么久。
+RESYNC_INTERVAL_SEC = 15
+
 
 class PetApp:
     def __init__(self, cfg):
@@ -114,6 +121,7 @@ class PetApp:
         self._log_seq = 0
         self._stop = False
         self._task = None
+        self._sync_task = None
         self._poll_thread = None
         # 后台取数线程的唤醒 / 退出信号
         self._poll_event = threading.Event()
@@ -157,8 +165,10 @@ class PetApp:
         if p.exists():
             try:
                 blob = json.loads(p.read_text(encoding="utf-8"))
-                out = dict(DEFAULT_RULES)
-                out.update(blob)
+                # 深拷贝合并 —— 浅拷贝会让 stability 这类嵌套字典
+                # 跟 DEFAULT_RULES 共用同一份，谁改谁都中招。
+                out = copy.deepcopy(DEFAULT_RULES)
+                out.update(copy.deepcopy(blob))
                 return out
             except Exception:
                 pass
@@ -1283,8 +1293,45 @@ class PetApp:
             self._poll_event.wait(POLL_INTERVAL_SEC)
             self._poll_event.clear()
 
+    async def _advance_state(self):
+        """把状态往前推一格 —— 时钟驱动，不等 gateway 事件。
+
+        稳态窗和 done 衰减都是「再看一次才兑现」的判定。以前「再看一次」
+        的机会只来自 gateway 推送：系统一安静就没有事件，宠物会永远停在
+        上一帧的 working，直到有人再碰它一下。
+
+        返回状态有没有变。
+        """
+        try:
+            changed, state, _ = self.engine.tick()
+        except Exception:
+            log.warning("状态推进失败", exc_info=True)
+            return False
+        if changed:
+            self.log("info", "状态 -> " + state)
+            await self.push_state(state)
+        return changed
+
+    async def _sync_loop(self):
+        """定期重取会话快照 —— 兜底，防漏掉的事件。
+
+        没有 gateway 时什么都不做（离线与测试场景）。
+        """
+        while not self._stop:
+            await asyncio.sleep(RESYNC_INTERVAL_SEC)
+            if self._stop:
+                break
+            gw = self._gateway
+            if gw is None:
+                continue
+            try:
+                await gw.refresh_sessions()
+            except Exception:
+                log.warning("会话快照重取失败", exc_info=True)
+
     async def _frame_loop(self):
         while not self._stop:
+            await self._advance_state()
             state = self.engine.state
             fps = (self.cfg.get("frame", {}).get("activeFps", 10)
                    if state in ACTIVE_STATES
@@ -1320,6 +1367,7 @@ class PetApp:
     async def start(self, gateway=None):
         self._gateway = gateway
         self._task = asyncio.create_task(self._frame_loop())
+        self._sync_task = asyncio.create_task(self._sync_loop())
         # 守护线程 —— 进程退出时不等它。
         # 不能用 run_in_executor：线程池的 worker 不是守护线程，
         # 进程收尾会 join 它，而它正睡在下一次取数的间隔里。
@@ -1332,6 +1380,8 @@ class PetApp:
         self._poll_event.set()
         if self._task:
             self._task.cancel()
+        if self._sync_task:
+            self._sync_task.cancel()
         if self._gateway:
             self._gateway.stop()
 
